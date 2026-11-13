@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — Estatus de Back Orders</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="plan_logica.js?v=20261105a" charset="utf-8"></script>
+<script>
+window.SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";window.SB_KEY="sb_publishable_9CGnUVxR36vOvPLvaToJ7A_ztI7s6yT";
+window.sbGet=function(){return window.__SB||(window.__SB=window.supabase.createClient(window.SB_URL,window.SB_KEY));};
+window.idbGet=function(key){return new Promise((res,rej)=>{const r=indexedDB.open('portal_compras',1);r.onupgradeneeded=e=>e.target.result.createObjectStore('cache');r.onerror=()=>rej(r.error);r.onsuccess=()=>{const db=r.result;const g=db.transaction('cache','readonly').objectStore('cache').get(key);g.onsuccess=()=>{res(g.result);db.close();};g.onerror=()=>{rej(g.error);db.close();};};});};
+window.idbPut=function(key,val){return new Promise((res,rej)=>{const r=indexedDB.open('portal_compras',1);r.onupgradeneeded=e=>e.target.result.createObjectStore('cache');r.onerror=()=>rej(r.error);r.onsuccess=()=>{const db=r.result;const tx=db.transaction('cache','readwrite');tx.objectStore('cache').put(val,key);tx.oncomplete=()=>{res();db.close();};tx.onerror=()=>{rej(tx.error);db.close();};};});};
+// Descarga un archivo binario versionado desde Supabase con caché local
+async function esperarSesion(sb,n){for(let i=0;i<(n||8);i++){const{data:{session}}=await sb.auth.getSession();if(session)return session;await new Promise(r=>setTimeout(r,400));}return null;}
+window.sbDescargar=async function(claveDS,defRuta){
+  const sb=window.sbGet();
+  const session=await esperarSesion(sb);
+  if(!session)throw new Error('Sin sesión activa. Entra al portal con tu contraseña desde la pantalla de ingreso.');
+  const{data:meta,error:e1}=await sb.from('datasets').select('payload').eq('clave',claveDS).maybeSingle();
+  if(e1)throw new Error('Consultando servidor: '+e1.message);
+  if(!meta||!meta.payload)throw new Error('Aún no hay datos cargados. El administrador debe subir el Excel en la pestaña Admin del portal.');
+  const ver=String(meta.payload.version||'');const ruta=meta.payload.ruta||defRuta;
+  try{const ca=await window.idbGet(claveDS);if(ca&&ca.ver===ver&&ca.buf)return{buf:ca.buf,ruta};}catch(_){}
+  const{data:blob,error:e2}=await sb.storage.from('respaldos').download(ruta);
+  if(e2)throw new Error('Descargando datos: '+e2.message);
+  let buf;
+  if(ruta.endsWith('.gz')&&typeof DecompressionStream!=='undefined'){
+    buf=await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  }else{buf=await blob.arrayBuffer();}
+  try{await window.idbPut(claveDS,{ver,buf});}catch(_){}
+  return{buf,ruta};
+};
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --blue:#1e3a5f;--blue-dk:#16304e;--sky:#f0f4ff;--sky-mid:#c9d4f0;
+  --teal:#1c4587;--mint:#e6f2e8;--mint-dk:#2e7d32;
+  --amber:#fdf3d8;--amber-dk:#b8860b;--red-lt:#fdeaea;--red:#c0392b;
+  --white:#fff;--gray-50:#f5f6fa;--gray-100:#f0f2f8;--gray-200:#e2e6ed;
+  --gray-300:#c9d4f0;--gray-500:#6b7a99;--gray-700:#1a2035;--gray-900:#1a2035;
+  --shadow-sm:0 1px 4px rgba(0,0,0,.05);--shadow:0 1px 4px rgba(0,0,0,.06);
+  --radius:12px;--radius-sm:8px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--gray-50);color:var(--gray-700);min-height:100vh;font-size:14px}
+
+/* ── LOADING ── */
+#loading{position:fixed;inset:0;background:rgba(255,255,255,.88);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px}
+.spinner{width:48px;height:48px;border:4px solid var(--sky-mid);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading p{color:var(--gray-700);font-weight:600;font-size:15px}
+
+/* ── SPLASH ── */
+.splash{position:fixed;inset:0;background:var(--gray-50);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:200;gap:12px;padding:24px}
+.splash-icon{font-size:56px;margin-bottom:4px}
+.splash h2{font-size:22px;font-weight:700;color:var(--gray-900);margin-bottom:2px}
+.splash>p{font-size:14px;color:var(--gray-500);margin-bottom:16px}
+.splash-cards{display:flex;flex-direction:column;gap:12px;width:100%;max-width:480px}
+.splash-card{background:var(--white);border:2px solid var(--gray-200);border-radius:var(--radius);padding:18px 22px;display:flex;align-items:center;gap:16px;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .1s}
+.splash-card:hover{border-color:var(--blue);box-shadow:var(--shadow);transform:translateY(-1px)}
+.splash-card.server:hover{border-color:var(--mint-dk)}
+.splash-card-icon{font-size:32px;flex-shrink:0}
+.splash-card h3{font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:3px}
+.splash-card p{font-size:12px;color:var(--gray-500);margin:0}
+.splash-card .arr{width:18px;height:18px;color:var(--gray-300);margin-left:auto;flex-shrink:0}
+.splash-hint{font-size:11px;color:var(--gray-400);margin-top:8px;text-align:center;max-width:420px;line-height:1.6}
+.splash-hint code{background:var(--gray-100);padding:1px 6px;border-radius:4px;font-family:'Consolas',monospace;font-size:11px;color:var(--blue-dk)}
+
+/* ── TOPBAR ── */
+.topbar{background:linear-gradient(135deg,#1e3a5f 0%,#1c4587 60%,#1565c0 100%);padding:16px 28px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px rgba(30,64,175,.30);position:sticky;top:0;z-index:100;flex-wrap:wrap;gap:10px}
+.topbar-left{display:flex;align-items:center;gap:14px}
+.topbar-icon{width:40px;height:40px;background:rgba(255,255,255,.18);border-radius:10px;display:flex;align-items:center;justify-content:center}
+.topbar-icon svg{width:22px;height:22px;fill:#fff}
+.topbar h1{color:#fff;font-size:18px;font-weight:700;letter-spacing:-.3px}
+.topbar h1 span{font-weight:300;opacity:.8;font-size:13px;display:block;margin-top:1px}
+.topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* refresh cluster */
+.refresh-cluster{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.20);border-radius:24px;padding:4px 12px 4px 8px}
+.rc-divider{width:1px;height:18px;background:rgba(255,255,255,.25)}
+#auto-btn{display:flex;align-items:center;gap:6px;cursor:pointer;background:transparent;border:none;color:#fff;font-family:inherit;font-size:12px;font-weight:600;padding:3px 6px;border-radius:18px;transition:background .15s}
+#auto-btn:hover{background:rgba(255,255,255,.12)}
+.toggle-track{width:32px;height:17px;border-radius:9px;background:rgba(255,255,255,.25);position:relative;transition:background .25s;flex-shrink:0}
+.toggle-track.on{background:#10B981}
+.toggle-thumb{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;transition:left .25s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.toggle-track.on .toggle-thumb{left:17px}
+#interval-sel{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;font-family:inherit;font-size:11px;padding:3px 6px;border-radius:12px;cursor:pointer;outline:none}
+#interval-sel option{background:#1E40AF}
+#countdown-wrap{display:flex;align-items:center;gap:4px;font-size:11px;color:rgba(255,255,255,.75);min-width:70px}
+#countdown-wrap svg{width:12px;height:12px;flex-shrink:0}
+#countdown-text{font-family:'Consolas',monospace;font-size:12px;color:#fff}
+#now-btn{display:flex;align-items:center;gap:5px;cursor:pointer;background:rgba(255,255,255,.18);border:1.5px solid rgba(255,255,255,.35);color:#fff;padding:5px 12px;border-radius:18px;font-family:inherit;font-size:12px;font-weight:600;transition:.15s;white-space:nowrap}
+#now-btn:hover{background:rgba(255,255,255,.30)}
+#now-btn svg{width:14px;height:14px;transition:transform .4s}
+#now-btn.spinning svg{animation:spin .6s linear infinite}
+#file-btn{background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.30);color:rgba(255,255,255,.75);padding:5px 12px;border-radius:18px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:500;transition:.2s;display:flex;align-items:center;gap:5px}
+#file-btn:hover{background:rgba(255,255,255,.22);color:#fff}
+#file-btn svg{width:14px;height:14px}
+#status-pill{display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,.65)}
+#status-pill .dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.3);transition:background .3s;flex-shrink:0}
+#status-pill .dot.live{background:#10B981;box-shadow:0 0 0 3px rgba(16,185,129,.25);animation:pulse-dot 2s ease-in-out infinite}
+@keyframes pulse-dot{0%,100%{box-shadow:0 0 0 3px rgba(16,185,129,.25)}50%{box-shadow:0 0 0 6px rgba(16,185,129,.10)}}
+
+/* ── MAIN ── */
+.main{padding:22px 28px}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--white);border-radius:var(--radius);padding:14px 18px;box-shadow:var(--shadow-sm);border-left:4px solid var(--blue);transition:transform .15s,box-shadow .15s}
+.kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.kpi.green{border-left-color:var(--mint-dk)}.kpi.amber{border-left-color:var(--amber-dk)}.kpi.red{border-left-color:var(--red)}.kpi.teal{border-left-color:var(--teal)}
+.kpi-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-500);margin-bottom:5px}
+.kpi-value{font-size:24px;font-weight:700;color:var(--gray-900);font-family:'Consolas',monospace}
+.kpi-sub{font-size:10px;color:var(--gray-500);margin-top:2px}
+
+/* ── FILTERS ── */
+.filter-card{background:var(--white);border-radius:var(--radius);padding:18px 22px;box-shadow:var(--shadow-sm);margin-bottom:18px}
+.filter-title{font-size:12px;font-weight:700;color:var(--gray-700);text-transform:uppercase;
+  letter-spacing:.5px;display:flex;align-items:center;justify-content:space-between;
+  cursor:pointer;user-select:none;margin-bottom:0}
+.filter-title:hover{color:var(--blue-dk)}
+.filter-title-left{display:flex;align-items:center;gap:8px}
+.filter-title-left svg{width:14px;height:14px;flex-shrink:0}
+.filter-chevron{width:15px;height:15px;transition:transform .25s;flex-shrink:0}
+.filter-chevron.closed{transform:rotate(-180deg)}
+.filter-badge-count{background:var(--blue);color:#fff;font-size:10px;font-weight:700;
+  padding:1px 8px;border-radius:10px;margin-left:4px;display:none}
+
+/* Grid de 6 columnas fijas — sin anidamiento */
+.filter-grid{
+  display:grid;
+  grid-template-columns:repeat(6,1fr);
+  gap:10px;
+  margin-top:14px;
+  overflow:hidden;
+  max-height:500px;
+  opacity:1;
+  transition:max-height .3s ease,opacity .25s,margin-top .25s;
+}
+.filter-grid.hidden{max-height:0!important;opacity:0;pointer-events:none;margin-top:0}
+.filter-group{display:flex;flex-direction:column;gap:4px}
+.filter-group.span2{grid-column:span 2}   /* para pares de fecha */
+.filter-group.span3{grid-column:span 3}
+.filter-group label{font-size:10px;font-weight:700;color:var(--gray-500);
+  text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.filter-group select,.filter-group input{
+  padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:var(--radius-sm);
+  font-family:inherit;font-size:13px;color:var(--gray-700);background:var(--gray-50);
+  outline:none;transition:border-color .15s,box-shadow .15s;width:100%}
+.filter-group select:focus,.filter-group input:focus{
+  border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.12);background:var(--white)}
+/* Date pair: two inputs side by side inside a span-2 cell */
+.date-pair{display:flex;gap:6px}
+.date-pair .date-half{flex:1;display:flex;flex-direction:column;gap:4px}
+.date-pair .date-half label{font-size:10px;font-weight:700;color:var(--gray-500);
+  text-transform:uppercase;letter-spacing:.4px}
+.date-pair .date-half input{padding:7px 8px;border:1.5px solid var(--gray-200);
+  border-radius:var(--radius-sm);font-family:inherit;font-size:12px;color:var(--gray-700);
+  background:var(--gray-50);outline:none;width:100%}
+.date-pair .date-half input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.12);background:var(--white)}
+#f-clave:not(:placeholder-shown){background:#FFFBEB;border-color:var(--amber-dk)}
+.filter-actions{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.btn{padding:7px 16px;border-radius:var(--radius-sm);cursor:pointer;font-family:inherit;
+  font-size:13px;font-weight:600;border:none;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:var(--blue);color:#fff}.btn-primary:hover{background:var(--blue-dk)}
+.btn-ghost{background:var(--gray-100);color:var(--gray-500);border:1.5px solid var(--gray-200)}
+.btn-ghost:hover{background:var(--gray-200)}
+.btn-green{background:var(--mint-dk);color:#fff}.btn-green:hover{background:#059669}
+
+
+/* ── TABLE CARD ── */
+.table-card{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden}
+.table-header{padding:14px 22px;border-bottom:1.5px solid var(--gray-100);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.table-header h2{font-size:14px;font-weight:700;color:var(--gray-900)}
+.table-header span{font-size:11px;color:var(--gray-500)}
+.search-box{display:flex;align-items:center;gap:7px;background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:20px;padding:5px 12px}
+.search-box svg{width:13px;height:13px;color:var(--gray-500);flex-shrink:0}
+.search-box input{border:none;background:transparent;font-family:inherit;font-size:13px;color:var(--gray-700);outline:none;width:190px}
+.tbl-wrap{overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 370px);min-height:280px}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--sky)}
+th{padding:11px 14px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--blue-dk);white-space:nowrap;cursor:pointer;user-select:none;border-bottom:2px solid var(--sky-mid);position:sticky;top:0;z-index:10;background:var(--sky);box-shadow:0 2px 0 var(--sky-mid)}
+th:hover{background:var(--sky-mid)}
+th.sort-asc::after{content:' ▲';font-size:9px}
+th.sort-desc::after{content:' ▼';font-size:9px}
+tbody tr.order-row{border-bottom:1px solid var(--gray-100);transition:background .1s;cursor:pointer}
+tbody tr.order-row:hover{background:var(--sky)}
+tbody tr.order-row.expanded{background:var(--sky)}
+td{padding:13px 14px;font-size:13.5px;vertical-align:middle}
+.expand-btn{width:26px;height:26px;border-radius:6px;background:var(--sky-mid);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;flex-shrink:0}
+.expand-btn:hover{background:var(--blue)}.expand-btn:hover svg{stroke:#fff}
+.expand-btn svg{width:14px;height:14px;stroke:var(--blue-dk);transition:transform .2s}
+.expand-btn.open svg{transform:rotate(90deg)}
+/* Bigger folio + proveedor */
+.folio-cell{font-family:'Consolas',monospace;font-size:13px;font-weight:700;color:var(--blue-dk);background:var(--sky);padding:4px 10px;border-radius:6px;display:inline-block;letter-spacing:.3px;border:1px solid var(--sky-mid)}
+.prov-cell{font-weight:700;color:var(--gray-900);font-size:14px}
+/* Badges with borders for better visibility */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;border:1.5px solid transparent}
+.badge::before{content:'';width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.badge.aplicado{background:#D1FAE5;color:#065F46;border-color:#6EE7B7}.badge.aplicado::before{background:#10B981}
+.badge.pendiente{background:#FEF3C7;color:#92400E;border-color:#FCD34D}.badge.pendiente::before{background:#F59E0B}
+.badge.cancelado{background:#FEE2E2;color:#991B1B;border-color:#FCA5A5}.badge.cancelado::before{background:#EF4444}
+.badge.otro{background:var(--gray-100);color:var(--gray-700);border-color:var(--gray-200)}.badge.otro::before{background:var(--gray-500)}
+/* Estado Recepción - visually distinct */
+.badge.por-recibir{background:#FFF3CD;color:#664D03;border-color:#FFDA6A;font-size:12px}.badge.por-recibir::before{background:#FFC107}
+.badge.parcial{background:#FFE8D1;color:#7C3A0E;border-color:#FFC089;font-size:12px}.badge.parcial::before{background:#FB923C}
+.badge.recibido{background:#D1E7DD;color:#0A3622;border-color:#A3CFBB;font-size:12px}.badge.recibido::before{background:#198754}
+.mono{font-family:'Consolas',monospace;font-size:12px}
+tr.detail-row{display:none}
+tr.detail-row.visible{display:table-row}
+tr.detail-row td{padding:0;background:#F0F7FF;border-bottom:2px solid var(--sky-mid)}
+.detail-inner{padding:14px 20px 18px}
+.detail-inner h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--blue-dk);margin-bottom:10px;display:flex;align-items:center;gap:5px}
+.order-meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.meta-chip{background:var(--white);border:1px solid var(--gray-200);border-radius:8px;padding:5px 10px;font-size:12px;display:flex;flex-direction:column;gap:1px;min-width:110px}
+
+.meta-chip .meta-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-500)}
+.meta-chip .meta-val{font-weight:600;color:var(--gray-900);font-size:12px}
+.meta-chip .meta-val.money{color:var(--blue-dk);font-family:'Consolas',monospace}
+.prod-table-wrap{overflow-x:auto;border-radius:var(--radius-sm);border:1.5px solid var(--sky-mid)}
+.prod-table{width:100%;border-collapse:collapse;table-layout:auto}
+.prod-table th{background:var(--blue);color:#fff;padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;cursor:default;white-space:nowrap;border-bottom:none}
+.prod-table th:hover{background:var(--blue)}
+.prod-table td{padding:8px 12px;font-size:12px;border-bottom:1px solid var(--sky-mid);background:var(--white);white-space:nowrap;vertical-align:middle}
+.prod-table td.desc-col{white-space:normal;min-width:180px;max-width:280px}
+.prod-table tr:last-child td{border-bottom:none}
+.prod-table tr:hover td{background:var(--sky)}
+.prod-table .clave{font-family:'Consolas',monospace;font-size:11px;background:var(--sky);color:var(--blue-dk);padding:2px 6px;border-radius:4px;display:inline-block}
+.no-prods{text-align:center;padding:18px;color:var(--gray-500);font-size:13px;font-style:italic}
+.empty-state{text-align:center;padding:40px 24px;color:var(--gray-500)}
+.empty-state svg{width:40px;height:40px;margin-bottom:10px;opacity:.4}
+.pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 22px;border-top:1.5px solid var(--gray-100);flex-wrap:wrap;gap:10px}
+.pagination span{font-size:12px;color:var(--gray-500)}
+.pag-btns{display:flex;gap:5px;align-items:center}
+.pag-btn{padding:5px 10px;border:1.5px solid var(--gray-200);border-radius:6px;background:var(--white);cursor:pointer;font-family:inherit;font-size:12px;font-weight:500;transition:.15s;color:var(--gray-700)}
+.pag-btn:hover:not(:disabled){background:var(--sky);border-color:var(--blue);color:var(--blue-dk)}
+.pag-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}
+.pag-btn:disabled{opacity:.4;cursor:not-allowed}
+.page-size-sel{padding:5px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-family:inherit;font-size:12px;background:var(--white);color:var(--gray-700);cursor:pointer;outline:none}
+@media(max-width:768px){.topbar{padding:12px 14px}.main{padding:14px}.filter-grid{grid-template-columns:1fr 1fr}.kpi-grid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p id="loading-msg">Cargando…</p>
+</div>
+
+<!-- SPLASH -->
+<div class="splash" id="splash">
+  <div class="splash-icon">📋</div>
+  <h2>Dashboard de Órdenes de Compra</h2>
+  <p>Selecciona cómo cargar los datos</p>
+  <div class="splash-cards">
+    <div class="splash-card server" onclick="loadFromServer()">
+      <span class="splash-card-icon">🌐</span>
+      <div><h3>Cargar desde el servidor</h3><p>Usa el archivo data.json generado por GitHub Actions</p></div>
+      <svg class="arr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+    <div class="splash-card" onclick="document.getElementById('file-splash').click()">
+      <span class="splash-card-icon">📂</span>
+      <div><h3>Cargar archivo Excel</h3><p>Selecciona Estatus_de_BO.xlsx de tu equipo</p></div>
+      <svg class="arr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+    <input type="file" id="file-splash" accept=".xlsx,.xls" style="display:none" onchange="onFileSplash(this)">
+  </div>
+  <div class="splash-hint">Para usar el servidor, sube el Excel a tu repo GitHub y espera que el Actions termine ✅<br>O sube el Excel directo desde tu equipo</div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar" style="display:none;padding-top:8px;padding-bottom:8px" id="topbar">
+  <div class="topbar-left"></div>
+  <div class="topbar-right">
+    <div id="status-pill"><div class="dot" id="status-dot"></div><span id="last-update">Sin datos</span></div>
+
+    <input type="file" id="file-topbar" accept=".xlsx,.xls" style="display:none" onchange="onFileTopbar(this)">
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main" id="main-content" style="display:none">
+
+  <!-- KPIs -->
+  <div class="kpi-grid">
+    <div class="kpi blue"><div class="kpi-label">Total OC</div><div class="kpi-value" id="kpi-total">—</div><div class="kpi-sub">Órdenes de compra</div></div>
+    <div class="kpi amber"><div class="kpi-label">Pendientes</div><div class="kpi-value" id="kpi-pend">—</div><div class="kpi-sub">Back Orders abiertos</div></div>
+    <div class="kpi green"><div class="kpi-label">Aplicados</div><div class="kpi-value" id="kpi-aplic">—</div><div class="kpi-sub">Órdenes cerradas</div></div>
+    <div class="kpi amber"><div class="kpi-label">Por Recibir</div><div class="kpi-value" id="kpi-por-recibir">—</div><div class="kpi-sub">Pendientes de recepción</div></div>
+    <div class="kpi teal"><div class="kpi-label">Proveedores</div><div class="kpi-value" id="kpi-prov">—</div><div class="kpi-sub">Activos en filtro</div></div>
+    <div class="kpi"><div class="kpi-label">Importe Pendiente</div><div class="kpi-value" id="kpi-monto" style="font-size:17px">—</div><div class="kpi-sub">MXN (IVA incluido)</div></div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filter-card">
+    <div class="filter-title" onclick="toggleFilters()">
+      <div class="filter-title-left">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        Filtros en Cascada
+        <span class="filter-badge-count" id="active-filters-count"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--blue);font-weight:600">
+        <span id="filter-toggle-label">Ocultar</span>
+        <svg class="filter-chevron" id="filter-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+      </div>
+    </div>
+
+    <div class="filter-grid" id="filter-grid">
+
+      <!-- Fila 1: 6 selectores -->
+      <div class="filter-group">
+        <label>Estatus</label>
+        <select id="f-estatus" onchange="applyFilters()">
+          <option value="">Todos</option><option>PENDIENTE</option><option>APLICADO</option><option>CANCELADO</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Estado de Recepción</label>
+        <select id="f-estado-oc" onchange="applyFilters()">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Tipo de entrega</label>
+        <select id="f-entrega" onchange="applyFilters()" title="Entrega directa = la sucursal de destino viene en Observaciones">
+          <option value="">Todas</option><option value="CEDI">Entrega en CEDI</option><option value="ED">Entrega directa a sucursal</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Back Order</label>
+        <select id="f-bo" onchange="applyFilters()">
+          <option value="">Todos</option><option>PENDIENTE</option><option>APLICADO</option>
+        </select>
+      </div>
+      <div class="filter-group" style="display:none">
+        <label>Comprador que Capturó OC</label>
+        <select id="f-comprador" onchange="applyFilters()"><option value="">Todos</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Comprador de Clave</label>
+        <select id="f-comprador-clave" onchange="applyFilters()"><option value="">Todos</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Proveedor</label>
+        <select id="f-proveedor" onchange="applyFilters()"><option value="">Todos</option></select>
+      </div>
+
+      <!-- Fila 2: pares de fecha (cada par ocupa 2 columnas) + folio + clave -->
+      <div class="filter-group span2">
+        <div class="date-pair">
+          <div class="date-half">
+            <label>📅 Fecha OC — Desde</label>
+            <input type="date" id="f-fecha-oc-desde" onchange="applyFilters()">
+          </div>
+          <div class="date-half">
+            <label>Hasta</label>
+            <input type="date" id="f-fecha-oc-hasta" onchange="applyFilters()">
+          </div>
+        </div>
+      </div>
+      <div class="filter-group span2">
+        <div class="date-pair">
+          <div class="date-half">
+            <label>📦 Fecha Entrega — Desde</label>
+            <input type="date" id="f-fecha-ent-desde" onchange="applyFilters()">
+          </div>
+          <div class="date-half">
+            <label>Hasta</label>
+            <input type="date" id="f-fecha-ent-hasta" onchange="applyFilters()">
+          </div>
+        </div>
+      </div>
+      <div class="filter-group">
+        <label>Folio OC</label>
+        <input type="text" id="f-folio" placeholder="Ej. 111342" oninput="applyFilters()">
+      </div>
+      <div class="filter-group">
+        <label>🔍 Buscar por Clave</label>
+        <input type="text" id="f-clave" placeholder="Ej. 77 o CENEFA…" oninput="applyFilters()">
+      </div>
+
+      <!-- Fila 3: acciones centradas -->
+      <div class="filter-group filter-actions span2" style="justify-content:flex-start;align-items:center">
+        <button class="btn btn-ghost" onclick="resetFilters()">✕ Limpiar</button>
+        <button class="btn btn-green" onclick="exportToExcel()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Exportar Excel
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-card">
+    <div class="table-header">
+      <div><h2>Órdenes de Compra</h2><span id="result-count">—</span></div>
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="search-box" placeholder="Buscar proveedor, descripción…" oninput="applyFilters()">
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:36px"></th>
+          <th onclick="sortBy('_folio')" class="sort-desc">Folio OC</th>
+          <th onclick="sortBy('Fecha')">Fecha OC</th>
+          <th onclick="sortBy('Proveedor')">Proveedor</th>
+          <th onclick="sortBy('_comp')">Comprador</th>
+          <th onclick="sortBy('_estadoOC')">Estado Recepción</th>
+          <th onclick="sortBy('_estatus')">Estatus</th>
+          <th onclick="sortBy('_bo')">Back Order</th>
+          <th onclick="sortBy('Fecha Entrega')">Fecha Entrega</th>
+          <th onclick="sortBy('Importe')" style="text-align:right">Importe</th>
+          <th onclick="sortBy('Plazo Pago')">Plazo Pago</th>
+          <th>Acepta Parciales</th>
+          <th>Observaciones</th>
+        </tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <div id="empty-state" class="empty-state" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 17H5a2 2 0 00-2 2"/><path d="M9 17a2 2 0 002 2h8a2 2 0 002-2V9.5a2 2 0 00-.586-1.414l-5.5-5.5A2 2 0 0013.5 2H7a2 2 0 00-2 2v3"/></svg>
+      <p>No se encontraron órdenes con los filtros seleccionados.</p>
+    </div>
+    <div class="pagination" id="pagination">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="page-info">Página 1 de 1</span>
+        <select class="page-size-sel" id="page-size" onchange="changePageSize()">
+          <option value="25">25/pág</option><option value="50" selected>50/pág</option>
+          <option value="100">100/pág</option><option value="250">250/pág</option>
+        </select>
+      </div>
+      <div class="pag-btns" id="pag-btns"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+let allOrders = [], allProducts = {}, filtered = [];
+let currentPage = 1, pageSize = 50;
+let autoActive = false, intervalSec = 300, countdownLeft = 0, countdownTimer = null, isRefreshing = false;
+
+// ── UI HELPERS ─────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+function showLoading(msg){ $('loading-msg').textContent = msg||'Cargando…'; $('loading').style.display='flex'; }
+function hideLoading(){ $('loading').style.display='none'; }
+function showDashboard(){
+  $('splash').style.display='none';
+  $('topbar').style.display='flex';
+  $('main-content').style.display='block';
+}
+function setStatus(msg){ $('last-update').textContent = msg; }
+function hora(){ return new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+
+// ── DATE / MONEY ───────────────────────────────────────────────────────────
+function parseDate(v){
+  if(!v) return null;
+  if(v instanceof Date) return v;
+  const s = String(v).trim();
+  // Fechas tipo "YYYY-MM-DD" (con o sin timestamp después): construir en hora LOCAL
+  // para evitar el corrimiento de un día que causa new Date('YYYY-MM-DD') al
+  // interpretarlo como medianoche UTC y mostrarlo un día antes en horario de México.
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+  const d = new Date(s); return isNaN(d)?null:d;
+}
+function fmtDate(d){
+  if(!d) return '—';
+  if(!(d instanceof Date)) d=parseDate(d);
+  return (!d||isNaN(d))?'—':d.toLocaleDateString('es-MX',{year:'numeric',month:'2-digit',day:'2-digit'});
+}
+function fmtMoney(v){
+  const n=parseFloat(v); if(isNaN(n)) return '—';
+  return '$'+n.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function escH(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escJ(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+// ── BADGE CLASSES ──────────────────────────────────────────────────────────
+function badgeCls(s){
+  if(!s) return 'otro'; s=s.toUpperCase();
+  if(s==='APLICADO') return 'aplicado';
+  if(s==='PENDIENTE') return 'pendiente';
+  if(s.includes('CANCEL')) return 'cancelado';
+  return 'otro';
+}
+// Determina si un estado de recepción representa "aún falta recibir algo",
+// sin depender de la redacción exacta (compatible con POR RECIBIR/RECIBIDO
+// y también con PENDIENTE RECIBIR/RECIBIDO PARCIALMENTE/RECIBIDO TOTALMENTE).
+function esPendienteRecepcion(s){
+  s=(s||'').toUpperCase().trim();
+  if(!s) return false;
+  if(s.includes('TOTALMENTE')) return false;   // recibido al 100%
+  if(s==='RECIBIDO') return false;             // recibido (terminología antigua)
+  return true;                                  // pendiente, parcial, por recibir, etc.
+}
+function estadoCls(s){
+  s=(s||'').toUpperCase().trim();
+  if(!s) return 'otro';
+  if(s.includes('PARCIAL')) return 'parcial';
+  if(s.includes('TOTALMENTE')||s==='RECIBIDO') return 'recibido';
+  if(s.includes('PENDIENTE')||s==='POR RECIBIR') return 'por-recibir';
+  return 'otro';
+}
+// Selecciona la opción de "pendiente de recepción" más adecuada entre las
+// disponibles en el select, sin depender del texto exacto del Excel.
+function selectDefaultEstadoOC(selectEl){
+  if(!selectEl) return;
+  const opts = [...selectEl.options].map(o=>o.value).filter(Boolean);
+  // Preferencia: texto exacto conocido > cualquier opción que sea "pendiente" según esPendienteRecepcion
+  let pick = opts.find(v=>v==='POR RECIBIR' || v==='PENDIENTE RECIBIR')
+          || opts.find(v=>esPendienteRecepcion(v))
+          || '';
+  selectEl.value = pick;
+}
+function badgeCompra(s){
+  s=(s||'').toUpperCase();
+  if(['L+','LS'].includes(s)) return 'aplicado';
+  if(['PRUEBA','SW','SOBREPEDIDO'].includes(s)) return 'pendiente';
+  if(['DESCONTINUADO','BAJA','LIQUIDACION'].includes(s)) return 'cancelado';
+  return 'otro';
+}
+
+// ── RESOLUCIÓN DE COMPRADOR DE LA OC ───────────────────────────────────────
+// Misma lógica que el Admin (index.html): 1) asignación manual (Supabase
+// oc_compradores)  2) columna COMPRADOR del reporte  3) inferido por capturista
+const COMPRADORES_FIJOS=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN',
+  'JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA',
+  'MYRIAM VIDA CHRISTELL','SILVINO'];
+let mapaManualOC = {};   // folio -> comprador (asignación manual del Admin)
+function normNom(s){return String(s==null?'':s).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();}
+function nombreValido(s){
+  const t=normNom(s);
+  return t&&t!=='NAN'&&t!=='NULL'&&t!=='UNDEFINED'&&t!=='-'&&t!=='N/A'&&t!=='#N/A'&&t!=='0'?t:'';
+}
+function resolverComprador(o){
+  const folio=String(o['Folio']||'').trim();
+  // 1) La corrección manual del Admin SIEMPRE gana
+  if(mapaManualOC[folio])return normNom(mapaManualOC[folio]);
+  // 2) Columna COMPRADOR del reporte, solo si trae un nombre real
+  const directo=nombreValido(o['COMPRADOR']);
+  if(directo)return directo;
+  // 3) Inferencia por el nombre de quien capturó la OC
+  const cap=nombreValido(o['Comprador Capturo']);
+  if(cap){for(const cn of COMPRADORES_FIJOS){if(cap===cn||cap.startsWith(cn+' '))return cn;}}
+  return 'SIN ASIGNAR';
+}
+// Lee el mapa de asignaciones manuales desde Supabase (una sola vez por carga)
+async function cargarMapaManualOC(){
+  try{
+    const sb=window.sbGet();
+    const{data,error}=await sb.from('oc_compradores').select('folio,comprador');
+    if(error)throw error;
+    mapaManualOC={};
+    (data||[]).forEach(r=>{ if(r.folio!=null) mapaManualOC[String(r.folio).trim()]=r.comprador; });
+    return true;
+  }catch(err){ console.warn('oc_compradores no disponible:', err.message||err); return false; }
+}
+// Si el mapa aún no se ha cargado (p. ej. carga manual de Excel antes del INIT),
+// lo carga y ejecuta el callback para re-normalizar y re-render.
+function asegurarMapaManualOC(cb){
+  if(Object.keys(mapaManualOC).length>0)return;   // ya estaba cargado, nada que hacer
+  cargarMapaManualOC().then(ok=>{ if(ok&&typeof cb==='function')cb(); });
+}
+
+// ── NORMALIZE ORDERS ───────────────────────────────────────────────────────
+// Compradores que reciben en sucursal y mueven la mercancía al CEDI (se configuran en Cálculo diario)
+let SIN_ED=new Set((window.P&&P.R&&P.R.SIN_ED_DEF)||['IVAN','MYRIAM VIDA CHRISTELL','KARLA ANAID','JISHELL MARINTHYA']);
+async function cargarSinED(){
+  try{const sb=window.sbGet();const{data,error}=await sb.from('plan_config').select('valor').eq('id','compradores_sin_ed').maybeSingle();
+    if(!error&&data&&Array.isArray(data.valor))SIN_ED=new Set(data.valor.map(normNom));}catch(e){console.warn('plan_config:',e.message);}
+  // lugares y frases extra de entrega directa (misma regla que Cálculo diario)
+  try{const sb=window.sbGet();const{data,error}=await sb.from('plan_config').select('valor').eq('id','ed_destinos').maybeSingle();if(!error&&data&&window.P&&P.aplicarCfgED)P.aplicarCfgED(data.valor);}catch(e){}
+}
+function normalizeOrders(estadoMap){
+  allOrders.forEach(o => {
+    o._folio    = String(o['Folio']||'').trim();
+    o._fechaOC  = parseDate(o['Fecha']);
+    o._fechaEnt = parseDate(o['Fecha Entrega']);
+    o._estatus  = String(o['Estatus']||'').trim().toUpperCase();
+    o._bo       = String(o['Back Order']||'').trim().toUpperCase();
+    o._prov     = String(o['Proveedor']||'').trim();
+    o._destino  = (window.P&&P.destinoED)?P.destinoED(o['Observaciones']||''):null;   // sucursal de entrega directa (misma regla que Planeación)
+    // Compradores que reciben en sucursal y mueven al CEDI: no es entrega directa (lista en Cálculo diario)
+    o._recibeSuc= !!o._destino&&SIN_ED.has(normNom(resolverComprador(o)));
+    o._entrega  = o._destino&&!o._recibeSuc?'ED':'CEDI';
+    o._comp     = resolverComprador(o);  // comprador de la OC (manual → reporte → capturista)
+    // Estado OC: from map (Excel load) or from JSON field
+    o._estadoOC = (estadoMap && estadoMap[o._folio])
+      || String(o['Estado OC']||'').trim().toUpperCase()
+      || 'RECIBIDO';
+  });
+}
+
+// ── PROCESS XLSX WORKBOOK ─────────────────────────────────────────────────
+function sheetByName(wb, keywords, mustHaveCols){
+  // Find a sheet whose name matches keywords AND has required columns
+  for(const name of wb.SheetNames){
+    const match = keywords.some(k => name.toLowerCase().includes(k.toLowerCase()));
+    if(!match) continue;
+    if(!mustHaveCols) return name;
+    const ws   = wb.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval:'', header:1});
+    const header = (rows[0]||[]).map(c=>String(c).trim());
+    if(mustHaveCols.every(c=>header.includes(c))) return name;
+  }
+  return null;
+}
+
+function cleanDateStr(val){
+  if(!val) return '';
+  const s = String(val).trim();
+  // Strip timestamp: "2026-01-02 09:17:57.620000" → "2026-01-02"
+  return s.split(/[\sT]/)[0].substring(0,10);
+}
+
+function processWorkbook(buf){
+  try{
+    showLoading('Procesando Excel…');
+    const wb = XLSX.read(buf,{type:'array',cellDates:false});
+    console.log('Hojas:', wb.SheetNames);
+
+    // ── Encontrar hojas por nombre/contenido ──────────────────────────────
+    // Órdenes: tiene columnas Folio, Estatus, Back Order
+    const nameOC   = sheetByName(wb, ['ordenes de compra','ordenes compra'],['Folio','Estatus']);
+    // Productos: tiene FOLIO OC y CLAVE
+    const nameProd = sheetByName(wb, ['productos incluidos'],['FOLIO OC','CLAVE']);
+    // Estado OC: tiene Estado OC y Folio
+    const nameEst  = sheetByName(wb, ['rp01-23','rp01_23'],['Estado OC','Folio']) ||
+                     sheetByName(wb, ['ordenes'],['Estado OC','Folio']);
+
+    if(!nameOC)   throw new Error('No se encontró la hoja de Órdenes de Compra en el Excel.');
+    if(!nameProd) throw new Error('No se encontró la hoja de Productos en el Excel.');
+    console.log('Órdenes:', nameOC, '| Productos:', nameProd, '| Estado OC:', nameEst);
+
+    // ── Estado OC map ─────────────────────────────────────────────────────
+    const estadoMap = {};
+    if(nameEst){
+      XLSX.utils.sheet_to_json(wb.Sheets[nameEst],{defval:''}).forEach(r=>{
+        const f=String(r['Folio']||'').trim();
+        const e=String(r['Estado OC']||'').trim().toUpperCase();
+        if(f&&e) estadoMap[f]=e;
+      });
+    }
+
+    // ── Órdenes ───────────────────────────────────────────────────────────
+    allOrders = XLSX.utils.sheet_to_json(wb.Sheets[nameOC],{defval:''})
+      .filter(o => String(o['Folio']||'').trim() !== '');
+
+    // Clean timestamps in date fields
+    allOrders.forEach(o=>{
+      o['Fecha']          = cleanDateStr(o['Fecha']);
+      o['Fecha Entrega']  = cleanDateStr(o['Fecha Entrega']);
+      if(o['Estatus']) o['Estatus'] = String(o['Estatus']).trim().toUpperCase();
+      if(o['Back Order']) o['Back Order'] = String(o['Back Order']).trim().toUpperCase();
+    });
+
+    // ── Productos ─────────────────────────────────────────────────────────
+    allProducts = {};
+    XLSX.utils.sheet_to_json(wb.Sheets[nameProd],{defval:''}).forEach(p=>{
+      const k=String(p['FOLIO OC']||'').trim();
+      if(!k) return;
+      if(!allProducts[k]) allProducts[k]=[];
+      p['FECHA ENTREGA'] = cleanDateStr(p['FECHA ENTREGA']);
+      p['FECHA OC']      = cleanDateStr(p['FECHA OC']);
+      allProducts[k].push(p);
+    });
+
+    normalizeOrders(estadoMap);
+    fullReset();
+    setStatus('Actualizado: '+hora());
+    $('status-dot').classList.add('live');
+
+    buildDropdowns();
+    const eoc2=$('f-estado-oc');
+    if(eoc2){ selectDefaultEstadoOC(eoc2); }
+    applyFilters();
+    hideLoading(); showDashboard();
+    asegurarMapaManualOC(()=>{ normalizeOrders(estadoMap); buildDropdowns(); applyFilters(); });
+  }catch(err){
+    hideLoading();
+    console.error(err);
+    alert('Error al procesar Excel: '+err.message);
+  }
+}
+
+// ── COLLAPSIBLE FILTERS ────────────────────────────────────────────────────
+let filtersVisible = true;
+function toggleFilters(){
+  filtersVisible = !filtersVisible;
+  $('filter-grid').classList.toggle('hidden', !filtersVisible);
+  $('filter-toggle-label').textContent = filtersVisible ? 'Ocultar' : 'Mostrar';
+  $('filter-toggle-icon').classList.toggle('closed', !filtersVisible);
+}
+
+function updateActiveCount(){
+  const ids = ['f-estatus','f-estado-oc','f-bo','f-entrega','f-comprador','f-comprador-clave','f-proveedor',
+               'f-fecha-oc-desde','f-fecha-oc-hasta','f-fecha-ent-desde','f-fecha-ent-hasta',
+               'f-folio','f-clave','search-box'];
+  const count = ids.filter(id=>{ const el=$(id); return el && el.value; }).length;
+  const badge = $('active-filters-count');
+  if(count > 0){ badge.textContent = count+' activo'+(count>1?'s':''); badge.style.display='inline'; }
+  else { badge.style.display='none'; }
+}
+
+// ── FULL RESET ─────────────────────────────────────────────────────────────
+function fullReset(){
+  ['f-estatus','f-bo','f-entrega','f-comprador','f-comprador-clave','f-proveedor','f-estado-oc']
+    .forEach(id=>{ const el=$(id); if(el) el.value=''; });
+  ['f-fecha-oc-desde','f-fecha-oc-hasta','f-fecha-ent-desde','f-fecha-ent-hasta',
+   'f-folio','f-clave','search-box']
+    .forEach(id=>{ const el=$(id); if(el) el.value=''; });
+}
+
+// ── PROCESS JSON (from data.json) ──────────────────────────────────────────
+function processJson(json){
+  try{
+    if(!json.orders||!Array.isArray(json.orders))
+      throw new Error('data.json no tiene la estructura correcta. Vuelve a ejecutar GitHub Actions.');
+
+    allOrders   = json.orders;
+    allProducts = json.products || {};
+
+    // Blindaje: asegurar importes numéricos venga como venga el dato
+    const aNum = x => { if(typeof x==='number') return x;
+      const n2 = parseFloat(String(x==null?'':x).replace(/[$,\s]/g,'').replace(/,/g,'.'));
+      return isNaN(n2) ? '' : n2; };
+    allOrders.forEach(o=>{ ['Subtotal','Importe IVA','Importe'].forEach(k=>{ if(o[k]!==''&&o[k]!=null) o[k]=aNum(o[k]); }); });
+
+    // Limpiar timestamps de fechas por si acaso
+    allOrders.forEach(o=>{
+      if(o['Fecha'])        o['Fecha']        = String(o['Fecha']).split(/[\sT]/)[0].substring(0,10);
+      if(o['Fecha Entrega'])o['Fecha Entrega']= String(o['Fecha Entrega']).split(/[\sT]/)[0].substring(0,10);
+      if(o['Estatus'])      o['Estatus']      = String(o['Estatus']).trim().toUpperCase();
+      if(o['Back Order'])   o['Back Order']   = String(o['Back Order']).trim().toUpperCase();
+    });
+
+    normalizeOrders(null);
+    fullReset();
+
+    const gen = json.generated
+      ? new Date(json.generated).toLocaleString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
+      : hora();
+    setStatus('Generado: '+gen);
+    $('status-dot').classList.add('live');
+
+    // 1) Reconstruir dropdowns PRIMERO (incluye Estado OC dinámico)
+    buildDropdowns();
+
+    // 2) Seleccionar la opción "pendiente de recepción" por defecto (texto flexible)
+    selectDefaultEstadoOC($('f-estado-oc'));
+
+    // 3) Aplicar filtros
+    applyFilters();
+    asegurarMapaManualOC(()=>{ normalizeOrders(null); buildDropdowns(); applyFilters(); });
+  }catch(err){
+    console.error(err);
+    throw err;
+  }
+}
+
+// ── FILE LOADING ───────────────────────────────────────────────────────────
+function onFileSplash(input){
+  const file = input.files[0]; if(!file) return;
+  showLoading('Leyendo: '+file.name);
+  const r = new FileReader();
+  r.onload = e => processWorkbook(e.target.result);
+  r.readAsArrayBuffer(file);
+}
+function onFileTopbar(input){
+  const file = input.files[0]; if(!file) return;
+  showLoading('Leyendo: '+file.name);
+  const r = new FileReader();
+  r.onload = e => processWorkbook(e.target.result);
+  r.readAsArrayBuffer(file);
+}
+function sbLoadBO(cb,errCb){
+  window.sbDescargar('backorders','payloads/backorders.json.gz')
+    .then(({buf,ruta})=>{
+      if(ruta.endsWith('.xlsx')){ processWorkbook(buf); }           // compatibilidad con carga anterior
+      else { processJson(JSON.parse(new TextDecoder().decode(buf))); }
+      if(cb)cb();
+    })
+    .catch(err=>{ if(errCb)errCb(err); else { hideLoading(); alert('⚠ '+err.message); } });
+}
+function loadFromServer(){
+  showLoading('Cargando datos del servidor…');
+  sbLoadBO(()=>{ hideLoading(); showDashboard(); });
+}
+function refreshNow(){
+  if(isRefreshing) return;
+  isRefreshing=true; stopCountdown();
+  $('now-btn')?.classList.add('spinning');
+  showLoading('Actualizando desde servidor…');
+  window.idbPut('backorders',null).catch(()=>{}); // forzar re-descarga
+  sbLoadBO(()=>{ hideLoading(); }, err=>{ hideLoading(); setStatus('⚠ '+err.message); });
+  Promise.resolve().then(()=>{ isRefreshing=false; $('now-btn')?.classList.remove('spinning'); if(autoActive) startCountdown(); });
+}
+
+// ── AUTO-REFRESH ───────────────────────────────────────────────────────────
+function toggleAuto(){
+  autoActive=!autoActive;
+  $('toggle-track').classList.toggle('on',autoActive);
+  $('auto-label').textContent=autoActive?'Auto ON':'Auto';
+  $('status-dot').classList.toggle('live',autoActive);
+  if(autoActive) startCountdown(); else{ stopCountdown(); $('countdown-wrap').style.display='none'; }
+}
+function changeInterval(){ intervalSec=parseInt($('interval-sel').value); if(autoActive){stopCountdown();startCountdown();} }
+function startCountdown(){
+  if(!$('countdown-wrap'))return;
+  stopCountdown(); countdownLeft=intervalSec; updateCD();
+  $('countdown-wrap').style.display='flex';
+  countdownTimer=setInterval(()=>{ countdownLeft--; updateCD(); if(countdownLeft<=0){stopCountdown();refreshNow();} },1000);
+}
+function stopCountdown(){ if(countdownTimer){clearInterval(countdownTimer);countdownTimer=null;} }
+function updateCD(){ if(!$('countdown-text'))return; const m=Math.floor(countdownLeft/60),s=countdownLeft%60; $('countdown-text').textContent=m>0?`${m}m ${String(s).padStart(2,'0')}s`:`${s}s`; }
+
+// ── DROPDOWNS ──────────────────────────────────────────────────────────────
+
+// Construye desde allOrders completo — sólo en carga inicial / reset total
+function buildDropdowns(){
+  const comps   = uniq(allOrders.map(o=>o._comp));
+  const provs   = uniq(allOrders.map(o=>o._prov));
+  const estados = uniq(allOrders.map(o=>o._estadoOC));
+  const ckeys   = uniq(Object.values(allProducts).flat().map(p=>String(p['COMPRADOR']||'').trim()));
+  setSel('f-comprador',       comps,   '');
+  setSel('f-proveedor',       provs,   '');
+  setSel('f-estado-oc',       estados, '');
+  setSel('f-comprador-clave', ckeys,   '');
+  $('kpi-prov').textContent = provs.length.toLocaleString('es-MX');
+}
+
+// Reemplaza opciones de un select manteniendo el valor si sigue siendo válido
+function setSel(id, opts, forceVal){
+  const s=$(id); if(!s) return;
+  const cur = forceVal !== undefined ? forceVal : s.value;
+  const keep = opts.includes(cur) ? cur : '';
+  s.innerHTML = '<option value="">Todos</option>' +
+    opts.map(v=>`<option value="${escH(v)}"${v===keep?' selected':''}>${escH(v)}</option>`).join('');
+  return keep; // valor que quedó seleccionado
+}
+
+// Auxiliar: valores únicos no vacíos ordenados
+function uniq(arr){
+  return [...new Set(arr.map(v=>String(v||'').trim()).filter(Boolean))].sort();
+}
+
+// ── FILTRADO CENTRAL ───────────────────────────────────────────────────────
+// matchesFilters aplica todos los filtros excepto el indicado en 'skip'
+function matchesFilters(o, v, skip){
+  if(skip!=='estatus'  && v.estatus  && o._estatus  !== v.estatus)  return false;
+  if(skip!=='estadoOC' && v.estadoOC && o._estadoOC !== v.estadoOC) return false;
+  if(skip!=='bo'       && v.bo       && o._bo       !== v.bo)       return false;
+  if(v.entrega && o._entrega !== v.entrega) return false;
+  if(skip!=='comp'     && v.comp     && o._comp     !== v.comp)     return false;
+  if(skip!=='prov'     && v.prov     && o._prov     !== v.prov)     return false;
+  if(v.folio  && !o._folio.toLowerCase().includes(v.folio))         return false;
+  if(v.fDesde && o._fechaOC  && o._fechaOC  < parseDate(v.fDesde))                         return false;
+  if(v.fHasta && o._fechaOC  && o._fechaOC  > new Date(parseDate(v.fHasta).getTime()+86399000)) return false;
+  if(v.eDesde && o._fechaEnt && o._fechaEnt < parseDate(v.eDesde))                          return false;
+  if(v.eHasta && o._fechaEnt && o._fechaEnt > new Date(parseDate(v.eHasta).getTime()+86399000)) return false;
+  if(v.search){
+    if(!(o._prov+' '+(o['Observaciones']||'')+' '+o._comp).toLowerCase().includes(v.search)) return false;
+  }
+  if(skip!=='cc' && v.cc){
+    const ps=allProducts[o._folio]||[];
+    if(!ps.some(p=>String(p['COMPRADOR']||'').trim()===v.cc)) return false;
+  }
+  if(v.clave){
+    const ps=allProducts[o._folio]||[];
+    if(!ps.some(p=>String(p['CLAVE']||'').toLowerCase().includes(v.clave)||
+                   String(p['DESCRIPCION']||'').toLowerCase().includes(v.clave))) return false;
+  }
+  return true;
+}
+
+// Lee todos los valores de filtro actuales del DOM
+function readVals(){
+  return {
+    estatus:  $('f-estatus').value,
+    estadoOC: $('f-estado-oc').value,
+    bo:       $('f-bo').value,
+    entrega:  $('f-entrega').value,
+    comp:     $('f-comprador').value,
+    prov:     $('f-proveedor').value,
+    cc:       $('f-comprador-clave').value,
+    fDesde:   $('f-fecha-oc-desde').value,
+    fHasta:   $('f-fecha-oc-hasta').value,
+    eDesde:   $('f-fecha-ent-desde').value,
+    eHasta:   $('f-fecha-ent-hasta').value,
+    folio:    $('f-folio').value.trim().toLowerCase(),
+    clave:    $('f-clave').value.trim().toLowerCase(),
+    search:   $('search-box').value.trim().toLowerCase(),
+  };
+}
+
+// ── APPLY FILTERS + CASCADE BIDIRECCIONAL ──────────────────────────────────
+let _cascading = false; // evita recursión infinita
+
+function applyFilters(){
+  const v = readVals();
+
+  // Filtrar datos
+  filtered = allOrders.filter(o => matchesFilters(o, v, null));
+  sortFiltered(); currentPage=1;
+  updateKPIs(); renderTable(); updateActiveCount();
+
+  // Cascade bidireccional: opciones de cada dropdown = lo que es válido dado el resto de filtros
+  if(!_cascading){
+    _cascading = true;
+
+    // Para cada dropdown cascade, filtrar allOrders ignorando ese propio dropdown
+    const comps   = uniq(allOrders.filter(o=>matchesFilters(o,v,'comp')).map(o=>o._comp));
+    const provs   = uniq(allOrders.filter(o=>matchesFilters(o,v,'prov')).map(o=>o._prov));
+    const estados = uniq(allOrders.filter(o=>matchesFilters(o,v,'estadoOC')).map(o=>o._estadoOC));
+    const ccFols  = new Set(allOrders.filter(o=>matchesFilters(o,v,'cc')).map(o=>o._folio));
+    const ckeys   = uniq(
+      Object.entries(allProducts)
+        .filter(([f])=>ccFols.has(f))
+        .flatMap(([,ps])=>ps.map(p=>String(p['COMPRADOR']||'').trim()))
+    );
+
+    // Actualizar cada dropdown — si el valor seleccionado ya no es válido, se limpia
+    const prevComp = v.comp,  prevProv = v.prov,
+          prevEst  = v.estadoOC, prevCC = v.cc;
+
+    const keptComp = setSel('f-comprador',       comps,   undefined);
+    const keptProv = setSel('f-proveedor',       provs,   undefined);
+    const keptEst  = setSel('f-estado-oc',       estados, undefined);
+    const keptCC   = setSel('f-comprador-clave', ckeys,   undefined);
+
+    $('kpi-prov').textContent = provs.length.toLocaleString('es-MX');
+
+    // Si algún valor fue limpiado automáticamente → refiltrar con los nuevos valores
+    const someCleared = (prevComp && !keptComp) || (prevProv && !keptProv) ||
+                        (prevEst  && !keptEst)  || (prevCC   && !keptCC);
+    if(someCleared){
+      const v2 = readVals();
+      filtered = allOrders.filter(o => matchesFilters(o, v2, null));
+      sortFiltered(); currentPage=1;
+      updateKPIs(); renderTable(); updateActiveCount();
+    }
+
+    _cascading = false;
+  }
+}
+
+function resetFilters(){
+  ['f-estatus','f-bo','f-entrega','f-comprador','f-comprador-clave','f-proveedor','f-estado-oc',
+   'f-fecha-oc-desde','f-fecha-oc-hasta','f-fecha-ent-desde','f-fecha-ent-hasta',
+   'f-folio','f-clave','search-box'].forEach(id=>{ const el=$(id); if(el) el.value=''; });
+  // Reconstruir opciones completas desde allOrders
+  buildDropdowns();
+  // Aplicar default POR RECIBIR si existe en los datos
+  const eoc=$('f-estado-oc');
+  if(eoc){ selectDefaultEstadoOC(eoc); }
+  applyFilters();
+}
+
+
+// ── KPIs ───────────────────────────────────────────────────────────────────
+function updateKPIs(){
+  const pend  = filtered.filter(o=>o._estatus==='PENDIENTE').length;
+  const aplic = filtered.filter(o=>o._estatus==='APLICADO').length;
+  const prRec = filtered.filter(o=>esPendienteRecepcion(o._estadoOC)).length;
+  const monto = filtered.reduce((s,o)=>s+(parseFloat(o['Importe'])||0),0);
+  $('kpi-total').textContent = filtered.length.toLocaleString('es-MX');
+  $('kpi-pend').textContent  = pend.toLocaleString('es-MX');
+  $('kpi-aplic').textContent = aplic.toLocaleString('es-MX');
+  $('kpi-por-recibir').textContent = prRec.toLocaleString('es-MX');
+  $('kpi-monto').textContent = '$'+Math.round(monto).toLocaleString('es-MX');
+}
+
+// ── SORT ───────────────────────────────────────────────────────────────────
+let sortCol = '_folio', sortDir = 'desc';   // default: folio más alto primero
+
+function sortBy(col){
+  if(sortCol===col) sortDir=sortDir==='asc'?'desc':'asc'; else{sortCol=col;sortDir='desc';}
+  sortFiltered(); renderTable();
+  document.querySelectorAll('th').forEach(th=>{
+    th.classList.remove('sort-asc','sort-desc');
+    if(th.getAttribute('onclick')===`sortBy('${col}')`) th.classList.add(sortDir==='asc'?'sort-asc':'sort-desc');
+  });
+}
+
+function sortFiltered(){
+  // Mapa: columna del header → campo interno a usar para comparar
+  const dateMap   = { 'Fecha':'_fechaOC', 'Fecha Entrega':'_fechaEnt' };
+  const innerMap  = { 'Proveedor':'_prov', 'Comprador Capturo':'_comp', '_comp':'_comp',
+                      'Estatus':'_estatus', 'Back Order':'_bo',
+                      '_estadoOC':'_estadoOC', 'Folio':'_folio', '_folio':'_folio' };
+
+  filtered.sort((a,b)=>{
+    let va, vb;
+
+    if(dateMap[sortCol]){
+      // Ordenar por objeto Date ya parseado
+      va = a[dateMap[sortCol]] || new Date(0);
+      vb = b[dateMap[sortCol]] || new Date(0);
+      return sortDir==='asc' ? va-vb : vb-va;
+    }
+
+    const field = innerMap[sortCol] || sortCol;
+    va = a[field] ?? ''; vb = b[field] ?? '';
+
+    // Numérico
+    if(!isNaN(parseFloat(va)) && !isNaN(parseFloat(vb)))
+      return sortDir==='asc' ? parseFloat(va)-parseFloat(vb) : parseFloat(vb)-parseFloat(va);
+
+    // Texto
+    va=String(va).toLowerCase(); vb=String(vb).toLowerCase();
+    return sortDir==='asc' ? va.localeCompare(vb,'es') : vb.localeCompare(va,'es');
+  });
+}
+
+// ── RENDER TABLE ───────────────────────────────────────────────────────────
+function renderTable(){
+  const tbody=$('table-body'), empty=$('empty-state');
+  const total=filtered.length, pages=Math.max(1,Math.ceil(total/pageSize));
+  currentPage=Math.min(currentPage,pages);
+  $('result-count').textContent=total.toLocaleString('es-MX')+' resultado'+(total!==1?'s':'');
+  if(total===0){tbody.innerHTML='';empty.style.display='block';renderPagination(pages);return;}
+  empty.style.display='none';
+  const start=(currentPage-1)*pageSize;
+  tbody.innerHTML=filtered.slice(start,start+pageSize).map((o,i)=>{
+    const rid='row-'+(start+i), folio=o._folio;
+    return `
+    <tr class="order-row" id="${rid}" onclick="toggleDetail('${rid}','${escJ(folio)}')">
+      <td><button class="expand-btn" id="btn-${rid}" onclick="event.stopPropagation();toggleDetail('${rid}','${escJ(folio)}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </button></td>
+      <td><span class="folio-cell">${escH(folio)}</span></td>
+      <td>${fmtDate(o._fechaOC)}</td>
+      <td style="max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escH(o._prov)}"><span class="prov-cell">${escH(o._prov)}</span></td>
+      <td style="max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;color:var(--gray-600)" title="${escH(o._comp)}">${escH(o._comp||'—')}</td>
+      <td><span class="badge ${estadoCls(o._estadoOC)}">${escH(o._estadoOC||'—')}</span></td>
+      <td><span class="badge ${badgeCls(o._estatus)}">${escH(o._estatus||'—')}</span></td>
+      <td><span class="badge ${badgeCls(o._bo)}">${escH(o._bo||'—')}</span></td>
+      <td>${fmtDate(o._fechaEnt)}</td>
+      <td style="text-align:right"><span class="mono">${fmtMoney(o['Importe'])}</span></td>
+      <td>${escH(String(o['Plazo Pago']||''))}</td>
+      <td>${escH(String(o['Acepta Parciales']||''))}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escH(String(o['Observaciones']||''))}">${o._destino?(o._recibeSuc?`<span class="badge" style="background:#e0f2fe;color:#075985;margin-right:4px" title="Recibe en sucursal y lo mueve al CEDI: cuenta como entrega en CEDI">⇢ ${escH(o._destino)} → CEDI</span>`:`<span class="badge" style="background:#ede9fe;color:#5b21b6;margin-right:4px" title="Entrega directa a sucursal">→ ${escH(o._destino)}</span>`):''}${escH(String(o['Observaciones']||''))}</td>
+    </tr>
+    <tr class="detail-row" id="detail-${rid}">
+      <td colspan="13"><div class="detail-inner" id="inner-${rid}"></div></td>
+    </tr>`;
+  }).join('');
+  renderPagination(pages);
+}
+
+// ── EXPAND ROW ─────────────────────────────────────────────────────────────
+function toggleDetail(rid,folio){
+  const det=$('detail-'+rid), btn=$('btn-'+rid), row=$(rid);
+  const wasOpen=det.classList.contains('visible');
+  document.querySelectorAll('.detail-row.visible').forEach(r=>r.classList.remove('visible'));
+  document.querySelectorAll('.expand-btn.open').forEach(b=>b.classList.remove('open'));
+  document.querySelectorAll('.order-row.expanded').forEach(r=>r.classList.remove('expanded'));
+  if(!wasOpen){ det.classList.add('visible'); btn.classList.add('open'); row.classList.add('expanded'); renderDetail(rid,folio); }
+}
+function renderDetail(rid,folio){
+  const o=allOrders.find(x=>x._folio===folio)||{};
+  const prods=allProducts[folio]||[];
+  const cq=$('f-clave').value.trim().toLowerCase();
+  const chips=[
+    {l:'Folio OC',v:o._folio},{l:'Proveedor',v:o._prov},{l:'Fecha OC',v:fmtDate(o._fechaOC)},
+    {l:'Fecha Entrega',v:fmtDate(o._fechaEnt)},{l:'Estado Recepción',v:o._estadoOC},
+    {l:'Subtotal',v:fmtMoney(o['Subtotal']),m:true},{l:'IVA',v:fmtMoney(o['Importe IVA']),m:true},
+    {l:'Total',v:fmtMoney(o['Importe']),m:true},{l:'Plazo Pago',v:String(o['Plazo Pago']||'')},
+    {l:'Flete x Cobrar',v:String(o['Flete x Cobrar']||'')},{l:'Transportista',v:String(o['Transportista']||'—')},
+    {l:'Comprador',v:o._comp||'—'},{l:'Referencia Lista',v:String(o['Referencia Lista']||'')}
+  ].map(c=>`<div class="meta-chip"><span class="meta-lbl">${escH(c.l)}</span><span class="meta-val${c.m?' money':''}">${escH(c.v)}</span></div>`).join('');
+
+  let prodsHtml='<div class="no-prods">Sin claves registradas para esta OC.</div>';
+  if(prods.length){
+    const rows=prods.map(p=>{
+      const cl=String(p['CLAVE']||''), desc=String(p['DESCRIPCION']||'');
+      const hi=cq&&(cl.toLowerCase().includes(cq)||desc.toLowerCase().includes(cq));
+      return `<tr style="${hi?'background:var(--amber)!important':''}">
+        <td><span class="clave" style="${hi?'background:var(--amber-dk);color:#fff;':''}">${escH(cl)}</span></td>
+        <td class="desc-col">${escH(desc)}</td>
+        <td>${escH(String(p['MARCA']||''))}</td>
+        <td>${escH(String(p['UNIDAD']||''))}</td>
+        <td style="text-align:right">${escH(String(p['PZASXUNI']||''))}</td>
+        <td style="text-align:right"><b>${escH(String(p['CANTIDAD PED']||''))}</b></td>
+        <td style="text-align:right;color:${Number(p['CANTIDAD PEND']||0)>0?'#92400E':'#065F46'}"><b>${escH(String(p['CANTIDAD PEND']||''))}</b></td>
+        <td style="text-align:right"><span style="background:var(--amber);color:#92400E;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">${escH(String(p['BACKORDER']||''))}</span></td>
+        <td>${fmtDate(parseDate(p['FECHA ENTREGA']))}</td>
+        <td><span class="badge ${badgeCompra(String(p['ESTATUS COMPRA']||''))}">${escH(String(p['ESTATUS COMPRA']||''))}</span></td>
+        <td>${escH(String(p['COMPRADOR']||''))}</td>
+      </tr>`;
+    }).join('');
+    prodsHtml=`<div class="prod-table-wrap"><table class="prod-table"><thead><tr>
+      <th>Clave</th><th>Descripción</th><th>Marca</th><th>Unidad</th>
+      <th>Pzas×Uni</th><th>Cant.Ped.</th><th>Cant.Pend.</th>
+      <th>Back Order</th><th>Fecha Entrega</th><th>Estatus Compra</th><th>Comprador</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  $('inner-'+rid).innerHTML=`
+    <h3>📋 Detalle — Folio ${escH(folio)}</h3>
+    <div class="order-meta">${chips}</div>
+    <h3 style="margin-bottom:10px">⭐ Claves / Productos (${prods.length})</h3>
+    ${prodsHtml}`;
+}
+
+// ── PAGINATION ─────────────────────────────────────────────────────────────
+function renderPagination(pages){
+  $('page-info').textContent=`Página ${currentPage} de ${pages}`;
+  const btns=$('pag-btns');
+  let h=`<button class="pag-btn" onclick="goPage(${currentPage-1})" ${currentPage<=1?'disabled':''}>‹</button>`;
+  pageRange(currentPage,pages).forEach(p=>{
+    if(p==='…') h+=`<span style="padding:4px 3px;color:var(--gray-500)">…</span>`;
+    else h+=`<button class="pag-btn ${p===currentPage?'active':''}" onclick="goPage(${p})">${p}</button>`;
+  });
+  h+=`<button class="pag-btn" onclick="goPage(${currentPage+1})" ${currentPage>=pages?'disabled':''}>›</button>`;
+  btns.innerHTML=h;
+}
+function pageRange(c,t){
+  if(t<=7) return Array.from({length:t},(_,i)=>i+1);
+  const r=[1]; if(c>3) r.push('…');
+  for(let i=Math.max(2,c-1);i<=Math.min(t-1,c+1);i++) r.push(i);
+  if(c<t-2) r.push('…'); r.push(t); return r;
+}
+function goPage(p){ const pages=Math.ceil(filtered.length/pageSize); if(p<1||p>pages) return; currentPage=p; renderTable(); window.scrollTo({top:0,behavior:'smooth'}); }
+function changePageSize(){ pageSize=parseInt($('page-size').value); currentPage=1; renderTable(); }
+
+// ── EXPORT EXCEL ───────────────────────────────────────────────────────────
+function exportToExcel(){
+  if(!filtered.length){alert('No hay datos para exportar.');return;}
+  const ordRows=filtered.map(o=>({
+    'Folio OC':o._folio,'Fecha OC':fmtDate(o._fechaOC),'Proveedor':o._prov,'Comprador':o._comp,
+    'Estado Recepción':o._estadoOC,'Estatus':o._estatus,'Back Order':o._bo,'Tipo de entrega':o._entrega==='ED'?'ENTREGA DIRECTA':(o._recibeSuc?'CEDI (recibe en sucursal)':'CEDI'),'Sucursal destino':o._destino||'','Fecha Entrega':fmtDate(o._fechaEnt),
+    'Subtotal':o['Subtotal']||'','IVA':o['Importe IVA']||'','Importe Total':o['Importe']||'',
+    'Plazo Pago':o['Plazo Pago']||'','Flete x Cobrar':o['Flete x Cobrar']||'',
+    'Transportista':o['Transportista']||'','Acepta Parciales':o['Acepta Parciales']||'',
+    'Referencia Lista':o['Referencia Lista']||'','Observaciones':o['Observaciones']||''
+  }));
+  const prodRows=[];
+  filtered.forEach(o=>{
+    (allProducts[o._folio]||[]).forEach(p=>{
+      prodRows.push({'Folio OC':o._folio,'Proveedor':o._prov,'Estado Recepción':o._estadoOC,
+        'Clave':p['CLAVE']||'','Descripción':p['DESCRIPCION']||'','Marca':p['MARCA']||'',
+        'Unidad':p['UNIDAD']||'','Pzas×Uni':p['PZASXUNI']||'','Cant.Pedida':p['CANTIDAD PED']||'',
+        'Cant.Pendiente':p['CANTIDAD PEND']||'','Back Order':p['BACKORDER']||'',
+        'Fecha Entrega':fmtDate(parseDate(p['FECHA ENTREGA'])),'Estatus Compra':p['ESTATUS COMPRA']||'',
+        'Comprador Clave':p['COMPRADOR']||''});
+    });
+  });
+  const wb2=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb2,XLSX.utils.json_to_sheet(ordRows),'Órdenes de Compra');
+  if(prodRows.length) XLSX.utils.book_append_sheet(wb2,XLSX.utils.json_to_sheet(prodRows),'Detalle por Clave');
+  const f=new Date().toLocaleDateString('es-MX').replace(/\//g,'-');
+  XLSX.writeFile(wb2,`OC_Filtradas_${f}.xlsx`);
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded',()=>{
+  // 1) Carga el mapa de asignaciones manuales, 2) luego los datos de BO
+  Promise.all([cargarMapaManualOC(),cargarSinED()]).finally(()=>{
+    sbLoadBO(()=>{ showDashboard(); }, err=>{ console.warn('BO:', err.message); /* splash manual */ });
+  });
+});
+</script>
+</body>
+</html>

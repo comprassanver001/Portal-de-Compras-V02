@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planeación · Carga de datos</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="plan_logica.js?v=20261112d" charset="utf-8"></script>
+<style>
+:root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);font-size:14px}
+header{background:var(--navy);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:17px;font-weight:700}
+header .tag{background:#f4a261;color:#1a2035;font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px}
+header .ses{margin-left:auto;font-size:12px;opacity:.85}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 60px}
+.card{background:var(--sf);border:1px solid var(--brd);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:15px;color:var(--navy);margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.card h2 .n{background:var(--navy);color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+.card p.d{color:var(--tx2);font-size:12.5px;margin-bottom:12px;line-height:1.45}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input[type=file]{font-size:12.5px}
+input[type=password],input[type=text]{padding:9px 12px;border:1.5px solid #c9d4f0;border-radius:8px;font-size:13px;font-family:inherit}
+button{background:var(--navy2);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.sec{background:#eef2fb;color:var(--navy);border:1px solid #c9d4f0}
+.log{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#0f172a;color:#a5d6a7;border-radius:10px;padding:12px 14px;margin-top:12px;max-height:240px;overflow:auto;white-space:pre-wrap;display:none}
+.log .e{color:#ff8a80}.log .w{color:#ffd166}
+#lock{max-width:420px;margin:60px auto}
+.err{color:var(--err);font-size:12.5px;margin-top:8px;display:none}
+table{border-collapse:collapse;font-size:12px;width:100%}
+th,td{border-bottom:1px solid var(--brd);padding:5px 7px;text-align:right;white-space:nowrap}
+th{background:#f0f4ff;color:var(--navy);position:sticky;top:0}
+td:first-child,th:first-child{text-align:left}
+.scroll{overflow-x:auto;max-height:420px;margin-top:10px;border:1px solid var(--brd);border-radius:8px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:10px}
+.kpi{border:1px solid var(--brd);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-size:18px;color:var(--navy)}
+.kpi span{font-size:11.5px;color:var(--tx2)}
+.ag{background:var(--errbg);color:var(--err);font-weight:700}
+.note{background:var(--warnbg);color:#6b5200;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-top:10px}
+@media (max-width:640px){header .ses{margin-left:0}}
+</style>
+<script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
+<style>.embed header{display:none}</style>
+</head>
+<body>
+<header>
+  <h1>Planeación · Carga de datos</h1><span class="tag">VERSIÓN DE PRUEBA</span>
+  <span class="ses" id="ses">Sin sesión</span>
+</header>
+
+<div id="lock" class="card">
+  <h2>Acceso de administrador</h2>
+  <p class="d">Usa la misma contraseña de administrador del portal.</p>
+  <div class="row"><input type="password" id="pw" placeholder="Contraseña de administrador" style="flex:1" onkeydown="if(event.key==='Enter')entrar()"><button onclick="entrar()">Entrar</button></div>
+  <div class="err" id="pw-err"></div>
+</div>
+
+<main id="app" style="display:none">
+  <div class="note">Esta página solo escribe en las tablas <b>plan_</b>. No modifica el portal actual ni sus tablas. Cada carga se puede repetir: sobrescribe, no duplica.</div>
+
+  <div class="card">
+    <h2><span class="n">1</span>Ventas mensuales <small style="color:var(--tx2);font-weight:400">· mensual</small></h2>
+    <p class="d">Archivo <b>Plantilla_Ventas_Mensuales.xlsx</b> (hojas VENTAS_SANVER y VENTAS_MF). Reemplaza los meses que vengan en el archivo; los demás meses de la base no se tocan.</p>
+    <div class="row"><input type="file" id="f-ventas" accept=".xlsx"><button onclick="run('ventas')">Cargar ventas</button></div>
+    <div class="log" id="log-ventas"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span>Existencias MF <small style="color:var(--tx2);font-weight:400">· cada 3er día</small></h2>
+    <p class="d">Archivo <b>EXISTENCIAS_AL_….xlsx</b> (hoja Existencias). Suma todas las sucursales por clave, reemplaza el último corte y registra las claves en cero como días agotados de MF.</p>
+    <div class="row"><input type="file" id="f-mf" accept=".xlsx"><button onclick="run('mf')">Cargar existencias MF</button></div>
+    <div class="log" id="log-mf"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">3</span>Empaques INNER / MASTER <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Archivo <b>Informacion_de_empaques.xlsx</b> (hoja BD). Solo las claves VALIDO se usarán para redondear.</p>
+    <div class="row"><input type="file" id="f-emp" accept=".xlsx"><button onclick="run('emp')">Cargar empaques</button></div>
+    <div class="log" id="log-emp"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">4</span>Histórico de agotados SANVER <small style="color:var(--tx2);font-weight:400">· una sola vez</small></h2>
+    <p class="d">Archivo <b>Portal_de_compras_respaldo_….xlsx</b> (hojas Historico de faltantes y Detalle). Guarda cada día que una clave estuvo en existencia 0 desde el 1 de abril. Puede tardar 1-3 minutos en leer el archivo.</p>
+    <div class="row"><input type="file" id="f-hist" accept=".xlsx"><button onclick="run('hist')">Cargar histórico</button></div>
+    <div class="log" id="log-hist"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">5</span>Compras: entregas directas y costos <small style="color:var(--tx2);font-weight:400">· mensual</small></h2>
+    <p class="d">Archivo <b>Compras_por_ID.xlsx</b>. Toma las filas ENTREGAS DIRECTAS y las suma por clave y mes; en el cálculo se <b>restan de la venta</b> de ese mes desde enero 2024 (si la venta es menor, el mes queda en 0). Reemplaza los meses que vengan en el archivo. También guarda el <b>costo unitario de compra</b> de cada clave (TOTAL ÷ CANT REC de sus últimos 3 meses con compra), que se usa para medir la afectación en dinero de las claves críticas.</p>
+    <div class="row"><input type="file" id="f-ed" accept=".xlsx"><button onclick="run('ed')">Cargar compras ED</button></div>
+    <p class="d" style="margin-top:12px"><b>Entregas directas que el archivo trae como "ENTREGA EN CEDI"</b> (p. ej. a un lugar sin sucursal como Rayón). Desde que el portal sigue las OCs, las recepciones de OCs marcadas como entrega directa por <b>Lugares/Frases</b> se restan solas de la venta de su mes. Para meses anteriores captúralas aquí: una por renglón <b>clave, AAAA-MM, cantidad, nota</b> (p. ej. <span style="font-family:monospace">30871, 2026-08, 328, OC 113345 Rayón</span>).</p>
+    <div class="row" style="align-items:flex-start"><textarea id="ed-man" rows="4" style="width:460px;font-family:monospace;font-size:12px" placeholder="30871, 2026-08, 328, OC 113345 Rayón"></textarea>
+      <div style="align-self:flex-end"><button onclick="guardarEDManual()">Guardar ajustes</button><div class="d" id="ed-man-res" style="margin-top:6px;max-width:360px"></div></div></div>
+    <div class="log" id="log-ed"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">⚙</span>Entregas directas: compradores que reciben en sucursal <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Una OC es <b>entrega directa</b> cuando Observaciones trae una sucursal. Marca aquí a los compradores que reciben en una sucursal y de ahí mueven la mercancía al CEDI: sus OCs cuentan como <b>entrega en CEDI</b> (entran a OTIF, Target, BO del CEDI y vencidas). Al guardar se corrigen también las OCs ya registradas.</p>
+    <div id="ed-lista" style="margin:8px 0"></div>
+    <div class="row"><button onclick="guardarSinED()">Guardar compradores</button><span class="d" id="ed-res"></span></div>
+    <hr style="border:0;border-top:1px solid var(--brd);margin:14px 0">
+    <p class="d"><b>Otros lugares o frases de entrega directa.</b> Además de las sucursales, una OC es entrega directa si Observaciones trae alguno de estos <b>lugares</b> (ciudades sin sucursal, obras, clientes; p. ej. "ENTREGAR EN RAYON") o alguna de estas <b>frases</b> (p. ej. "ENTREGA DIRECTA"). Se busca la palabra completa, sin importar mayúsculas ni acentos. Uno por renglón. Al guardar se corrigen también las OCs ya registradas.</p>
+    <div class="row" style="align-items:flex-start">
+      <div><div class="d" style="margin-bottom:4px">Lugares</div><textarea id="ed-lug" rows="5" style="width:260px" placeholder="RAYON&#10;OZULUAMA"></textarea></div>
+      <div><div class="d" style="margin-bottom:4px">Frases</div><textarea id="ed-fra" rows="5" style="width:260px" placeholder="ENTREGA DIRECTA&#10;DIRECTO A CLIENTE"></textarea></div>
+      <div><div class="d" style="margin-bottom:4px" title="Las OCs de entrega directa cuya observación trae alguna de estas palabras salen abajo en «OCs por revisar», porque la sucursal puede ser solo la razón del descuento y no el destino">Palabras para revisar</div><textarea id="ed-rev" rows="5" style="width:200px" placeholder="APERTURA&#10;DESCUENTO"></textarea></div>
+      <div style="align-self:flex-end"><button onclick="guardarCfgED()">Guardar lugares y frases</button><div class="d" id="ed-res2" style="margin-top:6px;max-width:420px"></div></div>
+    </div>
+    <hr style="border:0;border-top:1px solid var(--brd);margin:14px 0">
+    <p class="d"><b>Tipo de entrega por OC (definido a mano).</b> Para las OCs cuya observación <b>no dice la sucursal</b> (p. ej. la cal: «PAGO ANTICIPADO - ENTREGA DIRECTA»), aquí se define si fue <b>CEDI</b> o <b>entrega directa</b> y eso manda sobre la regla de observaciones (BO del CEDI, OTIF, Target y limpieza de la venta).
+      <br>• <b>Archivo</b> «Entregas directas por OC» (hoja con <b>Folio OC</b>, <b>Observaciones</b>, <b>Comprador</b> y <b>TIPO DE SOLICITUD</b>): se guardan las OCs cuya observación no nombra sucursal y las que el archivo clasifica distinto a la observación. Los compradores que reciben en sucursal se quedan en CEDI. Cada carga actualiza las que trae.
+      <br>• <b>Una por una</b>: <code>folio, ED o CEDI, sucursal</code> (un renglón por OC).</p>
+    <div class="row" style="align-items:flex-start">
+      <div><input type="file" id="f-octipo" accept=".xlsx,.xls"><button onclick="run('octipo')">Cargar archivo</button></div>
+      <div><textarea id="octipo-man" rows="3" style="width:260px" placeholder="114614, ED, AHUATENO&#10;114608, CEDI"></textarea><br><button class="sec" onclick="run('octipo_man')">Guardar renglones</button></div>
+      <div class="d" id="octipo-res" style="max-width:420px"></div>
+    </div>
+    <div class="log" id="log-octipo"></div>
+    <hr style="border:0;border-top:1px solid var(--brd);margin:14px 0">
+    <p class="d"><b>OCs por revisar.</b> OCs abiertas que el portal toma como <b>entrega directa</b> pero cuya observación trae una de las «Palabras para revisar» (apertura, apoyo, descuento…): la sucursal puede ser solo la razón del descuento y la mercancía llegar al CEDI. Define cada una; queda guardada en «Tipo de entrega por OC» y su BO vuelve a contar para el CEDI desde el siguiente Cálculo diario.</p>
+    <div id="ed-revisar" class="d">Cargando…</div>
+  </div>
+  <div class="card">
+    <h2><span class="n">🏬</span>Número base de Mas Ferre <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Inventario que deben mantener <b>entre todas las tiendas MF</b> por clave (fijo). En el Cálculo diario: si MF tiene más de <b>4 meses</b> de inventario y su existencia está arriba de su número base, se marca <b>revisar con gerencia</b> (devolución estratégica) con excedente = existencia MF − número base. Si MF está abajo de su base, la ficha muestra cuánto falta por distribuir a tiendas (informativo, no cambia la propuesta). Claves sin número base siguen la regla de meses. Archivo con columnas <b>Clave</b> y <b>Número base</b>; cada carga reemplaza la lista completa.</p>
+    <div class="row"><input type="file" id="f-mfb" accept=".xlsx,.xls,.csv"><button onclick="run('mfb')">Cargar número base</button><button class="sec" onclick="plantillaMFB()">⬇ Plantilla</button><span class="d" id="mfb-res"></span></div>
+    <div class="log" id="log-mfb"></div>
+  </div>
+  <div class="card">
+    <h2><span class="n">🗓️</span>Calendario de pedidos: proveedor por clave y reglas <small style="color:var(--tx2);font-weight:400">· conforme se tenga la información</small></h2>
+    <p class="d">El calendario agrupa las claves por proveedor con esta prioridad: <b>1) catálogo cargado aquí</b> → 2) proveedor aprobado vigente en Comparativos → 3) proveedor de la última OC → 4) marca (si no hay nada más).
+      Genera la lista, revísala y escribe en <b>Proveedor confirmado</b> solo lo que quieras fijar (lo vacío se sigue resolviendo solo). Al cargar se agregan o actualizan esas claves; marca «reemplazar todo» para borrar el catálogo anterior.</p>
+    <div class="row" style="margin-top:6px"><button class="sec" onclick="run('prov_lista')">⬇ Generar lista proveedor por clave</button>
+      <input type="file" id="f-provcat" accept=".xlsx,.xls,.csv"><label class="d"><input type="checkbox" id="provcat-rem"> reemplazar todo</label><button onclick="run('prov_cat')">Cargar catálogo</button><span class="d" id="provcat-res"></span></div>
+    <p class="d" style="margin-top:10px"><b>Reglas por proveedor</b> (todo opcional, se puede cargar poco a poco; lo vacío es automático): ciclo en días (vacío = semanal, quincenal o mensual según su valor de compra), días fijos de pedido (p. ej. LUN,JUE), mínimo de compra $ o piezas, flete completo y su monto, tiempo de entrega real en días (vacío = el de cada clave).</p>
+    <div class="row" style="margin-top:6px"><button class="sec" onclick="run('prov_plant')">⬇ Plantilla de reglas con los proveedores actuales</button>
+      <input type="file" id="f-provreg" accept=".xlsx,.xls,.csv"><button onclick="run('prov_reg')">Cargar reglas</button><span class="d" id="provreg-res"></span></div>
+    <div class="log" id="log-prov"></div>
+  </div>
+  <div class="card">
+    <h2><span class="n">🌏</span>Compra nacional e importación <small style="color:var(--tx2);font-weight:400">· claves con dos proveedores (p. ej. BYP y China)</small></h2>
+    <p class="d">Claves que se compran de dos formas: <b>nacional</b> (del stock que tiene el proveedor nacional) e <b>importación</b>. Cada forma tiene su proveedor, <b>tiempo de entrega</b> y <b>meses objetivo</b> (en meses, como la hoja Detalle; vacío = se usa el de la hoja Detalle). <b>Mínimo por contenedor</b> = piezas (unidad del portal) de un contenedor o mínimo de compra de importación. En Propuestas de compra el comprador crea un folio <b>Nacional</b> o uno de <b>Importación</b> con estas claves. El estatus oficial, las alarmas, el Target y el bono no cambian (siguen con la hoja Detalle).<br>
+    Al cargar se agregan o actualizan las claves del archivo; una clave con todo vacío (sin proveedores ni tiempos) se quita. Marca «reemplazar todo» para borrar la lista anterior.</p>
+    <div class="row" style="margin-top:6px"><button class="sec" onclick="run('dual_baja')">⬇ Plantilla / lista actual</button><input type="file" id="f-dual" accept=".xlsx,.xls,.csv"><label class="d"><input type="checkbox" id="dual-rem"> reemplazar todo</label><button onclick="run('dual')">Cargar claves</button></div>
+    <div class="log" id="log-dual"></div>
+    <p class="d" style="margin-top:12px"><b>Stock disponible en el proveedor nacional</b> (es del proveedor, <b>no es nuestro</b>: no se suma a la existencia ni cambia el estatus; si es mercancía ya pagada va en «Inventario en resguardo»). Es el <b>tope</b> de la propuesta nacional y en la de importación cuenta como cobertura. Cada saldo cuenta <b>30 días</b> desde su fecha de corte. Al subir un archivo se reemplaza el saldo de los proveedores que trae; cantidad 0 quita la clave.</p>
+    <div class="row" style="margin-top:6px"><button class="sec" onclick="run('stk_baja')">⬇ Plantilla (con lo cargado hoy)</button><input type="file" id="f-stk" accept=".xlsx,.xls,.csv"><button onclick="run('stk')">Cargar stock</button></div>
+    <div class="log" id="log-stk"></div>
+    <div id="dual-res" class="d" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <h2><span class="n">🚛</span>Origen de recolección por clave <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Claves que se recogen con el proveedor y desde qué <b>origen</b> (MONTERREY, GUADALAJARA, CDMX…). En <b>Propuestas de compra</b> sale la columna Origen y el filtro para jalar todas las claves de un origen; en el <b>Calendario de pedidos</b> se puede agrupar por origen.
+      Excel con columnas <b>Clave</b> y <b>Origen</b> (opcional <b>Notas</b>). Al cargar se agregan o actualizan esas claves; una clave con Origen vacío se quita. Marca «reemplazar todo» para borrar la lista anterior.</p>
+    <div class="row" style="margin-top:6px"><input type="file" id="f-ori" accept=".xlsx,.xls,.csv"><label class="d"><input type="checkbox" id="ori-rem"> reemplazar todo</label><button onclick="run('ori')">Cargar orígenes</button><button class="sec" onclick="run('ori_baja')">⬇ Plantilla / lista actual</button><span class="d" id="ori-res"></span></div>
+    <div class="log" id="log-ori"></div>
+  </div>
+  <div class="card">
+    <h2><span class="n">🎯</span>Objetivos del bono: faltantes permitidos y meta de Target por comprador <small style="color:var(--tx2);font-weight:400">· cuando cambie</small></h2>
+    <p class="d">Cantidad <b>máxima de claves en faltante</b> que puede tener cada comprador por clasificación (Histórico de Inventarios → Faltantes por comprador). Deja la celda <b>vacía</b> para usar la regla general: Sagrados 0, Alta según la tabla anterior (0.5% si no tiene), Media 3% y Lenta 5% de sus claves (redondeado hacia abajo; el número gris es lo que daría la regla con las claves de hoy).<br>
+      <b>Meta Target</b>: % de OCs que deben colocarse con la clave en riesgo <b>bajo</b> (o antes de entrar a riesgo). La fila <b>GENERAL</b> aplica a todos los que tengan la celda vacía; si también está vacía se usa 80%.</p>
+    <div class="row" style="margin:8px 0"><button onclick="guardarBono()">Guardar objetivos</button><button class="sec" onclick="pintarBono()">↻ Recargar</button><span class="d" id="bono-res"></span></div>
+    <div style="overflow:auto;max-height:60vh;border:1px solid var(--brd);border-radius:10px"><table id="bono-tbl" style="border-collapse:collapse;width:100%;font-size:13px"></table></div><style>#bono-tbl input::placeholder{color:#b3bccd;font-style:italic}</style>
+  </div>
+  <div class="card">
+    <h2><span class="n">🔁</span>Claves sustituidas <small style="color:var(--tx2);font-weight:400">· cuando cambie la lista</small></h2>
+    <p class="d">Archivo <b>Claves vigentes y sustituidas</b>: a la izquierda la clave vigente (IDART en azul) y a la derecha la o las claves originales que sustituyó (IDART en naranja). En el Cálculo diario la clave vigente <b>suma la venta de sus claves originales</b> (ventas SANVER y MF y compras de entrega directa) para tener su historial completo. Si una original tiene varias sustitutas, a cada una le toca la venta dividida en partes iguales. Cada carga <b>reemplaza la lista completa</b>.</p>
+    <p class="d"><b>Unidad distinta:</b> si la clave vigente y la original venden en escalas muy diferentes (más de 10 veces, p. ej. una en mililitros y otra en piezas), la venta de la original <b>no se suma</b> hasta capturar su factor de conversión. Baja la lista, llena la columna FACTOR (1 unidad de la original = FACTOR unidades de la vigente) y súbela aquí mismo; solo actualiza los factores.</p>
+    <div class="row"><input type="file" id="f-sust" accept=".xlsx,.xls"><button onclick="run('sust')">Cargar sustituciones o factores</button><button class="sec" onclick="run('sustx')">⬇ Pares con unidad distinta</button></div>
+    <div class="log" id="log-sust"></div>
+    <div class="log" id="log-sustx"></div>
+    <div id="sust-res" class="d" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <h2><span class="n">📦</span>Inventario en resguardo con proveedores <small style="color:var(--tx2);font-weight:400">· cuando el proveedor reporte saldo</small></h2>
+    <p class="d">Mercancía nuestra que el proveedor tiene guardada fuera del CEDI. Se <b>suma a la existencia</b> en el Cálculo diario: meses de inventario, estatus (una clave con 0 en el CEDI y resguardo ya no es faltante) y propuesta de compra. Cada saldo cuenta <b>30 días</b> desde su fecha de corte; después deja de sumar hasta que se actualice. Si la mercancía también sigue pendiente en la OC, marca <b>Descontar del BO = SI</b> para no contarla dos veces.<br>
+    Al subir un archivo se <b>reemplaza el saldo de los proveedores que trae</b> (los demás no se tocan); cantidad 0 quita la clave. Se aplica en el siguiente Cálculo diario.</p>
+    <div class="row"><button class="sec" onclick="plantillaResg()">⬇ Plantilla (con lo cargado hoy)</button><input type="file" id="f-resg" accept=".xlsx,.xls,.csv"><button onclick="run('resg')">Cargar resguardo</button></div>
+    <div class="log" id="log-resg"></div>
+    <div id="resg-lista" style="margin-top:10px"></div>
+  </div>
+  <div class="card">
+    <h2><span class="n">📥</span>Entradas reales (RP01-07 Compras por ID) <small style="color:var(--tx2);font-weight:400">· diario, antes del Cálculo diario</small></h2>
+    <p class="d">Reporte <b>RP01-07 Compras por ID</b> tal como sale del sistema (el del mes, o uno de varios meses para cargar historia). El portal guarda cada entrada con su <b>fecha de recibo</b> y la <b>cantidad recibida</b>, ligada a la OC (FOLIO OC). El <b>OTIF</b> usa esa fecha y esa cantidad en lugar del día en que el portal detecta que bajó el pendiente al comparar archivos de OCs (si una línea no tiene entradas aquí, sigue con la detectada). Solo se guardan entradas de OCs que el portal ya conoce. Al subir un archivo se reemplazan las entradas de las fechas que trae.</p>
+    <div class="row"><input type="file" id="f-recreal" accept=".xlsx,.xls"><button onclick="run('recreal')">Cargar entradas</button></div>
+    <div class="log" id="log-recreal"></div>
+    <div id="recreal-res" class="d" style="margin-top:8px"></div>
+  </div>
+  <div class="card" style="border:2px solid var(--navy2)">
+    <h2><span class="n">6</span>Cálculo diario de planeación <small style="color:var(--tx2);font-weight:400">· diario</small></h2>
+    <p class="d">Archivo <b>maestro del día</b> (el mismo que subes en Admin; solo se lee la hoja Detalle). Calcula antecedente, pronóstico, demanda del portal (la base recomendada: pronóstico si es temporada, si no antecedente), estatus del portal y sugerencia con empaque para cada clave, y registra una <b>alarma</b> cada vez que una clave <b>entra</b> a RIESGO o FALTANTE. Si el Detalle trae varios días, los procesa en orden. La primera vez, el primer día sirve solo como punto de partida (no genera alarmas).</p>
+    <div class="row"><input type="file" id="f-calc" accept=".xlsx,.xlsm"><button onclick="run('calc')">Calcular</button><button class="sec" id="btn-xl" style="display:none" onclick="descargarCalc()">⬇ Descargar resultado (Excel)</button></div>
+    <div class="log" id="log-calc"></div>
+    <div id="calc-res"></div>
+  </div>
+  <div class="card">
+    <h2><span class="n">↺</span>Historial del portal por día <small style="color:var(--tx2);font-weight:400">· una vez, o si cambia una regla</small></h2>
+    <p class="d">Cada Cálculo diario guarda una foto del estatus y los meses de inventario del portal de cada clave; con ella se arman el Histórico de Inventarios, la Consulta de clave, el Comparativo diario y el estatus día por día de la ficha. Aquí se reconstruyen los días anteriores con la existencia, el BO y los parámetros guardados de cada día (no genera alarmas ni cambia el cálculo publicado).</p>
+    <div class="row"><label class="d">Desde</label><input type="date" id="rh-desde" value="2026-10-01"><button onclick="run('hist2')">Reconstruir historial</button><span class="d" id="rh-info"></span></div>
+    <div class="log" id="log-hist2"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">✓</span>Verificación</h2>
+    <p class="d">Lo que quedó guardado en la base para las claves que escribas (separadas por coma).</p>
+    <div class="row"><input type="text" id="v-claves" value="44519, 45787, 39424, 34147, 49127, 61282" style="flex:1"><button onclick="verificar()">Consultar</button><button class="sec" onclick="resumen()">Resumen de la base</button></div>
+    <div id="v-res"></div>
+  </div>
+</main>
+
+<script>
+// ══════════ LÓGICA DE LECTURA (sin conexión a la base; probada aparte) ══════════
+// La lógica de cálculo vive en plan_logica.js (la comparte el tablero de planeación)
+
+
+// ══════════ CONEXIÓN Y CARGA ══════════
+const SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";
+const SB_KEY="sb_publishable_9CGnUVxR36vOvPLvaToJ7A_ztI7s6yT";
+const EMAIL_ADMIN="admin@portalcompras.app";
+const sb=window.supabase.createClient(SB_URL,SB_KEY);
+const ocupado={};
+
+async function entrar(){
+  const pw=document.getElementById('pw').value,err=document.getElementById('pw-err');err.style.display='none';
+  const r=await sb.auth.signInWithPassword({email:EMAIL_ADMIN,password:pw});
+  if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
+  abrir();
+}
+function abrir(){document.getElementById('lock').style.display='none';document.getElementById('app').style.display='block';document.getElementById('ses').textContent='Sesión: administrador';try{pintarSinED();}catch(e){}try{pintarCfgED();}catch(e){}try{pintarEDManual();}catch(e){}try{pintarResg();}catch(e){}try{pintarSust();}catch(e){}try{pintarMFB();}catch(e){}try{pintarProv();}catch(e){}try{pintarOrigen();}catch(e){}try{pintarDual();}catch(e){}try{pintarRecReal();}catch(e){}try{pintarBono();}catch(e){}}
+(async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&session.user&&session.user.email===EMAIL_ADMIN)abrir();})();
+
+function L(id){const el=document.getElementById('log-'+id);el.style.display='block';
+  return{clear(){el.innerHTML='';},msg(t,c){const d=document.createElement('div');if(c)d.className=c;d.textContent=t;el.appendChild(d);el.scrollTop=el.scrollHeight;}};}
+const pausa=()=>new Promise(r=>setTimeout(r,30));
+const fmt=n=>Number(n).toLocaleString('es-MX');
+const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function leerLibro(input,hojas,log){
+  const f=document.getElementById(input).files[0];
+  if(!f)throw new Error('Primero selecciona el archivo.');
+  log.msg('📖 Leyendo '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)…');await pausa();
+  const buf=await f.arrayBuffer();
+  const opt={type:'array'};if(hojas)opt.sheets=hojas;
+  const wb=XLSX.read(new Uint8Array(buf),opt);
+  log.msg('   Hojas: '+wb.SheetNames.slice(0,6).join(', ')+(wb.SheetNames.length>6?' y '+(wb.SheetNames.length-6)+' más':''));
+  return wb;
+}
+// Inserta/actualiza en lotes de 1000, con un reintento por lote
+async function enLotes(tabla,rows,log,opciones){
+  const T=1000;let hechos=0;
+  for(let i=0;i<rows.length;i+=T){
+    const lote=rows.slice(i,i+T);
+    let q=()=>opciones?sb.from(tabla).upsert(lote,opciones):sb.from(tabla).insert(lote);
+    let{error}=await q();
+    if(error){await new Promise(r=>setTimeout(r,1500));({error}=await q());}
+    if(error)throw new Error(tabla+' (filas '+(i+1)+'-'+(i+lote.length)+'): '+error.message);
+    hechos+=lote.length;
+    if(rows.length>T&&(hechos%10000<T||hechos===rows.length))log.msg('   … '+fmt(hechos)+' / '+fmt(rows.length));
+  }
+}
+async function sesionOk(){const{data:{session}}=await sb.auth.getSession();if(!session)throw new Error('La sesión expiró. Recarga la página y vuelve a entrar.');}
+
+async function run(tipo){
+  if(ocupado[tipo])return;ocupado[tipo]=true;
+  const btns=document.querySelectorAll('button');btns.forEach(b=>b.disabled=true);
+  const log=L(tipo.startsWith('prov_')?'prov':tipo.startsWith('ori')?'ori':tipo.startsWith('octipo')?'octipo':tipo.startsWith('dual')?'dual':tipo.startsWith('stk')?'stk':tipo);log.clear();
+  try{
+    await sesionOk();
+    if(tipo==='ventas')await cargaVentas(log);
+    if(tipo==='mf')await cargaMF(log);
+    if(tipo==='emp')await cargaEmp(log);
+    if(tipo==='hist')await cargaHist(log);
+    if(tipo==='ed')await cargaED(log);
+    if(tipo==='calc')await cargaCalc(log);
+    if(tipo==='hist2')await reconstruirHistorial(log);
+    if(tipo==='resg')await cargaResg(log);
+    if(tipo==='sust')await cargaSust(log);
+    if(tipo==='mfb')await cargaMFB(log);
+    if(tipo==='ori')await cargaOrigen(log);
+    if(tipo==='ori_baja')await bajarOrigen(log);
+    if(tipo==='prov_lista')await listaProvClave(log);
+    if(tipo==='prov_cat')await cargaProvCat(log);
+    if(tipo==='prov_plant')await plantillaProv(log);
+    if(tipo==='prov_reg')await cargaProvReg(log);
+    if(tipo==='sustx')await bajarConversiones(log);
+    if(tipo==='octipo')await cargaOcTipo(log,false);
+    if(tipo==='octipo_man')await cargaOcTipo(log,true);
+    if(tipo==='recreal')await cargaRecReal(log);
+    if(tipo==='dual')await cargaDual(log);
+    if(tipo==='dual_baja')await bajarDual(log);
+    if(tipo==='stk')await cargaStk(log);
+    if(tipo==='stk_baja')await bajarStk(log);
+  }catch(e){log.msg('❌ '+e.message,'e');}
+  finally{ocupado[tipo]=false;btns.forEach(b=>b.disabled=false);}
+}
+
+async function cargaVentas(log){
+  const wb=await leerLibro('f-ventas',['VENTAS_SANVER','VENTAS_MF'],log);
+  const r=P.ventas(wb);r.avisos.forEach(a=>log.msg('⚠️ '+a,'w'));
+  for(const emp of Object.keys(r.empresas)){
+    const e=r.empresas[emp];
+    if(!e.meses.length){log.msg('⚠️ '+emp+': no encontré columnas de mes.','w');continue;}
+    log.msg('⚙️ '+emp+': '+fmt(e.claves)+' claves · '+e.meses.length+' meses ('+e.meses[0]+' a '+e.meses[e.meses.length-1]+') · '+fmt(e.celdas)+' celdas con venta');
+    log.msg('   📥 Leyendo lo que ya hay en la base…');
+    const ex=await todo(()=>sb.from('plan_ventas').select('clave,meses').eq('empresa',emp).order('clave'));
+    const filas=P.mergeVentas(emp,ex,e);
+    log.msg('   '+fmt(ex.length)+' claves en la base · '+fmt(filas.length)+' por actualizar (se reemplazan los meses del archivo)');
+    if(filas.length)await enLotes('plan_ventas',filas.map(f=>({...f,actualizado_en:new Date().toISOString()})),log,{onConflict:'empresa,clave'});
+    log.msg('   ✅ '+emp+' guardado');
+  }
+  log.msg('🎉 Listo.');
+}
+
+async function cargaMF(log){
+  const wb=await leerLibro('f-mf',null,log);
+  const r=P.existMF(wb);
+  if(!r.fecha)throw new Error('No encontré la fecha del corte (columna FECHA).');
+  log.msg('⚙️ Corte '+r.fecha+' · '+r.sucursales+' sucursales · '+fmt(r.rows.length)+' claves'+(r.negativas?' · '+r.negativas+' con total negativo (cuentan como 0)':''));
+  // días que cubre este corte = días desde el corte anterior (máx. 7; 3 si es el primero)
+  const{data:prev}=await sb.from('plan_agotados_dia').select('fecha').eq('empresa','MF').lt('fecha',r.fecha).order('fecha',{ascending:false}).limit(1);
+  let dias=3;
+  if(prev&&prev.length){dias=Math.round((new Date(r.fecha)-new Date(prev[0].fecha))/864e5);dias=Math.min(7,Math.max(1,dias));}
+  const ag=r.rows.filter(x=>x.existencia<=0).map(x=>({empresa:'MF',clave:x.clave,fecha:r.fecha,dias}));
+  log.msg('   '+fmt(ag.length)+' claves en cero → '+dias+' día(s) agotado cada una'+(prev&&prev.length?' (corte anterior '+prev[0].fecha+')':' (primer corte)'));
+  log.msg('🧹 Reemplazando el corte anterior…');
+  let{error}=await sb.from('plan_inventario_mf').delete().gte('clave',0);if(error)throw new Error('borrando corte: '+error.message);
+  await enLotes('plan_inventario_mf',r.rows.map(x=>({...x,fecha_corte:r.fecha})),log);
+  ({error}=await sb.from('plan_agotados_dia').delete().eq('empresa','MF').eq('fecha',r.fecha));if(error)throw new Error('borrando agotados del corte: '+error.message);
+  await enLotes('plan_agotados_dia',ag,log);
+  log.msg('🎉 Listo. Existencias MF al '+r.fecha+'.');
+}
+
+async function cargaEmp(log){
+  const wb=await leerLibro('f-emp',['BD'],log);
+  const r=P.empaques(wb);
+  log.msg('⚙️ '+fmt(r.rows.length)+' claves · '+fmt(r.validos)+' VALIDO');
+  await enLotes('plan_empaques',r.rows.map(x=>({...x,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});
+  log.msg('🎉 Listo.');
+}
+
+async function cargaHist(log){
+  const wb=await leerLibro('f-hist',['Historico de faltantes','Detalle'],log);
+  log.msg('⚙️ Buscando días en existencia 0…');await pausa();
+  const r=P.historico(wb);
+  log.msg('   '+fmt(r.leidas)+' filas leídas · '+r.dias+' días ('+r.desde+' a '+r.hasta+') · '+fmt(r.rows.length)+' días-clave agotados');
+  await enLotes('plan_agotados_dia',r.rows,log,{onConflict:'empresa,clave,fecha'});
+  log.msg('🎉 Listo.');
+}
+
+async function cargaED(log){
+  const wb=await leerLibro('f-ed',null,log);
+  const r=P.comprasED(wb);
+  log.msg('⚙️ Meses en el archivo: '+r.meses[0].slice(0,7)+' a '+r.meses[r.meses.length-1].slice(0,7)+' · '+fmt(r.rows.length)+' clave-mes de entregas directas');
+  for(const m of r.meses){const{error}=await sb.from('plan_compras_ed').delete().eq('mes',m);if(error)throw new Error('borrando '+m+': '+error.message);}
+  await enLotes('plan_compras_ed',r.rows,log);
+  const cos=P.costosCompra(wb);
+  if(cos&&cos.length){log.msg('💲 Costo unitario de compra (TOTAL ÷ CANT REC, últimos 3 meses con compra): '+fmt(cos.length)+' claves');
+    try{await enLotes('plan_costos',cos.map(c=>({...c,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});}
+    catch(e){log.msg('⚠️ No se guardaron los costos ('+(e.message||e)+'). ¿Ya corriste plan_tablas_8.sql?');}}
+  log.msg('🎉 Listo.');
+}
+
+// ══════════ CÁLCULO DIARIO ══════════
+let ULTIMO_CALC=null;
+async function contexto(log){
+  log.msg('📥 Leyendo ventas, compras ED, agotados, existencias MF, empaques y restricciones…');
+  const [ven,ed,ag,mf,em,rs]=await Promise.all([
+    todo(()=>sb.from('plan_ventas').select('empresa,clave,meses').order('empresa').order('clave')),
+    todo(()=>sb.from('plan_compras_ed').select('clave,mes,cantidad').order('clave').order('mes')),
+    todo(()=>sb.from('plan_agotados_mes').select('empresa,clave,mes,dias_agotado').gte('dias_agotado',P.R.DIAS_AGOTADO).order('clave').order('mes')),
+    todo(()=>sb.from('plan_inventario_mf').select('clave,existencia,fecha_corte').order('clave')),
+    todo(()=>sb.from('plan_empaques').select('*').order('clave')),
+    todo(()=>sb.from('claves_restringidas').select('clave,comprador,activa,autorizado_en').eq('activa',true).order('clave'))]);
+  const ctx={ventas:{SANVER:new Map(),MF:new Map()},ed:new Map(),agot:new Set(),invMF:new Map(),emp:new Map(),ultimo:{SANVER:null,MF:null},primero:{SANVER:null,MF:null}};
+  ven.forEach(r=>{const k=Number(r.clave);ctx.ventas[r.empresa].set(k,r.meses||{});Object.keys(r.meses||{}).forEach(m=>{if(!ctx.ultimo[r.empresa]||m>ctx.ultimo[r.empresa])ctx.ultimo[r.empresa]=m;if(!ctx.primero[r.empresa]||m<ctx.primero[r.empresa])ctx.primero[r.empresa]=m;});});
+  ed.forEach(r=>{const k=Number(r.clave);if(!ctx.ed.has(k))ctx.ed.set(k,{});ctx.ed.get(k)[String(r.mes).slice(0,7)]=Number(r.cantidad);});
+  ag.forEach(r=>ctx.agot.add(r.empresa+'|'+Number(r.clave)+'|'+String(r.mes).slice(0,7)));
+  mf.forEach(r=>ctx.invMF.set(Number(r.clave),Number(r.existencia)));
+  em.forEach(r=>ctx.emp.set(Number(r.clave),{...r,inner_cant:r.inner_cant==null?null:Number(r.inner_cant),master_cant:r.master_cant==null?null:Number(r.master_cant),factor_conv:r.factor_conv==null?null:Number(r.factor_conv)}));
+  const restr=new Set();rs.forEach(x=>{if(x.autorizado_en){const d=(Date.now()-new Date(String(x.autorizado_en).slice(0,10)+'T12:00:00'))/864e5;if(d>=30)return;}restr.add(Number(x.clave)+'|'+P.norm(x.comprador));});
+  log.msg('   Ventas SANVER '+fmt(ctx.ventas.SANVER.size)+' (hasta '+ctx.ultimo.SANVER+') · MF '+fmt(ctx.ventas.MF.size)+' (hasta '+ctx.ultimo.MF+') · ED '+fmt(ed.length)+' · meses agotados '+fmt(ag.length)+' · MF '+fmt(mf.length)+(mf[0]?' (corte '+mf[0].fecha_corte+')':'')+' · empaques '+fmt(em.length)+' · restringidas '+restr.size);
+  if(!ctx.ventas.SANVER.size)throw new Error('No hay ventas cargadas. Primero usa la sección 1.');
+  // Primera fecha con existencia por clave (NUEVA hasta P.R.DIAS_NUEVA días; después SIN MOVIMIENTO si nunca se vendió)
+  try{const pe=await todo(()=>sb.from('plan_primera_existencia').select('clave,fecha').order('clave'));ctx.primeraEx=new Map(pe.map(r=>[Number(r.clave),String(r.fecha).slice(0,10)]));
+    log.msg('🆕 Primera fecha con existencia: '+fmt(pe.length)+' claves registradas.');}
+  catch(e){ctx.primeraEx=null;log.msg('ℹ️ Sin fechas de primera existencia ('+(e.message||e)+'): las claves que nunca se han vendido quedan como NUEVA. Corre plan_tablas_14.sql.','w');}
+  // Entregas directas extra: recepciones de OCs a lugares sin sucursal (Lugares/Frases) y ajustes manuales
+  try{const[rc,ln,cf]=await Promise.all([todo(()=>sb.from('plan_recepciones').select('folio,clave,fecha,cantidad').order('folio').order('clave')),
+      todo(()=>sb.from('plan_oc_lineas').select('folio,clave,destino,entrega_directa').eq('entrega_directa',true).order('folio').order('clave')),
+      sb.from('plan_config').select('valor').eq('id','ed_manual').maybeSingle()]);
+    const L=new Map(ln.map(l=>[Number(l.folio)+'|'+Number(l.clave),l]));const A=P.edAuto(rc,L),M=P.edManualMapa(cf.data&&cf.data.valor);let n=0;
+    new Set([...A.keys(),...M.keys()]).forEach(k=>{ctx.ed.set(k,P.mezclarED(ctx.ed.get(k),A.get(k),M.get(k)));n++;});
+    if(n)log.msg('🚚 Entregas directas extra restadas de la venta: '+fmt(A.size)+' claves por recepciones a lugares sin sucursal · '+fmt(M.size)+' por ajuste manual.');}
+  catch(e){log.msg('ℹ️ Entregas directas extra no aplicadas: '+(e.message||e),'w');}
+  // Claves que alguna vez han tenido entrada (compra recibida): base de compras 2024-2026 (plan_costos) + recepciones de OCs del portal.
+  // Una clave sin ninguna entrada (p. ej. componentes YY* que nunca se compran) no lleva nivel de riesgo, alarma ni aparece en los mensajes de riesgo.
+  try{const[cs,rc2]=await Promise.all([todo(()=>sb.from('plan_costos').select('clave').order('clave')),todo(()=>sb.from('plan_recepciones').select('clave').order('clave'))]);
+    if(cs.length){ctx.conEntrada=new Set([...cs,...rc2].map(r=>Number(r.clave)));log.msg('📥 Claves con alguna entrada (compras 2024-2026 + recepciones): '+fmt(ctx.conEntrada.size)+'.');}
+    else log.msg('ℹ️ Sin base de compras cargada (Compras por ID): no se puede separar las claves que nunca han tenido entrada.','w');}
+  catch(e){ctx.conEntrada=null;log.msg('ℹ️ No se leyeron las claves con entrada ('+(e.message||e)+').','w');}
+  // Número base de Mas Ferre
+  try{const mb=await todo(()=>sb.from('plan_mf_base').select('clave,base').order('clave'));ctx.mfBase=new Map(mb.map(r=>[Number(r.clave),Number(r.base)]));if(mb.length)log.msg('🏬 Número base MF: '+fmt(mb.length)+' claves.');}
+  catch(e){ctx.mfBase=new Map();}
+  // Claves sustituidas: la vigente suma la venta de sus claves originales
+  try{let su;try{su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,conv').order('clave_vigente').order('clave_original'));}
+    catch(e){su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));}
+    if(su.length){const n=P.aplicarSust(ctx,su);log.msg('🔁 Claves sustituidas: '+fmt(n)+' claves vigentes suman la venta de sus claves originales'+(ctx.sustOmit.length?' · ⚠️ '+ctx.sustOmit.length+' pares NO se suman por unidad distinta (captura su factor en la tarjeta de sustituciones)':'')+'.');}}
+  catch(e){ctx.sust=new Map();log.msg('ℹ️ Sin claves sustituidas ('+(e.message||e)+'). Si aún no existe la tabla, corre plan_tablas_13.sql.','w');}
+  // Inventario en resguardo con proveedores (se suma a la existencia; vigencia por día dentro del cálculo)
+  try{ctx.resgRows=await todo(()=>sb.from('plan_resguardo').select('clave,proveedor,cantidad,fecha_corte,desc_bo').order('clave').order('proveedor'));
+    if(ctx.resgRows.length)log.msg('📦 Inventario en resguardo: '+fmt(ctx.resgRows.length)+' registros ('+fmt(new Set(ctx.resgRows.map(r=>r.clave)).size)+' claves); cuenta el que tenga corte de los últimos '+P.R.RESG_DIAS+' días.');}
+  catch(e){ctx.resgRows=[];log.msg('ℹ️ Sin inventario en resguardo ('+(e.message||e)+'). Si aún no existe la tabla, corre plan_tablas_12.sql.','w');}
+  return{ctx,restr};
+}
+async function cargaCalc(log){
+  const wb=await leerLibro('f-calc',['Detalle','Productos Incluidos en','RP01-23 Ordenes de Compra','Base produccion'],log);
+  const porFecha=P.detalle(wb);
+  const fechas=[...porFecha.keys()].sort();
+  if(!fechas.length)throw new Error('La hoja Detalle no trae fechas válidas.');
+  log.msg('⚙️ Detalle: '+fechas.length+' día(s), del '+fechas[0]+' al '+fechas[fechas.length-1]);
+  // 1. días agotados de SANVER desde el Detalle
+  const ag=[];porFecha.forEach((m,f)=>m.forEach(d=>{if(d.ex<=0)ag.push({empresa:'SANVER',clave:d.clave,fecha:f,dias:1});}));
+  log.msg('💾 Guardando '+fmt(ag.length)+' días-clave en existencia 0…');
+  await enLotes('plan_agotados_dia',ag,log,{onConflict:'empresa,clave,fecha',ignoreDuplicates:true});
+  // 2. estado anterior
+  const{data:pub,error:ep}=await sb.from('plan_publicacion').select('fecha,en_riesgo').eq('id','estado').maybeSingle();
+  if(ep)throw new Error('plan_publicacion: '+ep.message);
+  let prev=pub?new Set((pub.en_riesgo||[]).map(Number)):null;
+  let pendientes=fechas.filter(f=>!pub||f>pub.fecha);
+  let soloPublicar=false;
+  if(!pendientes.length){log.msg('ℹ️ El '+fechas[fechas.length-1]+' ya estaba calculado: se recalcula y publica sin generar alarmas nuevas.');pendientes=[fechas[fechas.length-1]];soloPublicar=true;}
+  const{ctx,restr}=await contexto(log);
+  // Producción: relación insumo → producto (hoja Base produccion; si no viene, la última guardada)
+  await baseProduccion(wb,ctx,log);
+  // BO de entregas directas: no llega al CEDI, se quita del BO para la propuesta
+  await leerOcTipo(log);
+  try{const oc=P.ocLineas(wb);if(oc){ctx.boFrac=P.fracBoCEDI(oc,P.ocEncabezados(wb),await cargarSinED());log.msg('🚚 '+fmt(ctx.boFrac.size)+' claves tienen BO de entrega directa a sucursal: se descuenta del BO del CEDI.');}}catch(e){log.msg('⚠️ No se pudo separar el BO de entregas directas: '+e.message,'w');}
+  // Último cálculo publicado = lo que veía el comprador: con él se guarda la sugerencia de cada OC nueva
+  const prevEst=await leerEstadoPublicado(pub,log);
+  let res=null,totN=0,totC=0;const nuevasDia=[];
+  // Estatus del día anterior por clave (para el margen de riesgo entre 1.2 y 1.4)
+  // Racha del estatus (desde cuándo está en faltante o riesgo) y estatus del día anterior, para Telegram y Seguimiento.
+  // Si se recalcula el mismo día ya publicado, se usa lo que ese cálculo tenía como "día anterior".
+  const mismoDia=prevEst&&prevEst.fecha===pendientes[0];
+  ctx.prevEst=new Map(prevEst?[...prevEst.map].map(([k,r])=>[k,mismoDia&&'pE' in r?{est:r.pE,eA:r.eA,eP:r.eP,eD:r.pD,eDx:!!r.pDx,nv:r.pNv,xh:r.xh}:{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx,nv:r.nv,xh:r.xh}]):[]);
+  ctx.prevFecha=mismoDia?(prevEst.fecha_ant||null):(prevEst?prevEst.fecha:null);
+  let antMap=mismoDia?(prevEst.antMap||null):(prevEst?prevEst.map:null),antFecha=ctx.prevFecha,salAnt=mismoDia?(prevEst.sal||null):null;
+  if(prevEst&&![...prevEst.map.values()].some(r=>'eD' in r))await rachasIniciales(ctx,prevEst,log);
+  if(prevEst&&![...prevEst.map.values()].some(r=>'xh' in r))await ritmoInicial(ctx,pendientes[0],log);
+  for(const f of pendientes){
+    await pausa();
+    primerasExistencias(ctx,[...porFecha.get(f).values()],f);
+    res=P.calcularDia(f,[...porFecha.get(f).values()],ctx);
+    if(f!==pendientes[pendientes.length-1]){antMap=new Map(res.map(r=>[Number(r.c),r]));antFecha=f;}
+    if(!soloPublicar||pendientes.length>1){ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx,nv:r.nv,xh:r.xh}]));ctx.prevFecha=f;}
+    await guardarHistEstatus(res,f,log);
+    await guardarFoto(res,f,log);
+    await guardarPrimerasEx(ctx,log);
+    if(soloPublicar)break;
+    if(!prev){prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));log.msg('📍 '+f+': punto de partida ('+fmt(prev.size)+' claves en RIESGO/FALTANTE). No genera alarmas.');continue;}
+    const a=P.alarmas(prev,null,res,f,restr);
+    if(a.nuevas.length)await enLotes('plan_alarmas',a.nuevas,log,{onConflict:'clave,fecha_alarma',ignoreDuplicates:true});
+    for(let i=0;i<a.cierres.length;i+=200){
+      const{error}=await sb.from('plan_alarmas').update({fecha_fin:f}).in('clave',a.cierres.slice(i,i+200)).is('fecha_fin',null);
+      if(error)throw new Error('cerrando alarmas: '+error.message);
+    }
+    log.msg('   '+f+': '+a.nuevas.length+' alarmas nuevas · '+a.cierres.length+' claves salieron de riesgo');
+    totN+=a.nuevas.length;totC+=a.cierres.length;nuevasDia.push(...a.nuevas);
+    prev=new Set(a.set);
+  }
+  const fUlt=pendientes[pendientes.length-1];
+  if(soloPublicar)prev=new Set(res.filter(r=>EN_RIESGO.includes(r.est)).map(r=>r.c));
+  // OCs, Target y OTIF
+  const ocx=await procesarOCs(wb,fUlt,log,res,prevEst);
+  // 3. publicar
+  log.msg('🗜️ Publicando el cálculo del '+fUlt+'…');
+  const cuenta=(arr,k)=>arr.reduce((o,r)=>{o[r[k]]=(o[r[k]]||0)+1;return o;},{});
+  // Claves que el día anterior estaban en faltante y hoy ya no vienen en el Excel (reclasificación o descontinuación)
+  const hoyC=new Set(res.map(r=>Number(r.c)));
+  const sal=salAnt||(antMap?[...antMap.values()].filter(r=>r.est==='FALTANTE'&&!hoyC.has(Number(r.c))).map(r=>({c:r.c,n:r.n,comp:r.comp,rot:r.rot})):[]);
+  const payload={fecha:fUlt,fecha_ant:antFecha||null,sal,generado:new Date().toISOString(),reglas:P.R,ventas_hasta:ctx.ultimo,ventas_desde:ctx.primero,claves:res,ocs:ocx?ocx.abiertas:{}};
+  const js=JSON.stringify(payload);let body=new Blob([js],{type:'application/json'}),ruta='plan/estado.json';
+  if(typeof CompressionStream!=='undefined'){body=await new Response(new Blob([js]).stream().pipeThrough(new CompressionStream('gzip'))).blob();ruta='plan/estado.json.gz';}
+  const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});
+  if(up.error)throw new Error('Storage: '+up.error.message);
+  const resumen={target_mes:ocx?ocx.tGen:null,otif_mes:ocx?ocx.oGen:null,claves:res.length,estatus_portal:cuenta(res,'est'),alarmas_nuevas:totN,salieron:totC,bandera_mf:res.filter(r=>r.mfF).length,ventas_hasta:ctx.ultimo};
+  const{error:eu}=await sb.from('plan_publicacion').upsert({id:'estado',fecha:fUlt,ruta,version:Date.now().toString(),resumen,en_riesgo:[...prev],actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  if(eu)throw new Error('plan_publicacion: '+eu.message);
+  ULTIMO_CALC={fecha:fUlt,res,nuevas:nuevasDia,oc:ocx};
+  document.getElementById('btn-xl').style.display='';
+  pintarCalc(resumen,nuevasDia,ocx);
+  log.msg('🎉 Listo. '+fmt(res.length)+' claves calculadas al '+fUlt+' · '+totN+' alarmas nuevas.');
+}
+// Lee el estado publicado anterior (Storage) → Map clave → fila del cálculo
+async function leerEstadoPublicado(pub,log){
+  if(!pub||!pub.fecha)return null;
+  try{
+    const{data:p2}=await sb.from('plan_publicacion').select('ruta').eq('id','estado').maybeSingle();
+    if(!p2||!p2.ruta)return null;
+    const{data:blob,error}=await sb.storage.from('respaldos').download(p2.ruta);if(error)throw error;
+    const txt=p2.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
+    const js=JSON.parse(txt);return{fecha:js.fecha,fecha_ant:js.fecha_ant||null,sal:js.sal||null,map:new Map((js.claves||[]).map(r=>[Number(r.c),r]))};
+  }catch(e){log.msg('⚠️ No se pudo leer el cálculo anterior ('+(e.message||e)+'): las OCs nuevas de hoy quedan sin sugerencia para comparar.','w');return null;}
+}
+// Una sola vez (el primer cálculo con esta versión): de qué fecha viene la racha de cada clave en faltante o riesgo.
+// Faltante: días seguidos con existencia 0 (plan_agotados_dia). Riesgo: alarma abierta (plan_alarmas).
+// Primera vez con niveles de riesgo: arma la existencia de los últimos días con las fotos diarias guardadas (para medir el ritmo real de venta)
+async function ritmoInicial(ctx,f0,log){
+  try{
+    const{data:ix}=await sb.from('plan_publicacion').select('resumen').eq('id','dias').maybeSingle();
+    const fechas=Object.keys((ix&&ix.resumen&&ix.resumen.fechas)||{}).filter(f=>f<f0&&P.difDias(f,f0)<=P.R.RITMO_DIAS).sort();
+    if(!fechas.length){log.msg('ℹ️ Nivel de riesgo: todavía no hay fotos de días anteriores; el ritmo real de venta se empieza a medir desde hoy.');return;}
+    log.msg('📉 Nivel de riesgo: leyendo la existencia de '+fechas.length+' días anteriores para medir el ritmo real de venta…');
+    const xh=new Map();
+    for(const f of fechas){
+      const{data:blob,error}=await sb.storage.from('respaldos').download('plan/dias/'+f+'.json.gz');if(error)continue;
+      const js=JSON.parse(await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text());
+      (js.claves||[]).forEach(r=>{if(r.ex==null)return;const k=Number(r.c);(xh.get(k)||xh.set(k,[]).get(k)).push([f,Number(r.ex)||0]);});
+    }
+    let n=0;ctx.prevEst.forEach((pv,k)=>{if(xh.has(k)){pv.xh=xh.get(k);n++;}});
+    log.msg('   listo: '+fmt(n)+' claves con existencia de días anteriores.');
+  }catch(e){log.msg('⚠️ No se pudo leer la existencia de días anteriores ('+(e.message||e)+'): el ritmo real de venta se mide desde hoy.','w');}
+}
+async function rachasIniciales(ctx,prevEst,log){
+  const f0=prevEst.fecha,falt=[],rsg=[];
+  prevEst.map.forEach((r,k)=>{if(r.est==='FALTANTE')falt.push(k);else if(r.est==='RIESGO')rsg.push(k);});
+  log.msg('⏳ Primera vez: calculando desde cuándo están en faltante ('+fmt(falt.length)+') o riesgo ('+fmt(rsg.length)+')…');
+  try{
+    const d0=new Date(f0+'T12:00:00');d0.setDate(d0.getDate()-120);const desde=d0.toISOString().slice(0,10);
+    const dias=(await todo(()=>sb.from('dias_cargados').select('fecha').gte('fecha',desde).lte('fecha',f0).order('fecha'))).map(x=>String(x.fecha).slice(0,10));
+    const ag=new Set();
+    for(let i=0;i<falt.length;i+=150){(await todo(()=>sb.from('plan_agotados_dia').select('clave,fecha').eq('empresa','SANVER').in('clave',falt.slice(i,i+150)).gte('fecha',desde).lte('fecha',f0).order('clave').order('fecha'))).forEach(x=>ag.add(Number(x.clave)+'|'+String(x.fecha).slice(0,10)));}
+    falt.forEach(k=>{let i=dias.length-1;if(i<0||dias[i]!==f0){return;}while(i>0&&ag.has(k+'|'+dias[i-1]))i--;const pv=ctx.prevEst.get(k);if(pv){pv.eD=dias[i];pv.eDx=i===0;}});
+    const al=new Map();
+    for(let i=0;i<rsg.length;i+=150){(await todo(()=>sb.from('plan_alarmas').select('clave,fecha_alarma').in('clave',rsg.slice(i,i+150)).is('fecha_fin',null).order('clave').order('fecha_alarma'))).forEach(x=>{const k=Number(x.clave),f=String(x.fecha_alarma).slice(0,10);if(!al.has(k)||f<al.get(k))al.set(k,f);});}
+    rsg.forEach(k=>{const pv=ctx.prevEst.get(k);if(pv&&al.has(k)){pv.eD=al.get(k);pv.eDx=false;}});
+    log.msg('   listo: '+fmt(falt.filter(k=>ctx.prevEst.get(k)&&ctx.prevEst.get(k).eD).length)+' faltantes y '+fmt(al.size)+' en riesgo con fecha de inicio.');
+  }catch(e){log.msg('⚠️ No se pudo calcular la racha inicial ('+(e.message||e)+'): se cuenta desde el cálculo anterior.','w');}
+}
+// ── Foto diaria del portal (Storage plan/dias/AAAA-MM-DD.json.gz) e índice de días (plan_publicacion id 'dias') ──
+async function guardarFoto(res,f,log){
+  try{
+    const js=JSON.stringify({fecha:f,generado:new Date().toISOString(),claves:P.foto(res)});
+    const body=await new Response(new Blob([js]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    const ruta='plan/dias/'+f+'.json.gz';
+    const up=await sb.storage.from('respaldos').upload(ruta,body,{upsert:true,contentType:'application/octet-stream'});if(up.error)throw new Error(up.error.message);
+    const{data:ix}=await sb.from('plan_publicacion').select('resumen').eq('id','dias').maybeSingle();
+    const fechas=Object.assign({},(ix&&ix.resumen&&ix.resumen.fechas)||{});
+    const c=e=>res.filter(r=>r.est===e).length;
+    fechas[f]={v:Date.now(),n:res.length,F:c('FALTANTE'),R:c('RIESGO'),O:c('OPTIMO'),S:c('SOBRE INVENTARIO')};
+    const{error}=await sb.from('plan_publicacion').upsert({id:'dias',fecha:Object.keys(fechas).sort().pop(),ruta:'plan/dias/',version:Date.now().toString(),resumen:{fechas},actualizado_en:new Date().toISOString()},{onConflict:'id'});
+    if(error)throw new Error(error.message);
+  }catch(e){log.msg('⚠️ No se guardó la foto del '+f+' para el histórico: '+(e.message||e),'w');}
+}
+// Reconstruye las fotos de días anteriores con lo guardado en detalle_diario (existencia, BO y parámetros de cada día).
+async function reconstruirHistorial(log){
+  const desde=document.getElementById('rh-desde').value||'2026-10-01';
+  const{data:pub}=await sb.from('plan_publicacion').select('fecha').eq('id','estado').maybeSingle();
+  const hasta=pub&&pub.fecha?pub.fecha:new Date().toISOString().slice(0,10);
+  const dias=(await todo(()=>sb.from('dias_cargados').select('fecha').gte('fecha',desde).lte('fecha',hasta).order('fecha'))).map(x=>String(x.fecha).slice(0,10));
+  if(!dias.length)throw new Error('No hay días cargados entre '+desde+' y '+hasta+'.');
+  log.msg('↺ Reconstruyendo '+dias.length+' días del '+dias[0]+' al '+dias[dias.length-1]+'…');
+  const{ctx}=await contexto(log);ctx.prevEst=new Map();ctx.prevFecha=null;await baseProduccion(null,ctx,log);
+  for(const f of dias){
+    await pausa();
+    const det=await todo(()=>sb.from('detalle_diario').select('clave,nombre,marca,unidad,clasificacion,existencias,grupo,comprador,rotacion,t_entrega,obj_meses,estatus,back_order').eq('fecha',f).order('clave'));
+    const filas=[];const vistos=new Set();
+    det.forEach(r=>{const k=P.clave(r.clave);if(k==null||vistos.has(k))return;vistos.add(k);
+      filas.push({clave:k,nombre:String(r.nombre||'').trim(),unidad:P.norm(r.unidad),grupo:String(r.grupo||'').trim(),marca:String(r.marca||'').trim(),comprador:P.norm(r.comprador),rot:P.norm(r.rotacion),
+        lt:P.num(r.t_entrega),pm:P.num(r.obj_meses),ex:P.num(r.existencias)||0,bo:P.num(r.back_order)||0,estX:P.norm(r.estatus),abc:String(r.clasificacion||'').trim()});});
+    if(!filas.length){log.msg('   '+f+': sin detalle, se omite','w');continue;}
+    primerasExistencias(ctx,filas,f);
+    const res=P.calcularDia(f,filas,ctx);
+    await guardarHistEstatus(res,f,log);await guardarFoto(res,f,log);await guardarPrimerasEx(ctx,log);
+    ctx.prevEst=new Map(res.map(r=>[r.c,{est:r.est,eA:r.eA,eP:r.eP,eD:r.eD,eDx:!!r.eDx,nv:r.nv,xh:r.xh}]));ctx.prevFecha=f;
+    const c=e=>res.filter(r=>r.est===e).length;
+    log.msg('   '+f+': '+fmt(res.length)+' claves · faltante '+fmt(c('FALTANTE'))+' · riesgo '+fmt(c('RIESGO'))+' · sobre inv. '+fmt(c('SOBRE INVENTARIO')));
+  }
+  log.msg('🎉 Historial reconstruido. El Histórico de Inventarios se actualiza con la siguiente carga del Excel.');
+}
+// ── Producción: hoja Base produccion (producto ← insumo × cantidad) guardada en plan_config id 'base_produccion' ──
+async function baseProduccion(wb,ctx,log){
+  let lst=null;try{lst=wb?P.baseProduccion(wb):null;}catch(e){}
+  if(lst&&lst.length){
+    const{error}=await sb.from('plan_config').upsert({id:'base_produccion',valor:lst,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+    if(error)log.msg('⚠️ No se guardó la Base de producción: '+error.message,'w');
+  }else{try{const{data}=await sb.from('plan_config').select('valor').eq('id','base_produccion').maybeSingle();lst=data&&Array.isArray(data.valor)?data.valor:null;}catch(e){}}
+  ctx.bom=P.bomInsumos(lst||[]);
+  const nP=P.aplicarProduccion(ctx);if(nP)log.msg('🏭 Consumo por producción sumado a la venta de '+fmt(nP)+' insumos (venta SANVER de sus productos × insumo por unidad; sin MF ni reempaques de la misma clave).');
+  if(lst&&lst.length)log.msg('🏭 Base de producción: '+fmt(new Set(lst.map(x=>x[0])).size)+' productos y '+fmt(ctx.bom.size)+' insumos. Las claves de comprador PRODUCCION se calculan pero no cuentan en faltantes, alarmas ni seguimiento.');
+}
+// ── Primera fecha con existencia (plan_primera_existencia): NUEVA vs SIN MOVIMIENTO para claves que nunca se han vendido ──
+// Cada día calculado agrega las claves que aparecen con existencia por primera vez; se guarda al final del cálculo.
+function primerasExistencias(ctx,filas,f){
+  if(!ctx.primeraEx)return;ctx._pexNuevas=ctx._pexNuevas||new Map();
+  filas.forEach(d=>{if((d.ex||0)>0&&!ctx.primeraEx.has(d.clave)){ctx.primeraEx.set(d.clave,f);ctx._pexNuevas.set(d.clave,f);}});
+}
+async function guardarPrimerasEx(ctx,log){
+  const m=ctx._pexNuevas;if(!m||!m.size)return;
+  try{await enLotes('plan_primera_existencia',[...m].map(([clave,fecha])=>({clave,fecha,origen:'CALCULO',actualizado_en:new Date().toISOString()})),log,{onConflict:'clave',ignoreDuplicates:true});
+    log.msg('🆕 '+fmt(m.size)+' claves aparecen con existencia por primera vez (se registra su fecha).');m.clear();}
+  catch(e){log.msg('⚠️ No se guardó la primera fecha con existencia: '+(e.message||e),'w');}
+}
+// ── Número base de Mas Ferre (plan_mf_base) ──
+function plantillaMFB(){const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Clave','Número base'],[23462,120]]),'Numero base');XLSX.writeFile(wb,'Numero_base_MasFerre.xlsx');}
+async function pintarMFB(){const el=document.getElementById('mfb-res');try{const{count,error}=await sb.from('plan_mf_base').select('clave',{count:'exact',head:true});if(error)throw error;el.textContent=count?fmt(count)+' claves con número base cargado.':'Sin número base cargado.';}catch(e){el.textContent='Aún no existe la tabla: corre plan_tablas_15.sql.';}}
+async function cargaMFB(log){
+  const wb=await leerLibro('f-mfb',null,log);const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:''});
+  // Con encabezado (Clave + columna con BASE/CANTIDAD/INVENTARIO) o sin encabezado: columna A = clave, B = número base
+  let hi=aoa.findIndex(r=>r.some(c=>/^CLAVE/.test(P.norm(c))));let iC=0,iB=1;
+  if(hi>=0){const H=aoa[hi].map(P.norm);iC=H.findIndex(h=>/^CLAVE/.test(h));iB=H.findIndex(h=>/BASE/.test(h));if(iB<0)iB=H.findIndex((h,i)=>i!==iC&&/CANT|INV|NUM/.test(h));if(iB<0)iB=iC===0?1:0;}
+  else hi=-1;
+  const m=new Map();let mal=0;for(let i=hi+1;i<aoa.length;i++){const k=P.clave(aoa[i][iC]),b=P.num(aoa[i][iB]);if(k==null){if(String(aoa[i][iC]).trim())mal++;continue;}if(b==null||b<0){mal++;continue;}m.set(k,b);}
+  if(!m.size)throw new Error('El archivo no trae claves con número base.');
+  const{error}=await sb.from('plan_mf_base').delete().gte('clave',0);if(error)throw new Error('plan_mf_base: '+error.message+' (¿ya corriste plan_tablas_15.sql?)');
+  await enLotes('plan_mf_base',[...m].map(([clave,base])=>({clave,base,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});
+  log.msg('✅ Número base de '+fmt(m.size)+' claves guardado'+(mal?' · '+mal+' renglones sin clave o número válido':'')+'.');pintarMFB();
+  await reaplicarMFB(m,log);
+}
+// Aplica el número base al cálculo ya publicado (Planeación, fichas, Propuestas) sin esperar al siguiente Cálculo diario
+async function reaplicarMFB(m,log){
+  const{data:pub}=await sb.from('plan_publicacion').select('*').eq('id','estado').maybeSingle();
+  if(!pub||!pub.ruta){log.msg('ℹ️ Aún no hay cálculo publicado; el número base se aplicará en el siguiente Cálculo diario.');return;}
+  log.msg('🔄 Aplicando el número base al cálculo publicado del '+pub.fecha+'…');
+  const{data:blob,error}=await sb.storage.from('respaldos').download(pub.ruta);if(error)throw new Error('Storage: '+error.message);
+  const gz=pub.ruta.endsWith('.gz');const js=JSON.parse(gz?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text());
+  const n=P.aplicarMFBase(js.claves,m);js.reglas=P.R;
+  const txt=JSON.stringify(js);const body=gz?await new Response(new Blob([txt]).stream().pipeThrough(new CompressionStream('gzip'))).blob():new Blob([txt],{type:'application/json'});
+  const up=await sb.storage.from('respaldos').upload(pub.ruta,body,{upsert:true,contentType:'application/octet-stream'});if(up.error)throw new Error('Storage: '+up.error.message);
+  const resumen={...(pub.resumen||{}),bandera_mf:js.claves.filter(r=>r.mfF).length};
+  const{error:eu}=await sb.from('plan_publicacion').update({version:Date.now().toString(),resumen,actualizado_en:new Date().toISOString()}).eq('id','estado');if(eu)throw new Error('plan_publicacion: '+eu.message);
+  if(ULTIMO_CALC&&ULTIMO_CALC.res)P.aplicarMFBase(ULTIMO_CALC.res,m);
+  log.msg('🎉 Listo: '+fmt(n)+' claves cambiaron · '+fmt(resumen.bandera_mf)+' claves MF para devolución estratégica. Planeación y las fichas ya muestran el número base (recarga la página).');
+}
+// ── Calendario de pedidos: proveedor por clave y reglas por proveedor (plan_tablas_16.sql) ──
+const CMP_URL="https://rbakkrzxdjkpbmbcurng.supabase.co";
+const CMP_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJiYWtrcnp4ZGprcGJtYmN1cm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwNzY1NzgsImV4cCI6MjEwNDY1MjU3OH0.504RZFk_kyH5POYWiNcZWdh8Nr8RTPNREMw-BtbJR2s";
+let _sbc=null;const sbc=()=>{try{return _sbc||(_sbc=window.supabase.createClient(CMP_URL,CMP_KEY,{auth:{persistSession:false,autoRefreshToken:false,storageKey:'cmp-admin'}}));}catch(e){return null;}};
+async function estadoClaves(log){
+  const{data:pub}=await sb.from('plan_publicacion').select('fecha,ruta').eq('id','estado').maybeSingle();
+  if(!pub||!pub.ruta)throw new Error('Todavía no hay un Cálculo diario publicado.');
+  const{data:blob,error}=await sb.storage.from('respaldos').download(pub.ruta);if(error)throw new Error('Storage: '+error.message);
+  const js=JSON.parse(pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text());
+  return{fecha:js.fecha,claves:(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r))};
+}
+async function fuentesProv(log){
+  log.msg('📥 Leyendo cálculo publicado, catálogo, Comparativos, OCs y costos…');
+  const E=await estadoClaves(log);const F=await P.calFuentes(sb,sbc());F.avisos.forEach(a=>log.msg('⚠️ '+a,'w'));
+  F.prov=P.provPorClave(E.claves,F);const org={};F.prov.forEach(x=>org[x.o]=(org[x.o]||0)+1);
+  log.msg('   '+fmt(E.claves.length)+' claves · por catálogo '+fmt(org['CATÁLOGO']||0)+' · Comparativos '+fmt(org['COMPARATIVO']||0)+' · última OC '+fmt(org['ÚLTIMA OC']||0)+' · solo marca '+fmt(org['MARCA']||0));
+  return{E,F};
+}
+async function listaProvClave(log){
+  const{E,F}=await fuentesProv(log);
+  const rows=E.claves.slice().sort((a,b)=>String(a.comp).localeCompare(String(b.comp))||String(a.m).localeCompare(String(b.m))||a.c-b.c).map(r=>{const x=F.prov.get(Number(r.c));
+    return{'Clave':r.c,'Descripción':r.n,'Marca':r.m||'','Grupo':r.g||'','Comprador':r.comp||'','Rotación':r.rot||'','Estatus':r.est||'','Demanda/mes':r.D,
+      'Proveedor sugerido':x.o==='MARCA'?'':x.p,'Origen':x.o,'Proveedor Comparativos':x.cmp||'','Fecha aprobación':x.cmpF||'','Proveedor última OC':x.oc||'','Fecha última OC':x.ocF||'',
+      'Proveedores distintos en OCs':x.ocN||'','Proveedor confirmado':F.cat.get(Number(r.c))||''};});
+  const ws=XLSX.utils.json_to_sheet(rows);ws['!cols']=[8,45,16,22,18,16,16,11,40,13,40,13,40,13,12,40].map(w=>({wch:w}));ws['!autofilter']={ref:ws['!ref']};
+  const ins=[['Cómo usar esta lista'],['1. Revisa «Proveedor sugerido» (Origen: CATÁLOGO, COMPARATIVO, ÚLTIMA OC o MARCA = sin proveedor conocido).'],['2. Escribe en «Proveedor confirmado» solo las claves que quieras fijar o corregir. Lo vacío se sigue resolviendo solo.'],
+    ['3. Carga el archivo en Admin → Cálculo diario → Calendario de pedidos → Cargar catálogo.'],['Claves con «Proveedores distintos en OCs» mayor a 1 se han comprado a más de un proveedor: conviene confirmarlas.']];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Proveedor por clave');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(ins),'Instrucciones');
+  XLSX.writeFile(wb,'Proveedor_por_clave_'+E.fecha+'.xlsx');log.msg('🎉 Lista descargada: '+fmt(rows.length)+' claves.');
+}
+async function cargaProvCat(log){
+  const wb=await leerLibro('f-provcat',null,log);const ws=wb.Sheets['Proveedor por clave']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});const hi=aoa.findIndex(r=>r.some(c=>/^CLAVE$/.test(P.norm(c))));if(hi<0)throw new Error('No encontré el encabezado Clave.');
+  const H=aoa[hi].map(P.norm),iC=H.indexOf('CLAVE');let iP=H.findIndex(h=>/PROVEEDOR CONFIRMADO/.test(h));if(iP<0)iP=H.findIndex(h=>h==='PROVEEDOR');if(iP<0)throw new Error('No encontré la columna «Proveedor confirmado» (o «Proveedor»).');
+  const m=new Map();let mal=0;for(let i=hi+1;i<aoa.length;i++){const k=P.clave(aoa[i][iC]),pv=String(aoa[i][iP]||'').trim();if(k==null||!pv)continue;if(!P.provValido(pv)||/^MARCA /i.test(pv)){mal++;continue;}m.set(k,pv);}
+  if(!m.size&&!document.getElementById('provcat-rem').checked)throw new Error('El archivo no trae ningún proveedor confirmado.');
+  if(document.getElementById('provcat-rem').checked){const{error}=await sb.from('plan_prov_clave').delete().gte('clave',0);if(error)throw new Error('plan_prov_clave: '+error.message+' (¿ya corriste plan_tablas_16.sql?)');log.msg('🧹 Catálogo anterior borrado.');}
+  await enLotes('plan_prov_clave',[...m].map(([clave,proveedor])=>({clave,proveedor,actualizado_en:new Date().toISOString()})),log,{onConflict:'clave'});
+  log.msg('🎉 '+fmt(m.size)+' claves con proveedor confirmado'+(mal?' · '+mal+' renglones ignorados (proveedor no válido)':'')+'. El calendario ya los usa.');pintarProv();
+}
+const PROV_COLS=[['ciclo_dias','Ciclo (días)','n'],['dias_pedido','Días de pedido','t'],['minimo_monto','Mínimo de compra $','n'],['minimo_piezas','Mínimo de piezas','n'],['flete_completo','Flete completo (SI/NO)','b'],
+  ['monto_flete','Monto para flete completo $','n'],['lead_time_dias','Tiempo de entrega real (días)','n'],['contacto','Contacto','t'],['notas','Notas','t']];
+async function plantillaProv(log){
+  const{E,F}=await fuentesProv(log);
+  const cal=P.calendario(E.claves,{hoy:E.fecha,prov:F.prov,reglas:F.reglas,costo:F.costo,emp:F.emp,agrupar:'PROV'});
+  const vistos=new Set();const rows=[];
+  cal.filter(g=>!/^MARCA /.test(g.g)).sort((a,b)=>b.valMes-a.valMes).forEach(g=>{const k=P.provKey(g.g);vistos.add(k);const r=g.regla||{};const o={'Proveedor':r.proveedor||g.g};
+    PROV_COLS.forEach(([c,t,ty])=>o[t]=r[c]==null?'':ty==='b'?(r[c]?'SI':'NO'):r[c]);
+    Object.assign(o,{'(info) Claves':g.claves,'(info) Compra mensual estimada $':g.valMes,'(info) Ciclo automático (días)':g.auto,'(info) Compradores':g.comps.join(', ')});rows.push(o);});
+  F.reglas.forEach((r,k)=>{if(vistos.has(k))return;const o={'Proveedor':r.proveedor};PROV_COLS.forEach(([c,t,ty])=>o[t]=r[c]==null?'':ty==='b'?(r[c]?'SI':'NO'):r[c]);o['(info) Claves']=0;rows.push(o);});
+  const ws=XLSX.utils.json_to_sheet(rows);ws['!cols']=[44,11,15,16,14,16,18,18,26,30,10,18,16,30].map(w=>({wch:w}));ws['!autofilter']={ref:ws['!ref']};
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Reglas proveedores');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Todo es opcional: deja vacío lo que no sepas y el portal lo calcula.'],['Ciclo (días): cada cuánto se le levanta pedido. Vacío = automático: 7 días si compra $'+fmt(P.R.CAL_SEMANAL)+' o más al mes, 14 si compra $'+fmt(P.R.CAL_QUINCENAL)+' o más, 30 si compra menos.'],
+    ['Días de pedido: días fijos para levantar el pedido, separados por coma (LUN, MAR, MIE, JUE, VIE, SAB). Vacío = cualquier día menos domingo.'],['Mínimo de compra $ / piezas y flete completo: el calendario avisa cuando un pedido no llega.'],
+    ['Tiempo de entrega real (días): si lo llenas, reemplaza el tiempo de entrega de las claves de ese proveedor en el calendario.'],['Las columnas (info) no se cargan; solo son referencia. Puedes agregar proveedores nuevos al final.']]),'Instrucciones');
+  XLSX.writeFile(wb,'Reglas_proveedores_'+E.fecha+'.xlsx');log.msg('🎉 Plantilla descargada con '+fmt(rows.length)+' proveedores.');
+}
+async function cargaProvReg(log){
+  const wb=await leerLibro('f-provreg',null,log);const ws=wb.Sheets['Reglas proveedores']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});const hi=aoa.findIndex(r=>r.some(c=>P.norm(c)==='PROVEEDOR'));if(hi<0)throw new Error('No encontré el encabezado Proveedor.');
+  const H=aoa[hi].map(P.norm),iP=H.indexOf('PROVEEDOR');const idx=PROV_COLS.map(([c,t,ty])=>[c,ty,H.indexOf(P.norm(t))]);
+  const out=[];let mal=[];
+  for(let i=hi+1;i<aoa.length;i++){const pv=String(aoa[i][iP]||'').trim();if(!pv)continue;const o={proveedor:pv,actualizado_en:new Date().toISOString()};let hay=false;
+    idx.forEach(([c,ty,j])=>{if(j<0)return;const v=aoa[i][j];const sv=String(v==null?'':v).trim();if(!sv){o[c]=null;return;}hay=true;
+      if(ty==='n'){const n=P.num(v);if(n==null||n<0){mal.push(pv+' · '+c);o[c]=null;}else o[c]=c==='ciclo_dias'?Math.max(1,Math.round(n)):n;}
+      else if(ty==='b')o[c]=/^(SI|SÍ|S|1|TRUE|VERDADERO|X)$/i.test(sv);else o[c]=c==='dias_pedido'?P.norm(sv):sv;});
+    if(o.dias_pedido){const ds=P.diasSemana(o.dias_pedido);if(!ds){mal.push(pv+' · días de pedido «'+o.dias_pedido+'»');o.dias_pedido=null;}else o.dias_pedido=P.diasTexto(ds);}
+    if(hay)out.push(o);}
+  if(!out.length)throw new Error('El archivo no trae ninguna regla capturada (todas las columnas vacías).');
+  await enLotes('plan_proveedores',out,log,{onConflict:'proveedor'});
+  log.msg('🎉 Reglas guardadas para '+fmt(out.length)+' proveedores. Los vacíos quedan automáticos.');if(mal.length)log.msg('⚠️ Valores no válidos (quedaron vacíos): '+mal.slice(0,15).join(' · ')+(mal.length>15?' …':''),'w');pintarProv();
+}
+// ── Objetivos del bono por comprador (plan_config id 'bono_objetivos') ──
+// valor = {COMPRADOR:{SAGRADOS:n,'ALTA ROTACIÓN':n,'MEDIA ROTACIÓN':n,'LENTA ROTACIÓN':n}}; vacío = regla general
+const BONO_CLS=[['SAGRADOS','Sagrados'],['ALTA ROTACIÓN','Alta rotación'],['MEDIA ROTACIÓN','Media rotación'],['LENTA ROTACIÓN','Lenta rotación']];
+const BONO_ALTA_DEF={'ALEJANDRO':2,'ARICELIA':2,'ESTELA':1,'FRANCISCO JAVIER':2,'IVAN':2,'JISHELL MARINTHYA':1,'KARLA ANAID':1,'LEONELA':1,'LUCIA':2,'MARIA VICTORIA':1,'MYRIAM VIDA CHRISTELL':2,'SILVINO':2};
+let BONO={cfg:{},skus:{}};
+const rotBono=r=>{const x=P.norm(r);return x==='SAGRADOS'?'SAGRADOS':x==='ALTA ROTACION'?'ALTA ROTACIÓN':x==='MEDIA ROTACION'?'MEDIA ROTACIÓN':x==='LENTA ROTACION'?'LENTA ROTACIÓN':null;};
+function bonoDef(comp,cl){const n=(BONO.skus[comp]||{})[cl]||0;
+  if(cl==='SAGRADOS')return{v:0,t:'0'};if(cl==='ALTA ROTACIÓN')return BONO_ALTA_DEF[comp]!=null?{v:BONO_ALTA_DEF[comp],t:String(BONO_ALTA_DEF[comp])}:{v:null,t:'0.5% ('+Math.floor(n*0.005)+')'};
+  const pc=cl==='MEDIA ROTACIÓN'?0.03:0.05;return{v:Math.floor(n*pc),t:(pc*100)+'% = '+Math.floor(n*pc)};}
+async function pintarBono(){
+  const t=document.getElementById('bono-tbl'),res=document.getElementById('bono-res');res.textContent='Cargando…';
+  try{const{data}=await sb.from('plan_config').select('valor').eq('id','bono_objetivos').maybeSingle();BONO.cfg=(data&&data.valor)||{};}catch(e){BONO.cfg={};}
+  BONO.skus={};let comps=[];
+  try{const E=await estadoClaves({msg:()=>{}});E.claves.forEach(r=>{const c=P.norm(r.comp),cl=rotBono(r.rot);if(!c||c==='PRODUCCION'||!cl)return;(BONO.skus[c]=BONO.skus[c]||{})[cl]=((BONO.skus[c]||{})[cl]||0)+1;});comps=Object.keys(BONO.skus);}catch(e){}
+  comps=await P.compradores(sb,[...new Set([...COMPRADORES_ED,...comps,...Object.keys(BONO.cfg)])]);
+  const th=s=>'<th style="background:#f0f4ff;color:var(--navy);padding:7px 8px;text-align:left;position:sticky;top:0;font-size:12px">'+s+'</th>';
+  const gT=(BONO.cfg.GENERAL||{}).TARGET;const metaG=gT!=null?gT:P.R.META_TARGET;
+  const tdT=c=>{const v=(BONO.cfg[c]||{}).TARGET;const ph=c==='GENERAL'?String(P.R.META_TARGET)+'%':metaG+'% (general)';
+    return '<td style="padding:6px 8px;border-bottom:1px solid var(--brd);white-space:nowrap;background:#f6faf6"><input type="number" min="0" max="100" step="1" style="width:70px" data-c="'+c+'" data-k="TARGET" value="'+(v==null?'':v)+'" placeholder="'+ph+'" title="Vacío = '+ph+'"> %</td>';};
+  t.innerHTML='<thead><tr>'+th('Comprador')+BONO_CLS.map(([k,l])=>th(l+'<div style="font-weight:400;color:var(--tx2)">claves · faltantes permitidos</div>')).join('')+th('🎯 Meta Target<div style="font-weight:400;color:var(--tx2)">% de OCs en riesgo bajo</div>')+'</tr></thead><tbody>'
+    +'<tr><td style="padding:6px 8px;border-bottom:2px solid var(--brd);font-weight:700;color:var(--navy)">GENERAL <span style="font-weight:400;color:var(--tx2)">(todos)</span></td>'+BONO_CLS.map(()=>'<td style="border-bottom:2px solid var(--brd)"></td>').join('')+tdT('GENERAL').replace('border-bottom:1px','border-bottom:2px')+'</tr>'
+    +comps.map(c=>'<tr><td style="padding:6px 8px;border-bottom:1px solid var(--brd);font-weight:700">'+c+'</td>'
+    +BONO_CLS.map(([k])=>{const n=(BONO.skus[c]||{})[k]||0,v=(BONO.cfg[c]||{})[k],d=bonoDef(c,k);
+      return '<td style="padding:6px 8px;border-bottom:1px solid var(--brd);white-space:nowrap"><span style="display:inline-block;width:46px;color:var(--tx2);text-align:right;margin-right:8px">'+n.toLocaleString('es-MX')+'</span><input type="number" min="0" step="1" style="width:76px" data-c="'+c+'" data-k="'+k+'" value="'+(v==null?'':v)+'" placeholder="'+d.t+'" title="Vacío = regla general ('+d.t+')"></td>';}).join('')+tdT(c)+'</tr>').join('')+'</tbody>';
+  res.textContent=Object.keys(BONO.cfg).length?'Con objetivos capturados: '+Object.keys(BONO.cfg).join(', '):'Sin objetivos capturados: se usa la regla general.';
+}
+async function guardarBono(){
+  const res=document.getElementById('bono-res'),cfg={};let mal=0;
+  document.querySelectorAll('#bono-tbl input').forEach(i=>{i.style.borderColor='';const v=String(i.value).trim();if(v==='')return;const n=Number(v);if(!(n>=0)||!Number.isInteger(n)||(i.dataset.k==='TARGET'&&n>100)){mal++;i.style.borderColor='#c0392b';return;}i.style.borderColor='';(cfg[i.dataset.c]=cfg[i.dataset.c]||{})[i.dataset.k]=n;});
+  if(mal){res.textContent='❌ Hay '+mal+' celdas con número no válido (solo enteros de 0 en adelante).';return;}
+  const{error}=await sb.from('plan_config').upsert({id:'bono_objetivos',valor:cfg,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  res.textContent=error?'❌ '+error.message:'✅ Guardado. Histórico de Inventarios, Mi Resumen y Planeación (Target) ya usan estos objetivos (recarga esas pestañas).';if(!error)BONO.cfg=cfg;
+}
+// ── Origen de recolección por clave (plan_tablas_17.sql) ──
+async function cargaOrigen(log){
+  const wb=await leerLibro('f-ori',null,log);const ws=wb.Sheets['Origen recoleccion']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});const hi=aoa.findIndex(r=>r.some(c=>/^CLAVE$/.test(P.norm(c))));if(hi<0)throw new Error('No encontré el encabezado Clave.');
+  const H=aoa[hi].map(P.norm),iC=H.indexOf('CLAVE'),iO=H.findIndex(h=>/ORIGEN|CIUDAD|RECOLEC/.test(h)),iN=H.findIndex(h=>/^NOTA/.test(h));if(iO<0)throw new Error('No encontré la columna Origen.');
+  const m=new Map(),quitar=new Set();let mal=0;
+  for(let i=hi+1;i<aoa.length;i++){const k=P.clave(aoa[i][iC]);if(k==null){if(String(aoa[i][iC]).trim())mal++;continue;}const o=P.norm(aoa[i][iO]).replace(/\s+/g,' ');
+    if(!o){quitar.add(k);m.delete(k);continue;}quitar.delete(k);m.set(k,{clave:k,origen:o,notas:iN>=0&&String(aoa[i][iN]).trim()?String(aoa[i][iN]).trim():null,actualizado_en:new Date().toISOString()});}
+  const rem=document.getElementById('ori-rem').checked;
+  if(!m.size&&!quitar.size&&!rem)throw new Error('El archivo no trae claves con origen.');
+  if(rem){const{error}=await sb.from('plan_origen_clave').delete().gte('clave',0);if(error)throw new Error('plan_origen_clave: '+error.message+' (¿ya corriste plan_tablas_17.sql?)');log.msg('🧹 Lista anterior borrada.');}
+  else if(quitar.size){const q=[...quitar];for(let i=0;i<q.length;i+=200){const{error}=await sb.from('plan_origen_clave').delete().in('clave',q.slice(i,i+200));if(error)throw new Error('plan_origen_clave: '+error.message+' (¿ya corriste plan_tablas_17.sql?)');}}
+  await enLotes('plan_origen_clave',[...m.values()],log,{onConflict:'clave'});
+  const cnt={};m.forEach(x=>cnt[x.origen]=(cnt[x.origen]||0)+1);
+  log.msg('🎉 '+fmt(m.size)+' claves con origen: '+Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(([o,n])=>o+' '+fmt(n)).join(' · ')+(quitar.size&&!rem?' · '+fmt(quitar.size)+' quitadas (origen vacío)':'')+(mal?' · '+mal+' renglones sin clave válida':'')+'.');pintarOrigen();
+}
+async function bajarOrigen(log){
+  let rows=[];try{rows=await todo(()=>sb.from('plan_origen_clave').select('clave,origen,notas').order('clave'));}catch(e){log.msg('ℹ️ Aún no hay lista (¿ya corriste plan_tablas_17.sql?). Se descarga la plantilla vacía.','w');}
+  const aoa=[['Clave','Origen','Notas'],...(rows.length?rows.map(r=>[r.clave,r.origen,r.notas||'']):[[12345,'MONTERREY','ejemplo: bórralo']])];
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:10},{wch:22},{wch:40}];XLSX.utils.book_append_sheet(wb,ws,'Origen recoleccion');
+  XLSX.writeFile(wb,'Origen_recoleccion_'+hoyISO()+'.xlsx');log.msg('🎉 Descargado'+(rows.length?' con '+fmt(rows.length)+' claves':' (plantilla)')+'.');
+}
+async function pintarOrigen(){const el=document.getElementById('ori-res');
+  try{const rows=await todo(()=>sb.from('plan_origen_clave').select('origen').order('clave'));const c={};rows.forEach(r=>c[r.origen]=(c[r.origen]||0)+1);
+    el.textContent=rows.length?fmt(rows.length)+' claves · '+Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([o,n])=>o+' '+n).join(' · '):'Sin claves con origen todavía';}catch(e){el.textContent='(corre plan_tablas_17.sql)';}}
+async function pintarProv(){
+  const a=document.getElementById('provcat-res'),b=document.getElementById('provreg-res');
+  try{const{count,error}=await sb.from('plan_prov_clave').select('clave',{count:'exact',head:true});if(error)throw error;a.textContent=fmt(count||0)+' claves en el catálogo';}catch(e){a.textContent='(corre plan_tablas_16.sql)';}
+  try{const{count,error}=await sb.from('plan_proveedores').select('proveedor',{count:'exact',head:true});if(error)throw error;b.textContent=fmt(count||0)+' proveedores con reglas';}catch(e){b.textContent='';}
+}
+// ── Claves sustituidas ──
+// Pares de sustitución con escala de venta muy distinta: lista para capturar el factor de conversión
+async function paresConEscala(log){
+  const su=await todo(()=>sb.from('plan_sustituciones').select('*').order('clave_vigente').order('clave_original'));
+  const ks=[...new Set(su.flatMap(x=>[Number(x.clave_vigente),Number(x.clave_original)]))];const V=new Map();
+  for(let i=0;i<ks.length;i+=200){const d=await todo(()=>sb.from('plan_ventas').select('clave,meses').eq('empresa','SANVER').in('clave',ks.slice(i,i+200)).order('clave'));d.forEach(r=>V.set(Number(r.clave),r.meses||{}));}
+  const av=m=>{const x=Object.values(m||{}).filter(q=>q>0);return x.length?x.reduce((a,b)=>a+b,0)/x.length:null;};
+  return su.map(x=>{const a=av(V.get(Number(x.clave_vigente))),b=av(V.get(Number(x.clave_original)));const r=a&&b?a/b:null;
+    return{...x,va:a,vo:b,ratio:r,fuera:r!=null&&(r>P.R.SUST_RATIO||r<1/P.R.SUST_RATIO)};});
+}
+async function bajarConversiones(log){
+  log.msg('📥 Revisando la escala de venta de cada par…');
+  const L=(await paresConEscala(log)).filter(x=>x.fuera||(x.conv!=null));
+  if(!L.length){log.msg('🎉 Ningún par tiene escala de venta distinta.');return;}
+  const rd=v=>v==null?'':Math.round(v*100)/100;
+  const rows=L.map(x=>({'Clave vigente':x.clave_vigente,'Descripción vigente':x.desc_vigente||'','Clave original':x.clave_original,'Descripción original':x.desc_original||'',
+    'Venta prom. vigente (meses con venta)':rd(x.va),'Venta prom. original (meses con venta)':rd(x.vo),'Veces':rd(x.ratio),'FACTOR':x.conv!=null?+x.conv:'',
+    'Estado':x.conv!=null?'con factor: se suma × FACTOR':'NO se suma hasta capturar FACTOR'}));
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet(rows);ws['!cols']=[{wch:10},{wch:40},{wch:10},{wch:40},{wch:14},{wch:14},{wch:9},{wch:9},{wch:34}];
+  XLSX.utils.book_append_sheet(wb,ws,'Conversiones');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['FACTOR = cuántas unidades de la clave vigente equivalen a 1 unidad de la clave original.'],['Ejemplo: la original se vendía por bote de 946 ml y la vigente en mililitros → FACTOR 946.'],['"Veces" es solo una referencia (venta promedio vigente ÷ original); no siempre es el factor exacto.'],['Deja FACTOR vacío para no sumar la venta de la original. Sube este archivo en la misma tarjeta: solo actualiza los factores.']]),'Instrucciones');
+  XLSX.writeFile(wb,'Sustituciones_unidad_distinta.xlsx');
+  log.msg('⬇ '+L.filter(x=>x.conv==null).length+' pares sin factor (no se suman) · '+L.filter(x=>x.conv!=null).length+' con factor.');
+}
+async function cargaSust(log){
+  const wb=await leerLibro('f-sust',null,log);
+  // Archivo de factores (hoja Conversiones): solo actualiza conv
+  if(wb.Sheets['Conversiones']){
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets['Conversiones'],{raw:true,defval:''});let n=0,q=0;
+    for(const r of rows){const v=P.clave(r['Clave vigente']),o=P.clave(r['Clave original']);if(v==null||o==null)continue;const f=P.num(r['FACTOR']);
+      const{error}=await sb.from('plan_sustituciones').update({conv:f>0?f:null}).eq('clave_vigente',v).eq('clave_original',o);if(error)throw new Error(error.message+' (¿corriste la versión nueva de plan_tablas_13.sql?)');f>0?n++:q++;}
+    log.msg('🎉 Factores guardados: '+n+' pares con factor'+(q?' · '+q+' sin factor (no se suman)':'')+'. Se aplican en el siguiente Cálculo diario.');
+    await pintarSust();return;
+  }
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+  const hi=aoa.findIndex(r=>P.norm(r[0])==='IDART');if(hi<0)throw new Error('No encontré el encabezado IDART en la columna A.');
+  const H=aoa[hi].map(P.norm);const cols=H.map((h,j)=>h==='IDART'?j:-1).filter(j=>j>=0);
+  if(cols.length<2)throw new Error('Se necesita al menos una columna IDART de clave original (naranja) además de la vigente.');
+  const iCaso=H.findIndex(h=>h.startsWith('OBSERV'));
+  const pares=[],err=[];
+  for(let i=hi+1;i<aoa.length;i++){const r=aoa[i];const v=P.clave(r[cols[0]]);if(v==null){if(String(r[cols[0]]).trim()!=='')err.push('fila '+(i+1)+': clave vigente no válida');continue;}
+    cols.slice(1).forEach(j=>{const o=P.clave(r[j]);if(o==null||o===v)return;pares.push({clave_vigente:v,clave_original:o,desc_vigente:String(r[cols[0]+1]||'').trim()||null,desc_original:String(r[j+1]||'').trim()||null,caso:iCaso>=0?String(r[iCaso]||'').trim()||null:null});});}
+  err.slice(0,10).forEach(t=>log.msg('⚠️ '+t,'w'));
+  if(!pares.length)throw new Error('El archivo no trae pares de claves válidos.');
+  // únicos y factor = 1 / número de sustitutas de cada original
+  const u=new Map();pares.forEach(p=>u.set(p.clave_vigente+'|'+p.clave_original,p));const lista=[...u.values()];
+  const nSus=new Map();lista.forEach(p=>nSus.set(p.clave_original,(nSus.get(p.clave_original)||0)+1));
+  lista.forEach(p=>{p.factor=Math.round(1/nSus.get(p.clave_original)*1e6)/1e6;p.cargado_en=new Date().toISOString();});
+  // cadenas: una original que también es vigente de otra (A←B←C) — se avisa, no se encadena
+  const vig=new Set(lista.map(p=>p.clave_vigente));const cad=[...new Set(lista.filter(p=>vig.has(p.clave_original)).map(p=>p.clave_original))];
+  if(cad.length)log.msg('⚠️ '+cad.length+' clave(s) son original de una y vigente de otra (cadena): '+cad.slice(0,10).join(', ')+'. Solo se suma un nivel.','w');
+  const rep=[...nSus].filter(([o,n])=>n>1);
+  log.msg('⚙️ '+fmt(vig.size)+' claves vigentes · '+fmt(nSus.size)+' claves originales · '+fmt(lista.length)+' pares'+(rep.length?' · '+rep.length+' originales con varias sustitutas (se reparte en partes iguales)':''));
+  // conserva los factores ya capturados
+  try{const ant=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,conv').order('clave_vigente'));const cm=new Map(ant.filter(x=>x.conv!=null).map(x=>[x.clave_vigente+'|'+x.clave_original,x.conv]));lista.forEach(p=>{const c=cm.get(p.clave_vigente+'|'+p.clave_original);if(c!=null)p.conv=c;});}catch(e){}
+  const{error}=await sb.from('plan_sustituciones').delete().gte('clave_vigente',0);if(error)throw new Error('plan_sustituciones: '+error.message+' (¿ya corriste plan_tablas_13.sql?)');
+  await enLotes('plan_sustituciones',lista,log,{onConflict:'clave_vigente,clave_original'});
+  log.msg('🎉 Sustituciones guardadas. Se aplican en el siguiente Cálculo diario.');
+  try{const L=await paresConEscala(log);const f=L.filter(x=>x.fuera&&x.conv==null);if(f.length)log.msg('⚠️ '+f.length+' pares venden en escala muy distinta (más de '+P.R.SUST_RATIO+' veces): su venta NO se suma hasta capturar el factor. Usa «⬇ Pares con unidad distinta».','w');}catch(e){}
+  await pintarSust();
+}
+async function pintarSust(){
+  const el=document.getElementById('sust-res');if(!el)return;
+  try{const r=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));
+    el.innerHTML=r.length?'Cargadas: <b>'+fmt(new Set(r.map(x=>x.clave_vigente)).size)+'</b> claves vigentes con <b>'+fmt(new Set(r.map(x=>x.clave_original)).size)+'</b> claves originales'+(r.some(x=>x.factor<1)?' · '+new Set(r.filter(x=>x.factor<1).map(x=>x.clave_original)).size+' originales repartidas en partes iguales':'')+'.':'No hay sustituciones cargadas.';}
+  catch(e){el.innerHTML='Aún no existe la tabla de sustituciones: corre <b>plan_tablas_13.sql</b> en Supabase.';}
+}
+// ── Inventario en resguardo con proveedores ──
+const hoyISO=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);};
+async function leerResg(){return todo(()=>sb.from('plan_resguardo').select('*').order('proveedor').order('clave'));}
+async function plantillaResg(){
+  let rows=[];try{rows=await leerResg();}catch(e){}
+  const datos=rows.length?rows.map(r=>({'Clave':r.clave,'Proveedor':r.proveedor,'Cantidad':+r.cantidad,'Fecha de corte':String(r.fecha_corte).slice(0,10),'Descontar del BO (SI/NO)':r.desc_bo?'SI':'NO','Nota':r.nota||''}))
+    :[{'Clave':23462,'Proveedor':'IUSA','Cantidad':5000,'Fecha de corte':hoyISO(),'Descontar del BO (SI/NO)':'NO','Nota':'ejemplo: bórralo'}];
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet(datos);ws['!cols']=[{wch:9},{wch:28},{wch:11},{wch:14},{wch:22},{wch:40}];
+  XLSX.utils.book_append_sheet(wb,ws,'Resguardo');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Instrucciones'],['Una fila por clave y proveedor con el saldo que el proveedor tiene en resguardo.'],['Fecha de corte: día del saldo (AAAA-MM-DD). Cuenta 30 días.'],['Descontar del BO: SI si esa mercancía también sigue pendiente en la OC (se resta del BO para no contarla dos veces).'],['Al cargar se reemplaza todo el saldo de cada proveedor que venga en el archivo. Cantidad 0 = quitar la clave.']]),'Instrucciones');
+  XLSX.writeFile(wb,'Resguardo_proveedores_'+hoyISO()+'.xlsx');
+}
+async function cargaResg(log){
+  const wb=await leerLibro('f-resg',null,log);
+  const ws=wb.Sheets['Resguardo']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+  const hi=aoa.findIndex(r=>r.some(c=>P.norm(c)==='CLAVE'));if(hi<0)throw new Error('No encontré el encabezado Clave. Usa la plantilla.');
+  const H=aoa[hi].map(P.norm);const col=(...n)=>H.findIndex(h=>n.some(x=>h.startsWith(x)));
+  const cC=col('CLAVE'),cP=col('PROVEEDOR'),cQ=col('CANTIDAD','SALDO'),cF=col('FECHA'),cB=col('DESCONTAR'),cN=col('NOTA');
+  if(cC<0||cP<0||cQ<0)throw new Error('Faltan columnas: se necesitan Clave, Proveedor y Cantidad.');
+  const fechaDe=v=>{if(v==null||v==='')return hoyISO();if(typeof v==='number'&&v>20000&&v<80000)return new Date(Math.round((v-25569)*864e5)).toISOString().slice(0,10);const f=P.fecha(v);return f||null;};
+  const filas=new Map(),err=[];let dup=0;
+  for(let i=hi+1;i<aoa.length;i++){const r=aoa[i];if(r.every(x=>String(x).trim()===''))continue;
+    const k=P.clave(r[cC]),pv=P.norm(r[cP]),q=P.num(r[cQ]),f=cF>=0?fechaDe(r[cF]):hoyISO();
+    if(k==null){err.push('fila '+(i+1)+': clave no válida');continue;}if(!pv){err.push('fila '+(i+1)+': falta el proveedor');continue;}
+    if(q==null||q<0){err.push('fila '+(i+1)+': cantidad no válida');continue;}if(!f){err.push('fila '+(i+1)+': fecha de corte no válida');continue;}
+    const key=k+'|'+pv;if(filas.has(key))dup++;
+    filas.set(key,{clave:k,proveedor:pv,cantidad:q,fecha_corte:f,desc_bo:cB>=0&&/^S/.test(P.norm(r[cB])),nota:cN>=0?String(r[cN]||'').trim()||null:null,cargado_por:'ADMIN',cargado_en:new Date().toISOString()});}
+  err.slice(0,15).forEach(t=>log.msg('⚠️ '+t,'w'));if(err.length>15)log.msg('⚠️ … y '+(err.length-15)+' filas más con error','w');
+  if(dup)log.msg('⚠️ '+dup+' clave(s) repetidas con el mismo proveedor: se tomó la última fila.','w');
+  if(!filas.size)throw new Error('El archivo no trae filas válidas.');
+  // claves que no están en el último cálculo (solo aviso)
+  try{const pub=(await sb.from('plan_publicacion').select('fecha,ruta').eq('id','estado').maybeSingle()).data;const E=pub?await leerEstadoPublicado(pub,log):null;
+    if(E&&E.map){const no=[...new Set([...filas.values()].map(x=>x.clave))].filter(k=>!E.map.has(k));if(no.length)log.msg('⚠️ '+no.length+' clave(s) no están en el último cálculo: '+no.slice(0,20).join(', ')+(no.length>20?'…':'')+' (se guardan igual).','w');}}catch(e){}
+  const provs=[...new Set([...filas.values()].map(x=>x.proveedor))];
+  for(const pv of provs){const{error}=await sb.from('plan_resguardo').delete().eq('proveedor',pv);if(error)throw new Error('plan_resguardo: '+error.message+' (¿ya corriste plan_tablas_12.sql?)');}
+  const nuevas=[...filas.values()].filter(x=>x.cantidad>0);
+  if(nuevas.length)await enLotes('plan_resguardo',nuevas,log,{onConflict:'clave,proveedor'});
+  const vence=nuevas.filter(x=>(Date.now()-new Date(x.fecha_corte+'T12:00:00'))/864e5>P.R.RESG_DIAS).length;
+  log.msg('🎉 Resguardo de '+provs.length+' proveedor(es): '+fmt(nuevas.length)+' claves con saldo'+(filas.size-nuevas.length?' · '+(filas.size-nuevas.length)+' quitadas (cantidad 0)':'')+(vence?' · ⚠️ '+vence+' con corte de más de '+P.R.RESG_DIAS+' días (no cuentan)':'')+'. Se aplica en el siguiente Cálculo diario.');
+  await pintarResg();
+}
+async function pintarResg(){
+  const el=document.getElementById('resg-lista');if(!el)return;
+  let rows;try{rows=await leerResg();}catch(e){el.innerHTML='<p class="d">Aún no existe la tabla de resguardo: corre <b>plan_tablas_12.sql</b> en Supabase.</p>';return;}
+  if(!rows.length){el.innerHTML='<p class="d">No hay inventario en resguardo cargado.</p>';return;}
+  const dias=r=>Math.floor((Date.now()-new Date(String(r.fecha_corte).slice(0,10)+'T12:00:00'))/864e5);
+  const vig=rows.filter(r=>dias(r)<=P.R.RESG_DIAS);
+  el.innerHTML='<p class="d"><b>'+fmt(rows.length)+'</b> registros · <b>'+fmt(new Set(rows.map(r=>r.proveedor)).size)+'</b> proveedores · vigentes <b>'+fmt(vig.length)+'</b> ('+fmt(Math.round(vig.reduce((s,r)=>s+(+r.cantidad||0),0)))+' piezas)'+(rows.length-vig.length?' · <span style="color:var(--err)">vencidos '+(rows.length-vig.length)+'</span>':'')+'</p>'
+   +'<div class="scroll"><table><thead><tr><th style="text-align:left">Proveedor</th><th>Clave</th><th>Cantidad</th><th>Corte</th><th>Vigencia</th><th>Desc. BO</th><th style="text-align:left">Nota</th><th></th></tr></thead><tbody>'
+   +rows.map(r=>{const d=dias(r),v=d<=P.R.RESG_DIAS;return '<tr><td style="text-align:left">'+esc(r.proveedor)+'</td><td>'+r.clave+'</td><td>'+fmt(+r.cantidad)+'</td><td>'+String(r.fecha_corte).slice(0,10)+'</td><td style="color:'+(v?'var(--ok)':'var(--err)')+'">'+(v?'vigente · quedan '+(P.R.RESG_DIAS-d)+' días':'vencido, no cuenta')+'</td>'
+     +'<td><input type="checkbox" '+(r.desc_bo?'checked':'')+' onchange="resgBO('+r.clave+',\''+esc(r.proveedor).replace(/'/g,"\\'")+'\',this.checked)"></td><td style="text-align:left;white-space:normal">'+esc(r.nota||'')+'</td>'
+     +'<td><button class="sec" style="padding:3px 9px;font-size:11px" onclick="resgQuitar('+r.clave+',\''+esc(r.proveedor).replace(/'/g,"\\'")+'\')">Quitar</button></td></tr>';}).join('')+'</tbody></table></div>';
+}
+async function resgBO(clave,prov,v){const{error}=await sb.from('plan_resguardo').update({desc_bo:v}).eq('clave',clave).eq('proveedor',prov);if(error)alert('No se guardó: '+error.message);}
+async function resgQuitar(clave,prov){if(!confirm('¿Quitar la clave '+clave+' del resguardo con '+prov+'?'))return;const{error}=await sb.from('plan_resguardo').delete().eq('clave',clave).eq('proveedor',prov);if(error)alert('No se quitó: '+error.message);pintarResg();}
+// ── Entradas reales del RP01-07 Compras por ID (plan_tablas_25.sql) ──
+async function cargaRecReal(log){
+  const wb=await leerLibro('f-recreal',null,log);
+  log.msg('⚙️ Leyendo entradas…');await pausa();
+  const r=P.recepReales(wb);
+  if(!r.rows.length)throw new Error('El archivo no trae entradas con FOLIO OC, CLAVE, FECHA REC y CANT REC.');
+  log.msg('   '+fmt(r.rows.length)+' entradas (recibo-OC-clave) del '+r.desde+' al '+r.hasta+(r.malas?' · '+r.malas+' filas sin OC, clave o fecha (se ignoraron)':''));
+  // solo OCs que el portal conoce
+  const ocs=new Set((await todo(()=>sb.from('plan_oc_lineas').select('folio').order('folio').order('clave'))).map(x=>Number(x.folio)));
+  const rows=r.rows.filter(x=>ocs.has(x.folio_oc)),fuera=r.rows.length-rows.length;
+  log.msg('   '+fmt(rows.length)+' de OCs que el portal sigue'+(fuera?' · '+fmt(fuera)+' de OCs anteriores a la primera foto o que no vienen en los archivos de OCs (no se guardan)':''));
+  // reemplaza las entradas de las fechas que trae el archivo
+  const{error}=await sb.from('plan_recepciones_real').delete().gte('fecha',r.desde).lte('fecha',r.hasta);
+  if(error)throw new Error('plan_recepciones_real: '+error.message+' (¿ya corriste plan_tablas_25.sql?)');
+  if(rows.length)await enLotes('plan_recepciones_real',rows.map(x=>({...x,cargado_en:new Date().toISOString()})),log,{onConflict:'folio_rec,folio_oc,clave'});
+  log.msg('🎉 Entradas reales guardadas. El OTIF de Planeación e indicadores y de Mi Resumen ya usa la fecha de recibo; el resumen del mes de Admin se actualiza en el siguiente Cálculo diario.');
+  await pintarRecReal();
+}
+async function pintarRecReal(){const el=document.getElementById('recreal-res');if(!el)return;
+  try{const a=await sb.from('plan_recepciones_real').select('fecha').order('fecha',{ascending:true}).limit(1),b=await sb.from('plan_recepciones_real').select('fecha').order('fecha',{ascending:false}).limit(1),c=await sb.from('plan_recepciones_real').select('*',{count:'exact',head:true});
+    if(a.error)throw a.error;el.innerHTML=c.count?'Cargadas: <b>'+fmt(c.count)+'</b> entradas del '+String(a.data[0].fecha).slice(0,10)+' al '+String(b.data[0].fecha).slice(0,10)+'.':'Aún no hay entradas reales cargadas.';}
+  catch(e){el.innerHTML='Aún no existe la tabla: corre <b>plan_tablas_25.sql</b> en Supabase (proyecto SANVER_Forte).';}}
+// ── Compra nacional e importación (plan_tablas_24.sql) ──
+const DUAL_COLS=['Clave','Proveedor nacional','T. entrega nacional (meses)','Objetivo nacional (meses)','Proveedor importación','T. entrega importación (meses)','Objetivo importación (meses)','Mínimo por contenedor (piezas)','Notas'];
+const SQL24=' (¿ya corriste plan_tablas_24.sql?)';
+async function bajarDual(log){
+  let rows=[];try{rows=await todo(()=>sb.from('plan_abasto_dual').select('*').order('clave'));}catch(e){log.msg('ℹ️ Aún no hay lista'+SQL24+'. Se descarga la plantilla vacía.','w');}
+  const aoa=[DUAL_COLS,...(rows.length?rows.map(r=>[r.clave,r.prov_nac||'',r.lt_nac??'',r.obj_nac??'',r.prov_imp||'',r.lt_imp??'',r.obj_imp??'',r.min_cont??'',r.notas||''])
+    :[[12345,'BROCHAS Y PRODUCTOS S DE RL DE CV',0.5,1,'PROVEEDOR CHINA',4,4,5000,'ejemplo: bórralo']])];
+  const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:9},{wch:32},{wch:12},{wch:12},{wch:32},{wch:12},{wch:12},{wch:14},{wch:30}];
+  XLSX.utils.book_append_sheet(wb,ws,'Nacional e importacion');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Instrucciones'],['Una fila por clave que se compra nacional e importación.'],['Tiempos de entrega y objetivos en MESES (0.5 = 15 días). Vacío = se usa el de la hoja Detalle.'],['Proveedor: como aparece en las OCs (sirve para separar el BO nacional y el de importación).'],['Mínimo por contenedor: piezas en la unidad del portal; en el folio de importación se puede redondear la propuesta a ese múltiplo.'],['Una clave con todo vacío se quita de la lista.']]),'Instrucciones');
+  XLSX.writeFile(wb,'Compra_nacional_importacion_'+hoyISO()+'.xlsx');log.msg('⬇ Lista con '+fmt(rows.length)+' claves.');
+}
+async function cargaDual(log){
+  const wb=await leerLibro('f-dual',null,log);
+  const ws=wb.Sheets['Nacional e importacion']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+  const hi=aoa.findIndex(r=>r.some(c=>P.norm(c)==='CLAVE'));if(hi<0)throw new Error('No encontré el encabezado Clave. Usa la plantilla.');
+  const H=aoa[hi].map(P.norm);const col=f=>H.findIndex(f);
+  const c={k:col(h=>h==='CLAVE'),pn:col(h=>h.startsWith('PROVEEDOR NAC')),ln:col(h=>h.startsWith('T. ENTREGA NAC')||h.startsWith('TIEMPO DE ENTREGA NAC')),on:col(h=>h.startsWith('OBJETIVO NAC')),
+    pi:col(h=>h.startsWith('PROVEEDOR IMP')),li:col(h=>h.startsWith('T. ENTREGA IMP')||h.startsWith('TIEMPO DE ENTREGA IMP')),oi:col(h=>h.startsWith('OBJETIVO IMP')),mc:col(h=>h.startsWith('MINIMO')),nt:col(h=>h.startsWith('NOTA'))};
+  if(c.k<0||c.li<0)throw new Error('Faltan columnas: se necesitan al menos Clave y T. entrega importación (meses). Usa la plantilla.');
+  const g=(r,j)=>j<0?'':r[j],txt=(r,j)=>String(g(r,j)??'').trim()||null;
+  const filas=new Map(),quitar=new Set(),err=[];
+  for(let i=hi+1;i<aoa.length;i++){const r=aoa[i];if(r.every(x=>String(x).trim()===''))continue;
+    const k=P.clave(g(r,c.k));if(k==null){err.push('fila '+(i+1)+': clave no válida');continue;}
+    const nums={};let mal=null;
+    for(const [n,j] of [['lt_nac',c.ln],['obj_nac',c.on],['lt_imp',c.li],['obj_imp',c.oi],['min_cont',c.mc]]){const v=g(r,j);if(v===''||v==null){nums[n]=null;continue;}const x=P.num(v);
+      if(x==null||x<0||(n==='min_cont'&&x===0)){mal=n;break;}if(n!=='min_cont'&&x>24){mal=n+' (más de 24 meses: ¿lo pusiste en días?)';break;}nums[n]=x;}
+    if(mal){err.push('fila '+(i+1)+' (clave '+k+'): valor no válido en '+mal);continue;}
+    const row={clave:k,prov_nac:txt(r,c.pn),prov_imp:txt(r,c.pi),...nums,notas:txt(r,c.nt),actualizado_en:new Date().toISOString()};
+    if(!row.prov_nac&&!row.prov_imp&&[row.lt_nac,row.obj_nac,row.lt_imp,row.obj_imp,row.min_cont].every(x=>x==null)){quitar.add(k);filas.delete(k);continue;}
+    filas.set(k,row);}
+  err.slice(0,15).forEach(t=>log.msg('⚠️ '+t,'w'));if(err.length>15)log.msg('⚠️ … y '+(err.length-15)+' filas más con error','w');
+  if(!filas.size&&!quitar.size)throw new Error('El archivo no trae filas válidas.');
+  const sinImp=[...filas.values()].filter(x=>x.lt_imp==null).length;
+  if(document.getElementById('dual-rem').checked){const{error}=await sb.from('plan_abasto_dual').delete().gte('clave',0);if(error)throw new Error('plan_abasto_dual: '+error.message+SQL24);log.msg('🧹 Lista anterior borrada.');}
+  else if(quitar.size){const q=[...quitar];for(let i=0;i<q.length;i+=200){const{error}=await sb.from('plan_abasto_dual').delete().in('clave',q.slice(i,i+200));if(error)throw new Error('plan_abasto_dual: '+error.message+SQL24);}}
+  if(filas.size){try{await enLotes('plan_abasto_dual',[...filas.values()],log,{onConflict:'clave'});}catch(e){throw new Error(e.message+SQL24);}}
+  log.msg('🎉 '+fmt(filas.size)+' claves de compra nacional e importación'+(quitar.size?' · '+fmt(quitar.size)+' quitadas':'')+(sinImp?' · ⚠️ '+sinImp+' sin T. entrega de importación (usarán el de la hoja Detalle)':'')+'. Ya se pueden usar en Propuestas de compra.');
+  await pintarDual();
+}
+async function bajarStk(log){
+  let rows=[];try{rows=await todo(()=>sb.from('plan_stock_proveedor').select('*').order('proveedor').order('clave'));}catch(e){log.msg('ℹ️ Aún no hay stock'+SQL24+'. Se descarga la plantilla vacía.','w');}
+  const datos=rows.length?rows.map(r=>({'Clave':r.clave,'Proveedor':r.proveedor,'Cantidad':+r.cantidad,'Fecha de corte':String(r.fecha_corte).slice(0,10),'Nota':r.nota||''}))
+    :[{'Clave':12345,'Proveedor':'BYP','Cantidad':5000,'Fecha de corte':hoyISO(),'Nota':'ejemplo: bórralo'}];
+  const wb=XLSX.utils.book_new(),ws=XLSX.utils.json_to_sheet(datos);ws['!cols']=[{wch:9},{wch:28},{wch:11},{wch:14},{wch:40}];
+  XLSX.utils.book_append_sheet(wb,ws,'Stock proveedor');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Instrucciones'],['Stock que el proveedor nacional tiene disponible para nosotros (sigue siendo del proveedor).'],['Cantidad en la unidad del portal (unidad mínima).'],['Fecha de corte: día del saldo (AAAA-MM-DD). Cuenta 30 días.'],['Al cargar se reemplaza todo el saldo de cada proveedor que venga en el archivo. Cantidad 0 = quitar la clave.']]),'Instrucciones');
+  XLSX.writeFile(wb,'Stock_proveedor_nacional_'+hoyISO()+'.xlsx');log.msg('⬇ '+fmt(rows.length)+' registros.');
+}
+async function cargaStk(log){
+  const wb=await leerLibro('f-stk',null,log);
+  const ws=wb.Sheets['Stock proveedor']||wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+  const hi=aoa.findIndex(r=>r.some(c=>P.norm(c)==='CLAVE'));if(hi<0)throw new Error('No encontré el encabezado Clave. Usa la plantilla.');
+  const H=aoa[hi].map(P.norm);const col=(...n)=>H.findIndex(h=>n.some(x=>h.startsWith(x)));
+  const cC=col('CLAVE'),cP=col('PROVEEDOR'),cQ=col('CANTIDAD','SALDO','STOCK'),cF=col('FECHA'),cN=col('NOTA');
+  if(cC<0||cP<0||cQ<0)throw new Error('Faltan columnas: se necesitan Clave, Proveedor y Cantidad.');
+  const fechaDe=v=>{if(v==null||v==='')return hoyISO();if(typeof v==='number'&&v>20000&&v<80000)return new Date(Math.round((v-25569)*864e5)).toISOString().slice(0,10);return P.fecha(v)||null;};
+  const filas=new Map(),err=[];let dup=0;
+  for(let i=hi+1;i<aoa.length;i++){const r=aoa[i];if(r.every(x=>String(x).trim()===''))continue;
+    const k=P.clave(r[cC]),pv=P.norm(r[cP]),q=P.num(r[cQ]),f=cF>=0?fechaDe(r[cF]):hoyISO();
+    if(k==null){err.push('fila '+(i+1)+': clave no válida');continue;}if(!pv){err.push('fila '+(i+1)+': falta el proveedor');continue;}
+    if(q==null||q<0){err.push('fila '+(i+1)+': cantidad no válida');continue;}if(!f){err.push('fila '+(i+1)+': fecha de corte no válida');continue;}
+    const key=k+'|'+pv;if(filas.has(key))dup++;
+    filas.set(key,{clave:k,proveedor:pv,cantidad:q,fecha_corte:f,nota:cN>=0?String(r[cN]||'').trim()||null:null,cargado_en:new Date().toISOString()});}
+  err.slice(0,15).forEach(t=>log.msg('⚠️ '+t,'w'));if(err.length>15)log.msg('⚠️ … y '+(err.length-15)+' filas más con error','w');
+  if(dup)log.msg('⚠️ '+dup+' clave(s) repetidas con el mismo proveedor: se tomó la última fila.','w');
+  if(!filas.size)throw new Error('El archivo no trae filas válidas.');
+  // claves que no están dadas de alta como compra nacional e importación (solo aviso: se guardan igual)
+  try{const d=new Set((await todo(()=>sb.from('plan_abasto_dual').select('clave').order('clave'))).map(r=>Number(r.clave)));
+    const no=[...new Set([...filas.values()].map(x=>x.clave))].filter(k=>!d.has(k));if(no.length)log.msg('⚠️ '+no.length+' clave(s) no están en la lista de compra nacional e importación: '+no.slice(0,20).join(', ')+(no.length>20?'…':'')+' (se guardan, pero no se usan hasta darlas de alta arriba).','w');}catch(e){}
+  const provs=[...new Set([...filas.values()].map(x=>x.proveedor))];
+  for(const pv of provs){const{error}=await sb.from('plan_stock_proveedor').delete().eq('proveedor',pv);if(error)throw new Error('plan_stock_proveedor: '+error.message+SQL24);}
+  const nuevas=[...filas.values()].filter(x=>x.cantidad>0);
+  if(nuevas.length)await enLotes('plan_stock_proveedor',nuevas,log,{onConflict:'clave,proveedor'});
+  const vence=nuevas.filter(x=>(Date.now()-new Date(x.fecha_corte+'T12:00:00'))/864e5>P.R.STK_DIAS).length;
+  log.msg('🎉 Stock de '+provs.join(', ')+': '+fmt(nuevas.length)+' claves'+(filas.size-nuevas.length?' · '+(filas.size-nuevas.length)+' quitadas (cantidad 0)':'')+(vence?' · ⚠️ '+vence+' con corte de más de '+P.R.STK_DIAS+' días (no cuentan)':'')+'. Se aplica al abrir Propuestas de compra.');
+  await pintarDual();
+}
+async function pintarDual(){
+  const el=document.getElementById('dual-res');if(!el)return;
+  let d,s,rg=[];try{[d,s]=await Promise.all([todo(()=>sb.from('plan_abasto_dual').select('clave,prov_nac,prov_imp,lt_imp').order('clave')),todo(()=>sb.from('plan_stock_proveedor').select('clave,proveedor,cantidad,fecha_corte').order('proveedor').order('clave'))]);}
+  catch(e){el.innerHTML='Aún no existen las tablas: corre <b>plan_tablas_24.sql</b> en Supabase (proyecto SANVER_Forte).';return;}
+  try{rg=await todo(()=>sb.from('plan_resguardo').select('clave,proveedor').order('clave'));}catch(e){}
+  const vig=s.filter(r=>(Date.now()-new Date(String(r.fecha_corte).slice(0,10)+'T12:00:00'))/864e5<=P.R.STK_DIAS),ks=new Set(d.map(r=>Number(r.clave)));
+  const pv={};s.forEach(r=>{const o=pv[r.proveedor]||(pv[r.proveedor]={n:0,q:0,f:''});o.n++;o.q+=+r.cantidad||0;const f=String(r.fecha_corte).slice(0,10);if(f>o.f)o.f=f;});
+  // Aviso: la misma clave cargada como resguardo (cuenta como existencia propia) y como stock del proveedor
+  const dobles=rg.filter(r=>s.some(x=>Number(x.clave)===Number(r.clave)));
+  el.innerHTML='Claves de compra nacional e importación: <b>'+fmt(d.length)+'</b>'+(d.filter(r=>r.lt_imp==null).length?' · '+d.filter(r=>r.lt_imp==null).length+' sin T. entrega de importación':'')
+    +' · stock del proveedor nacional: <b>'+fmt(s.length)+'</b> registros, vigentes <b>'+fmt(vig.length)+'</b>'+(s.length-vig.length?' · <span style="color:var(--err)">vencidos '+(s.length-vig.length)+'</span>':'')
+    +(Object.keys(pv).length?'<br>'+Object.entries(pv).map(([p,o])=>esc(p)+': '+fmt(o.n)+' claves, '+fmt(Math.round(o.q))+' pzs, corte '+o.f).join(' · '):'')
+    +(s.some(r=>!ks.has(Number(r.clave)))?'<br><span style="color:var(--warn)">⚠️ '+s.filter(r=>!ks.has(Number(r.clave))).length+' registros de stock de claves que no están en la lista (no se usan).</span>':'')
+    +(dobles.length?'<br><span style="color:var(--err)">⚠️ '+dobles.length+' clave(s) también están en Inventario en resguardo, donde cuentan como existencia propia: '+dobles.slice(0,15).map(r=>r.clave+' ('+esc(r.proveedor)+')').join(', ')+'. Si es stock del proveedor (no pagado), quítalas del resguardo.</span>':'');
+}
+async function guardarHistEstatus(res,f,log){
+  const{error}=await sb.from('plan_estatus_hist').delete().eq('fecha',f);
+  if(error){log.msg('⚠️ Historial de estatus no guardado ('+error.message+'). ¿Ya corriste plan_tablas_6.sql?','w');return;}
+  await enLotes('plan_estatus_hist',P.histEstatus(res,f),log,{onConflict:'fecha,comprador,base,estatus'});
+}
+// ── Compradores sin entrega directa (configurables) ──
+let SIN_ED=null;
+// ── Tipo de entrega por OC definido a mano (plan_oc_tipo) ──
+async function leerOcTipo(log){
+  try{const rs=await todo(()=>sb.from('plan_oc_tipo').select('folio,tipo').order('folio'));P.R.OC_TIPO=new Map(rs.map(r=>[Number(r.folio),r.tipo]));
+    if(log&&rs.length)log.msg('📌 Tipo de entrega definido a mano: '+fmt(rs.length)+' OCs ('+fmt(rs.filter(r=>r.tipo==='ED').length)+' entrega directa · '+fmt(rs.filter(r=>r.tipo==='CEDI').length)+' CEDI).');}
+  catch(e){P.R.OC_TIPO=new Map();}
+}
+async function cargaOcTipo(log,manual){
+  const out=document.getElementById('octipo-res');out.textContent='';
+  const sinED=await cargarSinED();await cargarCfgED();
+  let filas=[];
+  if(manual){
+    const err=[];document.getElementById('octipo-man').value.split('\n').map(x=>x.trim()).filter(Boolean).forEach((ln,i)=>{const p=ln.split(/[,;\t]/).map(x=>x.trim());
+      const f=P.clave(p[0]),t=P.norm(p[1]||'');const tipo=t==='ED'||t.includes('DIRECTA')?'ED':t==='CEDI'||t.includes('CEDI')?'CEDI':null;
+      if(f==null||!tipo){err.push('renglón '+(i+1));return;}filas.push({folio:f,tipo,sucursal:P.norm(p[2]||'')||null,fuente:'MANUAL'});});
+    if(err.length)throw new Error('Revisa: '+err.join(', ')+' (formato: folio, ED o CEDI, sucursal)');
+  }else{
+    const fi=document.getElementById('f-octipo').files[0];if(!fi)throw new Error('Selecciona el archivo de entregas directas por OC.');
+    log.msg('📄 Leyendo '+fi.name+'…');const wb=XLSX.read(await fi.arrayBuffer(),{type:'array',cellDates:true});
+    let aoa=null,h=null;for(const n of wb.SheetNames){const a=P.aoa(wb.Sheets[n]);const hh=P.header(a,['FOLIO OC','OBSERVACIONES','TIPO DE SOLICITUD']);if(hh){aoa=a;h=hh;break;}}
+    if(!h)throw new Error('No encontré una hoja con las columnas Folio OC, Observaciones y TIPO DE SOLICITUD.');
+    const iC0=h.cols.indexOf('COMPRADOR'),iC=iC0>=0?iC0:null;let tot=0,suc=0,sinEd=0;
+    for(let i=h.fila+1;i<aoa.length;i++){const r=aoa[i];const f=P.clave(r[h.idx['FOLIO OC']]);if(f==null)continue;tot++;
+      const obs=r[h.idx['OBSERVACIONES']]||'',t=P.norm(r[h.idx['TIPO DE SOLICITUD']]||'');if(!t)continue;
+      const comp=iC!=null?P.norm(r[iC]||''):'';
+      if(sinED.has(comp)){sinEd++;continue;}                                 // comprador que recibe en sucursal y mueve al CEDI: se queda en CEDI
+      const tipo=t.includes('DIRECTA')?'ED':'CEDI';const d=P.destinoED(obs);const regla=P.esED(d,comp,sinED)?'ED':'CEDI';
+      // Se guarda si la observación deja dudas (no nombra sucursal) o si el archivo dice otra cosa que la regla de observaciones
+      if(!P.edDudosa(obs)&&tipo===regla){suc++;continue;}
+      if(!d&&tipo==='CEDI')continue;                                          // sin frase ni lugar y CEDI: ya es CEDI por la regla
+      filas.push({folio:f,tipo,sucursal:d&&!P.esLugarExtra(d)?d:null,fuente:'ARCHIVO ED'});}
+    log.msg('   '+fmt(tot)+' OCs en el archivo · '+fmt(suc)+' ya quedan igual con la observación · '+fmt(sinEd)+' de compradores que reciben en sucursal (se quedan en CEDI) · '+fmt(filas.length)+' se guardan como definidas a mano.');
+  }
+  if(!filas.length){out.textContent='Nada que guardar.';log.msg('Nada que guardar.');return;}
+  await enLotes('plan_oc_tipo',filas.map(x=>({...x,actualizado_en:new Date().toISOString()})),log,{onConflict:'folio'});
+  // Corregir las OCs ya registradas en el portal
+  await leerOcTipo();let n=0;
+  for(const tipo of ['ED','CEDI']){const fs=filas.filter(x=>x.tipo===tipo).map(x=>x.folio);
+    for(let i=0;i<fs.length;i+=200){const{data,error}=await sb.from('plan_oc_lineas').update({entrega_directa:tipo==='ED'}).in('folio',fs.slice(i,i+200)).neq('entrega_directa',tipo==='ED').select('folio');if(error)throw error;n+=(data||[]).length;}}
+  const ne=filas.filter(x=>x.tipo==='ED').length;
+  const msg='✅ '+fmt(filas.length)+' OCs guardadas ('+fmt(ne)+' entrega directa · '+fmt(filas.length-ne)+' CEDI). '+(n?fmt(n)+' líneas de OC ya registradas cambiaron de clasificación. ':'')+'El próximo Cálculo diario recalcula el BO del CEDI, OTIF, Target y la limpieza de la venta.';
+  out.textContent=msg;log.msg(msg);
+}
+// OCs abiertas de entrega directa con observación dudosa (apertura, apoyo, descuento…) sin tipo definido a mano
+async function pintarRevisarED(){
+  const box=document.getElementById('ed-revisar');if(!box)return;
+  try{
+    await leerOcTipo();
+    const rs=await todo(()=>sb.from('plan_oc_lineas').select('folio,clave,comprador,proveedor,fecha_oc,observaciones,destino,cantidad_pend,entrega_directa,cerrada_en,cancelada').eq('entrega_directa',true).is('cerrada_en',null).order('folio'));
+    const pf=new Map();rs.forEach(r=>{if(r.cancelada||!(Number(r.cantidad_pend)>0))return;const f=Number(r.folio);if(P.R.OC_TIPO.has(f))return;const w=P.edRevisar(r.observaciones);if(!w)return;
+      const o=pf.get(f)||{folio:f,comp:r.comprador,prov:r.proveedor,fecha:String(r.fecha_oc||'').slice(0,10),obs:r.observaciones,dest:r.destino,w,claves:0};o.claves++;pf.set(f,o);});
+    const L=[...pf.values()].sort((a,b)=>b.folio-a.folio);
+    if(!L.length){box.innerHTML='✅ No hay OCs abiertas de entrega directa con observación dudosa.';return;}
+    box.innerHTML='<div class="scroll" style="max-height:320px"><table><tr><th>OC</th><th>Fecha</th><th>Comprador</th><th>Proveedor</th><th>Observación</th><th>Destino que leyó</th><th>Claves</th><th></th></tr>'+L.map(o=>'<tr><td><b>'+o.folio+'</b></td><td>'+o.fecha+'</td><td>'+(o.comp||'')+'</td><td>'+String(o.prov||'').slice(0,28)+'</td><td style="max-width:360px">'+String(o.obs||'').replace(/</g,'&lt;').replace(new RegExp('('+o.w+')','i'),'<mark>$1</mark>')+'</td><td>'+(o.dest||'')+'</td><td>'+o.claves+'</td><td style="white-space:nowrap"><button class="sec" onclick="definirOC('+o.folio+',\'CEDI\')">Es CEDI</button> <button class="sec" onclick="definirOC('+o.folio+',\'ED\',\''+String(o.dest||'').replace(/'/g,'')+'\')">Es entrega directa</button></td></tr>').join('')+'</table></div><div class="d" style="margin-top:4px">'+L.length+' OCs por definir.</div>';
+  }catch(e){box.textContent='No se pudo leer la lista ('+(e.message||e)+'). ¿Ya corriste plan_tablas_21.sql?';}
+}
+async function definirOC(folio,tipo,suc){
+  const{error}=await sb.from('plan_oc_tipo').upsert({folio,tipo,sucursal:suc||null,fuente:'MANUAL',actualizado_en:new Date().toISOString()},{onConflict:'folio'});
+  if(error){alert('❌ '+error.message);return;}
+  await sb.from('plan_oc_lineas').update({entrega_directa:tipo==='ED'}).eq('folio',folio);
+  pintarRevisarED();
+}
+async function cargarSinED(forzar){
+  if(SIN_ED&&!forzar)return SIN_ED;
+  try{const{data,error}=await sb.from('plan_config').select('valor').eq('id','compradores_sin_ed').maybeSingle();
+    SIN_ED=new Set((!error&&data&&Array.isArray(data.valor)?data.valor:P.R.SIN_ED_DEF).map(P.norm));}
+  catch(e){SIN_ED=new Set(P.R.SIN_ED_DEF);}
+  return SIN_ED;
+}
+const COMPRADORES_ED=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MARITZA','MYRIAM VIDA CHRISTELL','SILVINO'];
+// Ajustes manuales de entrega directa (plan_config id 'ed_manual'): se restan de la venta del mes en el cálculo
+async function pintarEDManual(){try{const{data}=await sb.from('plan_config').select('valor').eq('id','ed_manual').maybeSingle();
+  document.getElementById('ed-man').value=((data&&data.valor)||[]).map(x=>[x.clave,x.mes,x.cantidad,x.nota||''].join(', ').replace(/, $/,'')).join('\n');}catch(e){}}
+async function guardarEDManual(){
+  const out=document.getElementById('ed-man-res');const lst=[],err=[];
+  document.getElementById('ed-man').value.split('\n').map(x=>x.trim()).filter(Boolean).forEach((ln,i)=>{const p=ln.split(/[,;\t]/).map(x=>x.trim());
+    const k=P.clave(p[0]),mes=String(p[1]||'').replace(/^(\d{4})-(\d)$/,'$1-0$2'),q=P.num(p[2]);
+    if(k==null||!/^\d{4}-\d{2}$/.test(mes)||!(q>0)){err.push('renglón '+(i+1));return;}lst.push({clave:k,mes,cantidad:q,nota:p.slice(3).join(', ')||null});});
+  if(err.length){out.textContent='❌ Revisa: '+err.join(', ')+' (formato: clave, AAAA-MM, cantidad, nota)';return;}
+  const{error}=await sb.from('plan_config').upsert({id:'ed_manual',valor:lst,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  out.textContent=error?'❌ '+error.message:'✅ '+lst.length+' ajustes guardados. Se aplican en el siguiente Cálculo diario.';
+}
+// Lugares y frases extra de entrega directa (plan_config id 'ed_destinos')
+async function cargarCfgED(){
+  try{const{data,error}=await sb.from('plan_config').select('valor').eq('id','ed_destinos').maybeSingle();if(!error&&data)P.aplicarCfgED(data.valor);}catch(e){}
+  return{lugares:P.R.ED_LUGARES,frases:P.R.ED_FRASES,revisar:P.R.ED_REVISAR};
+}
+async function pintarCfgED(){const c=await cargarCfgED();document.getElementById('ed-lug').value=c.lugares.join('\n');document.getElementById('ed-fra').value=c.frases.join('\n');document.getElementById('ed-rev').value=c.revisar.join('\n');pintarRevisarED();}
+async function guardarCfgED(){
+  const out=document.getElementById('ed-res2');out.textContent='Guardando…';
+  const lista=id=>[...new Set(document.getElementById(id).value.split(/\n|,/).map(P.norm).filter(x=>x.length>=3))];
+  const valor={lugares:lista('ed-lug'),frases:lista('ed-fra'),revisar:lista('ed-rev')};
+  const{error}=await sb.from('plan_config').upsert({id:'ed_destinos',valor,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  if(error){out.textContent='❌ No se guardó: '+error.message;return;}
+  P.aplicarCfgED(valor);pintarCfgED();
+  // Corregir las OCs ya registradas: se vuelve a leer el destino de cada folio con su observación guardada
+  try{
+    const sinED=await cargarSinED();
+    const rows=await todo(()=>sb.from('plan_oc_lineas').select('folio,comprador,observaciones,destino,entrega_directa').order('folio').order('clave'));
+    const porFolio=new Map();rows.forEach(r=>{if(!porFolio.has(r.folio))porFolio.set(r.folio,r);});
+    let n=0;
+    await leerOcTipo();
+    for(const [f,r] of porFolio){const d=P.destinoED(r.observaciones||'');const ed=P.edOC(f,d,r.comprador,sinED);
+      if((d||null)!==(r.destino||null)||!!ed!==!!r.entrega_directa){const{error:e}=await sb.from('plan_oc_lineas').update({destino:d,entrega_directa:ed}).eq('folio',f);if(e)throw e;n++;}}
+    out.textContent='✅ Guardado: '+valor.lugares.length+' lugares y '+valor.frases.length+' frases. '+(n?n+' OCs ya registradas cambiaron de clasificación. ':'Ninguna OC registrada cambió. ')+'El próximo cálculo diario recalcula el BO del CEDI, OTIF y Target.';
+  }catch(e){out.textContent='✅ Guardado, pero no se pudieron corregir las OCs registradas: '+(e.message||e)+'. Se corrigen con el próximo cálculo diario.';}
+}
+async function pintarSinED(){
+  const set=await cargarSinED(true);const el=document.getElementById('ed-lista');
+  // Lista viva: base + compradores que vienen en las OCs + los dados de alta como comprador en usuarios (nombre como en el Excel)
+  let deOC=[];try{deOC=(await todo(()=>sb.from('plan_oc_lineas').select('comprador').order('folio').order('clave'))).map(r=>P.norm(r.comprador)).filter(Boolean);}catch(e){}
+  const lista=await P.compradores(sb,[...new Set([...COMPRADORES_ED,...deOC,...set])]);
+  el.innerHTML=[...new Set([...lista,...set])].sort((a,b)=>a.localeCompare(b,'es')).map(c=>'<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 14px 4px 0;font-size:13px"><input type="checkbox" value="'+c+'"'+(set.has(c)?' checked':'')+'> '+c+'</label>').join('');
+}
+async function guardarSinED(){
+  const out=document.getElementById('ed-res');out.textContent='Guardando…';
+  const nuevos=[...document.querySelectorAll('#ed-lista input:checked')].map(i=>i.value);
+  const antes=await cargarSinED(true);
+  const{error}=await sb.from('plan_config').upsert({id:'compradores_sin_ed',valor:nuevos,actualizado_en:new Date().toISOString()},{onConflict:'id'});
+  if(error){out.textContent='❌ No se guardó: '+error.message+'. ¿Ya corriste plan_tablas_7.sql?';return;}
+  // Corregir las OCs ya guardadas: los marcados dejan de ser entrega directa; los desmarcados vuelven a serlo si traen sucursal
+  const quitar=nuevos.filter(c=>!antes.has(c)),volver=[...antes].filter(c=>!nuevos.includes(c));
+  let msg='';
+  if(quitar.length){const r=await sb.from('plan_oc_lineas').update({entrega_directa:false}).in('comprador',quitar).eq('entrega_directa',true);if(r.error)msg+=' ⚠️ '+r.error.message;}
+  if(volver.length){const r=await sb.from('plan_oc_lineas').update({entrega_directa:true}).in('comprador',volver).not('destino','is',null);if(r.error)msg+=' ⚠️ '+r.error.message;}
+  SIN_ED=new Set(nuevos.map(P.norm));
+  out.textContent='✅ Guardado. '+(quitar.length||volver.length?'Se corrigieron las OCs ya registradas de: '+[...quitar,...volver].join(', ')+'. ':'')+'El próximo cálculo diario recalcula el BO del CEDI y la propuesta.'+msg;
+}
+async function procesarOCs(wb,fecha,log,res,prevEst){
+  const ltMap=new Map((res||[]).map(r=>[r.c,r.lt]));
+  const cur=P.ocLineas(wb);
+  if(!cur){log.msg('⚠️ El archivo no trae la hoja Productos Incluidos en: no se actualizan OCs, Target ni OTIF.','w');return null;}
+  const enc=P.ocEncabezados(wb);
+  const sinED=await cargarSinED();await cargarCfgED();
+  if(P.R.ED_LUGARES.length||P.R.ED_FRASES.length)log.msg('   Entrega directa también por: '+[...P.R.ED_LUGARES,...P.R.ED_FRASES].join(', '));
+  await leerOcTipo();
+  cur.forEach(l=>{const e=enc.get(l.folio);l.observaciones=e?e.obs||null:null;l.destino=e?e.destino:null;l.entrega_directa=P.edOC(l.folio,l.destino,l.comprador||(e&&e.comprador),sinED);});
+  log.msg('   Compradores que reciben en sucursal y mueven al CEDI (no cuentan como entrega directa): '+[...sinED].join(', '));
+  log.msg('   '+fmt([...cur.values()].filter(l=>l.entrega_directa).length)+' líneas son de entrega directa a sucursal (no cuentan para OTIF, Target ni vencidas del CEDI)');
+  log.msg('📦 OCs: '+fmt(cur.size)+' líneas pendientes en el archivo · '+fmt(enc.size)+' encabezados');
+  const prevRows=await todo(()=>sb.from('plan_oc_lineas').select('*').is('cerrada_en',null).order('folio').order('clave'));
+  const{count:tot}=await sb.from('plan_oc_lineas').select('*',{count:'exact',head:true});
+  const normOC=r=>({...r,fecha_oc:P.d10(r.fecha_oc),fecha_entrega:P.d10(r.fecha_entrega),cerrada_en:P.d10(r.cerrada_en),primera_foto:P.d10(r.primera_foto)});
+  const prev=new Map(prevRows.map(r=>[Number(r.folio)+'|'+Number(r.clave),normOC(r)]));
+  if(!tot){
+    log.msg('📍 Primera foto de OCs: se guardan como punto de partida (sin recepciones).');
+    await enLotes('plan_oc_lineas',[...cur.values()].map(l=>({...l,primera_foto:fecha,pend_inicial:l.cantidad_pend,cancelada:false,cerrada_en:null,actualizado_en:new Date().toISOString()})),log,{onConflict:'folio,clave'});
+  }else{
+    const d=P.diffOC(prev,cur,enc,fecha);
+    const ahora=new Date().toISOString();
+    const nuevas=d.upserts.filter(u=>!prev.has(Number(u.folio)+'|'+Number(u.clave))),resto=d.upserts.filter(u=>prev.has(Number(u.folio)+'|'+Number(u.clave)));
+    // OCs nuevas: se guarda lo que sugería el portal (en lotes separados para no borrar la sugerencia de las que ya existían)
+    await enLotes('plan_oc_lineas',nuevas.map(u=>({...u,...P.sugOC(prevEst?prevEst.map.get(Number(u.clave)):null,prevEst?prevEst.fecha:null),actualizado_en:ahora})),log,{onConflict:'folio,clave'});
+    await enLotes('plan_oc_lineas',resto.map(u=>({...u,actualizado_en:ahora})),log,{onConflict:'folio,clave'});
+    log.msg('   '+fmt(nuevas.length)+' líneas de OC nuevas'+(prevEst?' (con la sugerencia del portal del '+prevEst.fecha+')':' (sin cálculo anterior para comparar)'));
+    if(d.recep.length)await enLotes('plan_recepciones',d.recep,log,{onConflict:'folio,clave,fecha'});
+    log.msg('   '+fmt(d.recep.length)+' recepciones detectadas · '+fmt(d.cerradas)+' líneas completadas · '+fmt(d.canceladas)+' canceladas');
+  }
+  // Target por nivel de riesgo: alarmas sin resultado final (en plazo, «SIN OC» provisional o con el esquema anterior) desde nov-2026, últimos 120 días
+  const d120=new Date(new Date(fecha+'T12:00:00')-120*864e5).toISOString().slice(0,10);const desde=d120>P.R.T_NIVEL_DESDE?d120:P.R.T_NIVEL_DESDE;
+  const al=[...await todo(()=>sb.from('plan_alarmas').select('*').is('resultado_target',null).gte('fecha_alarma',desde).order('id')),
+            ...await todo(()=>sb.from('plan_alarmas').select('*').in('resultado_target',['SIN OC','SIN NIVEL','EN TIEMPO','TARDE','ANTICIPACION EXCESIVA']).gte('fecha_alarma',desde).order('id'))];
+  const claves=[...new Set(al.map(a=>Number(a.clave)))];const ocs=new Map();
+  for(let i=0;i<claves.length;i+=200){
+    const rs=await todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_pend,cerrada_en,cancelada,entrega_directa').in('clave',claves.slice(i,i+200)).order('folio'));
+    rs.forEach(o=>{o=normOC(o);const k=Number(o.clave);if(!ocs.has(k))ocs.set(k,[]);ocs.get(k).push(o);});
+  }
+  al.forEach(a=>{a.fecha_alarma=P.d10(a.fecha_alarma);a.fecha_fin=P.d10(a.fecha_fin);a._l=P.targetOC(a,ocs.get(Number(a.clave))||[]);});
+  // Nivel el día de la OC: foto diaria de ese día (o la última anterior); el día de hoy sale del cálculo actual
+  const hoyMap=new Map((res||[]).map(r=>[Number(r.c),r]));
+  let fotoDias=[];try{const{data:ix}=await sb.from('plan_publicacion').select('resumen').eq('id','dias').maybeSingle();fotoDias=Object.keys((ix&&ix.resumen&&ix.resumen.fechas)||{}).sort();}catch(e){}
+  const diaFoto=f=>{let x=null;for(const d of fotoDias){if(d<=f)x=d;else break;}return x;};
+  const fotos=new Map();
+  const necesito=[...new Set(al.filter(a=>a._l&&!a._l.ant&&a._l.o.fecha_oc<fecha).map(a=>diaFoto(a._l.o.fecha_oc)).filter(Boolean))];
+  for(const d of necesito){try{const{data:blob,error}=await sb.storage.from('respaldos').download('plan/dias/'+d+'.json.gz');if(error)throw error;
+    const js=JSON.parse(await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text());fotos.set(d,new Map((js.claves||[]).map(r=>[Number(r.c),r])));}catch(e){}}
+  const nivOC=(f,k)=>{if(f>=fecha)return P.nivelEn(hoyMap.get(k),fecha);const d=diaFoto(f);const m=d&&fotos.get(d);return m?P.nivelEn(m.get(k),d):null;};
+  const cambios=[];
+  al.forEach(a=>{const t=P.targetNivel(a,a._l,nivOC,P.nivelEn(hoyMap.get(Number(a.clave)),fecha));delete a._l;
+    if(t.resultado_target!==a.resultado_target||t.oc_folio!==(a.oc_folio==null?null:Number(a.oc_folio))||(t.dias_agotar!=null&&t.dias_agotar!==a.dias_agotar))cambios.push({...a,...t});});
+  if(cambios.length){try{await enLotes('plan_alarmas',cambios,log,{onConflict:'id'});}
+    catch(e){if(!/dias_agotar/.test(e.message||e))throw e;log.msg('ℹ️ Falta la columna dias_agotar (corre plan_tablas_19.sql); se guarda el Target sin los días para agotarse.','w');await enLotes('plan_alarmas',cambios.map(({dias_agotar,...x})=>x),log,{onConflict:'id'});}}
+  log.msg('🎯 Target por nivel: '+fmt(al.length)+' alarmas por evaluar · '+fmt(cambios.length)+' con resultado nuevo'+(necesito.length?' · '+necesito.length+' fotos diarias leídas':''));
+  // Resumen del mes: Target por comprador y OTIF por proveedor
+  const mes=fecha.slice(0,7)+'-01';
+  const am=await todo(()=>sb.from('plan_alarmas').select('clave,comprador,fecha_alarma,tipo,resultado_target,oc_folio,fecha_oc,dias_dif,nota').gte('fecha_alarma',mes).order('fecha_alarma'));
+  let metaCfg={};try{const{data}=await sb.from('plan_config').select('valor').eq('id','bono_objetivos').maybeSingle();metaCfg=(data&&data.valor)||{};}catch(e){}
+  const TR=P.targetResumen(am,c=>P.metaTarget(metaCfg,c));
+  const tRows=TR.filas.map(o=>({nombre:o.nombre,evaluadas:o.n,cumplen:o.OK,riesgo:o.RIESGO,noCumple:o.NO,target:o.target,meta:o.meta,pendientes:o.PEND}));
+  const tN=TR.gen.n,tOk=TR.gen.OK;
+  const cer=(await todo(()=>sb.from('plan_oc_lineas').select('*').gte('cerrada_en',mes).order('folio').order('clave'))).map(normOC);
+  const folios=[...new Set(cer.map(l=>Number(l.folio)))];let det=[];
+  for(let i=0;i<folios.length;i+=200){det=det.concat(await todo(()=>sb.from('plan_recepciones').select('*').in('folio',folios.slice(i,i+200)).order('folio')));}
+  const rec=P.recepMapa(det,await P.cargarReales(sb,folios));
+  const comp=new Map((await todo(()=>sb.from('plan_oc_compromiso').select('folio,fecha').order('folio'))).filter(c=>c.fecha).map(c=>[Number(c.folio),P.d10(c.fecha)]));
+  const oLin=cer.map(l=>P.otifLinea(l,rec.get(Number(l.folio)+'|'+Number(l.clave)),comp,ltMap.get(Number(l.clave)))).filter(Boolean);
+  const oGen=oLin.length?P.otifResumen(oLin.map(x=>({...x,g:'GENERAL'})),'g')[0]:null;
+  log.msg('🚚 OTIF del mes: '+fmt(oLin.length)+' líneas cerradas evaluables'+(oGen?' · OTIF '+(oGen.otif==null?'— (sin líneas con fecha válida)':(oGen.otif*100).toFixed(1)+'%'):''));
+  // OCs abiertas por clave para el tablero: [folio, pendiente, fecha OC, proveedor, entrega directa]
+  const abiertas={};cur.forEach(l=>{(abiertas[l.clave]||(abiertas[l.clave]=[])).push([l.folio,l.cantidad_pend,l.fecha_oc,l.proveedor||'',l.entrega_directa?1:0]);});
+  return{tRows,tGen:tN?{evaluadas:tN,target:tOk/tN,riesgo:TR.gen.RIESGO,no:TR.gen.NO,meta:P.metaTarget(metaCfg,'GENERAL')}:null,alarmasMes:am,oLin,oProv:P.otifResumen(oLin,'proveedor'),oGen,abiertas};
+}
+function pct(x){return x==null?'—':(x*100).toFixed(1)+'%';}
+function pintarCalc(r,nuevas,ocx){
+  const est=['FALTANTE','RIESGO','OPTIMO','SOBRE INVENTARIO','SIN COMPRA'];
+  const porComp={};nuevas.forEach(a=>{porComp[a.comprador]=(porComp[a.comprador]||0)+1;});
+  document.getElementById('calc-res').innerHTML=
+   '<div class="kpis">'+est.map(e=>'<div class="kpi"><b>'+fmt(r.estatus_portal[e]||0)+'</b><span>'+e+'</span></div>').join('')
+   +'<div class="kpi"><b>'+fmt(r.alarmas_nuevas)+'</b><span>Alarmas nuevas</span></div><div class="kpi"><b>'+fmt(r.bandera_mf)+'</b><span>MF con más de '+P.R.MF_MESES_REV+' meses de inventario</span></div></div>'
+   +(nuevas.length?'<div class="scroll" style="max-height:220px"><table><tr><th>Comprador</th><th>Alarmas nuevas</th></tr>'+Object.entries(porComp).sort((a,b)=>b[1]-a[1]).map(([c,n])=>'<tr><td>'+c+'</td><td>'+n+'</td></tr>').join('')+'</table></div>':'')
+   +(ocx?'<h3 style="margin:16px 0 4px;font-size:14px;color:var(--navy)">🎯 Target por nivel de riesgo del mes '+(ocx.tGen?'· '+pct(ocx.tGen.target)+' en bajo (meta '+ocx.tGen.meta+'%) · '+fmt(ocx.tGen.evaluadas)+' OCs evaluadas':'· aún sin alarmas evaluadas')+'</h3>'
+      +'<div class="scroll" style="max-height:260px"><table><tr><th>Comprador</th><th>Evaluadas</th><th>✅ Cumple (bajo/anticipada)</th><th>⚠️ Con riesgo (medio)</th><th>❌ No cumple (alto/faltante/sin OC)</th><th>Target</th><th>Meta</th><th>En plazo</th></tr>'+ocx.tRows.map(t=>'<tr><td>'+t.nombre+'</td><td>'+t.evaluadas+'</td><td>'+t.cumplen+'</td><td>'+t.riesgo+'</td><td>'+t.noCumple+'</td><td><b style="color:'+(t.target==null?'inherit':t.target*100>=t.meta?'#1f6f3a':'#b42318')+'">'+pct(t.target)+'</b></td><td>'+t.meta+'%</td><td>'+t.pendientes+'</td></tr>').join('')+'</table></div>'
+      +'<h3 style="margin:16px 0 4px;font-size:14px;color:var(--navy)">🚚 OTIF de proveedor del mes '+(ocx.oGen?'· '+pct(ocx.oGen.otif)+' ('+fmt(ocx.oGen.lineas)+' líneas · '+pct(ocx.oGen.con_compromiso)+' con fecha compromiso)':'· aún sin líneas cerradas')+'</h3>'
+      +(ocx.oProv.length?'<div class="scroll" style="max-height:260px"><table><tr><th>Proveedor</th><th>Líneas</th><th>Con fecha válida</th><th>On Time</th><th>In Full</th><th>OTIF</th><th>Con compromiso</th></tr>'+ocx.oProv.slice(0,30).map(o=>'<tr><td>'+o.nombre+'</td><td>'+o.lineas+'</td><td>'+o.con_fecha+'</td><td>'+pct(o.on_time)+'</td><td>'+pct(o.in_full)+'</td><td>'+pct(o.otif)+'</td><td>'+pct(o.con_compromiso)+'</td></tr>').join('')+'</table></div>':'')
+      +'<p class="d" style="font-size:11.5px;margin-top:6px">Target: cumple si la OC se colocó entre '+P.R.T_ANTES+' días antes (o el 10% del tiempo de entrega, si es mayor) y '+P.R.T_DESPUES+' días después de la alarma. OTIF = promedio de On Time e In Full. On Time se mide contra la fecha compromiso: la que capturó el comprador o, si no hay, la de por defecto = fecha de la OC + meses de entrega de la clave.</p>':'');
+}
+async function descargarCalc(){
+  if(!ULTIMO_CALC)return;
+  let abiertas=[];
+  try{abiertas=await todo(()=>sb.from('plan_alarmas').select('clave,comprador,rotacion,fecha_alarma,tipo,n_meses,antecedente,pronostico,demanda,existencias,bo,meses_inv,sugerida,sugerida_empaque,resultado_target,nota').is('fecha_fin',null).order('fecha_alarma',{ascending:false}));}catch(e){}
+  const H=[['c','Clave'],['n','Descripción'],['comp','Comprador'],['rot','Rotación'],['g','Grupo'],['u','Unidad'],['lt','T. entrega (m)'],['pm','Objetivo (m)'],['N','N meses'],
+    ['ex','Existencia para el cálculo (CEDI + resguardo)'],['exC','Existencia CEDI'],['rs','Resguardo con proveedor'],['rsBo','Resguardo descontado del BO'],['bo','BO CEDI'],['boT','BO total (incluye entrega directa)'],['A','Antecedente'],['P','Pronóstico'],['D','Demanda portal (base recomendada)'],['bDx','Por qué esa base'],['Dp','Promedio ant+pron (referencia)'],['bD','Base de la demanda'],['mi','Meses inv portal'],['est','Estatus portal'],
+    ['sA','Sugerencia x antecedente'],['sP','Sugerencia x pronóstico'],['s','Sugerencia (demanda portal)'],['sE','Sugerencia con empaque'],['eT','Empaque'],
+    ['mfA','Antecedente MF'],['mfP','Pronóstico MF'],['mfD','Demanda MF'],['mfI','Existencia MF'],['mfM','Meses inv MF'],['mfB','Número base MF'],['mfFalta','Falta por distribuir a tiendas'],['mfF','Revisar con gerencia'],['mfX','Excedente MF'],['nt','Notas']];
+  const rows=ULTIMO_CALC.res.map(r=>{const o={};H.forEach(([k,t])=>o[t]=k==='mfF'?(r[k]?'SÍ':''):r[k]);return o;});
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Planeación');
+  const alH={clave:'Clave',comprador:'Comprador',rotacion:'Rotación',fecha_alarma:'Fecha alarma',tipo:'Tipo',n_meses:'N meses',antecedente:'Antecedente',pronostico:'Pronóstico',demanda:'Demanda portal',
+    existencias:'Existencias',bo:'BO',meses_inv:'Meses inv',sugerida:'Sugerencia',sugerida_empaque:'Sugerencia con empaque',resultado_target:'Target',nota:'Nota'};
+  const tr=a=>{const o={};Object.keys(alH).forEach(k=>o[alH[k]]=a[k]);return o;};
+  if(abiertas.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(abiertas.map(tr)),'Alarmas abiertas');
+  if(ULTIMO_CALC.nuevas.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ULTIMO_CALC.nuevas.map(tr)),'Alarmas nuevas (esta carga)');
+  const ox=ULTIMO_CALC.oc;
+  if(ox&&ox.alarmasMes.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ox.alarmasMes.map(a=>({Clave:a.clave,Comprador:a.comprador,'Fecha alarma':a.fecha_alarma,Tipo:a.tipo,Target:a.resultado_target||'EN PLAZO','OC':a.oc_folio,'Fecha OC':a.fecha_oc,'Días vs alarma':a.dias_dif,Nota:a.nota}))),'Target del mes');
+  if(ox&&ox.oLin.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ox.oLin.map(l=>({OC:l.folio,Clave:l.clave,Proveedor:l.proveedor,Comprador:l.comprador,'Mes cierre':l.mes,'Fecha referencia':l.ref,'Base':l.base,'A tiempo':l.on_time==null?'SIN FECHA VÁLIDA':(l.on_time?'SÍ':'NO'),'Completa':l.in_full?'SÍ':'NO',Pedido:l.pedido,Recibido:l.recibido}))),'OTIF líneas del mes');
+  XLSX.writeFile(wb,'Planeacion_'+ULTIMO_CALC.fecha+'.xlsx');
+}
+
+// ══════════ VERIFICACIÓN ══════════
+async function todo(q){let out=[];for(let i=0;i<100;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;}
+async function verificar(){
+  const cont=document.getElementById('v-res');
+  const claves=document.getElementById('v-claves').value.split(/[,\s]+/).map(Number).filter(n=>n>0);
+  if(!claves.length){cont.innerHTML='<p class="note">Escribe al menos una clave.</p>';return;}
+  cont.innerHTML='<p class="d" style="margin-top:10px">Consultando…</p>';
+  try{
+    await sesionOk();
+    const [v,mf,em,ag,ed]=await Promise.all([
+      todo(()=>sb.from('plan_ventas').select('empresa,clave,meses').in('clave',claves).order('clave')).then(rs=>{const o=[];rs.forEach(r=>Object.entries(r.meses||{}).forEach(([m,u])=>o.push({empresa:r.empresa,clave:Number(r.clave),mes:m+'-01',unidades:u})));return o;}),
+      todo(()=>sb.from('plan_inventario_mf').select('clave,existencia,fecha_corte').in('clave',claves)),
+      todo(()=>sb.from('plan_empaques').select('*').in('clave',claves)),
+      todo(()=>sb.from('plan_agotados_mes').select('empresa,clave,mes,dias_agotado').in('clave',claves)),
+      todo(()=>sb.from('plan_compras_ed').select('clave,mes,cantidad').in('clave',claves))]);
+    const meses=[...new Set([...v.map(x=>x.mes),...ag.map(x=>x.mes),...ed.map(x=>x.mes)])].sort();
+    const n=x=>x==null?'':(Math.round(x*10)/10).toLocaleString('es-MX');
+    let h='';
+    for(const k of claves){
+      const e=em.find(x=>x.clave===k),m=mf.find(x=>x.clave===k);
+      h+='<h3 style="margin:16px 0 4px;font-size:14px;color:var(--navy)">Clave '+k+'</h3><div class="d" style="font-size:12px;color:var(--tx2)">'
+        +'Existencia MF: <b>'+(m?n(m.existencia)+'</b> (corte '+m.fecha_corte+')':'—</b>')+' · Empaque: <b>'
+        +(e?(e.validacion||'')+'</b> '+(e.inner_cant??'—')+' INNER / '+(e.master_cant??'—')+' MASTER '+(e.uni_compra||'')+(e.factor_conv?' · factor '+e.factor_conv:''):'sin registro</b>')+'</div>';
+      const fila=(et,f,cls)=>'<tr><td>'+et+'</td>'+meses.map(mm=>{const val=f(mm);return '<td'+(cls&&cls(mm)?' class="ag"':'')+'>'+n(val)+'</td>';}).join('')+'</tr>';
+      const g=(emp,mm)=>{const r=v.find(x=>x.clave===k&&x.empresa===emp&&x.mes===mm);return r?r.unidades:null;};
+      const a=(emp,mm)=>{const r=ag.find(x=>x.clave===k&&x.empresa===emp&&x.mes===mm);return r?r.dias_agotado:null;};
+      const d=mm=>{const r=ed.find(x=>x.clave===k&&x.mes===mm);return r?r.cantidad:null;};
+      h+='<div class="scroll"><table><tr><th></th>'+meses.map(mm=>'<th>'+mm.slice(0,7)+'</th>').join('')+'</tr>'
+        +fila('Venta SANVER',mm=>g('SANVER',mm))+fila('Venta MF',mm=>g('MF',mm))+fila('Compras ED',d)
+        +fila('Días agotado SANVER',mm=>a('SANVER',mm),mm=>(a('SANVER',mm)||0)>=10)
+        +fila('Días agotado MF',mm=>a('MF',mm),mm=>(a('MF',mm)||0)>=10)+'</table></div>';
+    }
+    cont.innerHTML=h+'<p class="d" style="margin-top:8px;font-size:11.5px">En rojo: meses con más de '+(P.R.DIAS_AGOTADO-1)+' días agotado (se excluyen del promedio).</p>';
+  }catch(e){cont.innerHTML='<p class="note">❌ '+e.message+'</p>';}
+}
+async function resumen(){
+  const cont=document.getElementById('v-res');cont.innerHTML='<p class="d" style="margin-top:10px">Contando…</p>';
+  try{
+    await sesionOk();
+    const t=[['plan_ventas','Ventas (empresa-clave)'],['plan_inventario_mf','Existencias MF'],['plan_empaques','Empaques'],['plan_agotados_dia','Días agotados'],['plan_compras_ed','Compras ED (clave-mes)']];
+    const r=await Promise.all(t.map(([tb])=>sb.from(tb).select('*',{count:'exact',head:true})));
+    cont.innerHTML='<div class="kpis">'+t.map(([tb,et],i)=>'<div class="kpi"><b>'+(r[i].error?'⚠️':fmt(r[i].count||0))+'</b><span>'+et+'</span></div>').join('')+'</div>';
+  }catch(e){cont.innerHTML='<p class="note">❌ '+e.message+'</p>';}
+}
+</script>
+</body>
+</html>

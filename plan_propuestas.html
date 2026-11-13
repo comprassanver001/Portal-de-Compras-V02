@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propuestas de compra</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="plan_logica.js?v=20261112d" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
+<style>
+:root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);font-size:14px}
+header{background:var(--navy);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:17px;font-weight:700}
+header .ses{margin-left:auto;font-size:12px;opacity:.9}
+main{max-width:1500px;margin:0 auto;padding:16px 16px 60px}
+.card{background:var(--sf);border:1px solid var(--brd);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.card h2{font-size:15px;color:var(--navy);margin-bottom:6px}
+.d{color:var(--tx2);font-size:12.5px;line-height:1.45}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input,select,textarea{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:8px;font-size:13px;font-family:inherit;background:#fff}
+button{background:var(--navy2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit}
+button.sec{background:#fff;color:var(--navy2);border:1.5px solid #c9d4f0}
+button.ok{background:var(--ok)}button.bad{background:var(--err)}
+button.sm{padding:5px 10px;font-size:12px}
+button:disabled{opacity:.45;cursor:not-allowed}
+#lock{max-width:420px;margin:60px auto}
+.err{color:var(--err);font-size:12.5px;margin-top:8px;display:none}
+.scroll{overflow:auto;max-height:70vh;border:1px solid var(--brd);border-radius:10px;background:#fff}
+table{border-collapse:collapse;font-size:12.5px;width:100%}
+th,td{border-bottom:1px solid var(--brd);padding:6px 8px;text-align:left;white-space:nowrap;vertical-align:middle}
+th{background:#f0f4ff;color:var(--navy);position:sticky;top:0;z-index:1;font-size:11.5px}
+th.gP{background:#e8eefc}th.gS{background:#fff4e5}th.gR{background:#eaf6ec}
+td.num,th.num{text-align:right}
+td.desc{white-space:normal;min-width:180px;max-width:260px;line-height:1.3}
+.chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;display:inline-block;white-space:nowrap}
+.s-VERDE{background:var(--okbg);color:var(--ok)}.s-AMARILLO{background:var(--warnbg);color:var(--warn)}.s-ROJO{background:var(--errbg);color:var(--err)}.s-SIN{background:var(--graybg);color:var(--gray)}
+.e-BORRADOR{background:var(--graybg);color:var(--gray)}.e-EN{background:#e8eefc;color:var(--navy2)}.e-REGRESADO{background:var(--warnbg);color:var(--warn)}.e-AUTORIZADO{background:var(--okbg);color:var(--ok)}.e-CANCELADO{background:var(--errbg);color:var(--err)}
+.av{font-size:11px;color:var(--tx2);white-space:normal;min-width:200px;max-width:300px;line-height:1.35}
+.av div::before{content:'• '}
+td select{max-width:220px;font-size:12px;padding:4px 6px}td textarea{font-size:12px;padding:4px 6px;width:220px;height:46px;resize:vertical}
+a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline;font-weight:600}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+.flt{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 8px;padding:8px 10px;background:#f4f7ff;border:1px solid #d6e0f5;border-radius:8px;font-size:12.5px}
+.flt select,.flt input{padding:5px 7px;border:1px solid #c9d4f0;border-radius:6px;font-size:12.5px;max-width:220px}
+.flt .chip{cursor:pointer;padding:4px 10px;border-radius:14px;font-weight:600;border:1px solid transparent;user-select:none}
+.flt .chip.on{border-color:#1e3a5f;box-shadow:0 0 0 1px #1e3a5f inset}
+/* Columnas fijas del folio (Clave → Estatus) */
+#folio td.fx{position:sticky;background:#fff;z-index:1}
+#folio tr.pend td.fx{background:inherit}
+#folio th.fx{position:sticky;z-index:3}
+#folio .fxu{box-shadow:inset -2px 0 0 #c9d4f0}
+.kpi{border:1px solid var(--brd);border-radius:10px;padding:8px 14px;min-width:120px}
+.kpi b{display:block;font-size:18px;color:var(--navy)}.kpi span{font-size:11.5px;color:var(--tx2)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1a2035;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;display:none;z-index:9;max-width:90vw}
+.pasos{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 2px}
+.paso{font-size:12px;padding:5px 10px;border-radius:20px;background:var(--graybg);color:var(--gray);font-weight:600}
+.paso.on{background:#e8eefc;color:var(--navy2)}.paso.hecho{background:var(--okbg);color:var(--ok)}
+.mut{color:var(--tx2)}
+tr.lin-q td{background:#fbfcff}
+.badge{font-size:11px;color:var(--tx2)}
+</style>
+<script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
+<style>.embed header{display:none}</style>
+</head>
+<body>
+<header>
+  <h1>Propuestas de compra</h1>
+  <span class="ses" id="ses"></span>
+</header>
+
+<div id="lock" class="card">
+  <h2>Acceso</h2>
+  <p class="d" style="margin-bottom:10px">Usa la contraseña del portal.</p>
+  <div class="row"><input type="password" id="pw" placeholder="Contraseña" style="flex:1" onkeydown="if(event.key==='Enter')entrar()"><button onclick="entrar()">Entrar</button></div>
+  <div class="err" id="pw-err"></div>
+</div>
+
+<main id="app" style="display:none">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div><h2>Propuestas de compra</h2>
+        <p class="d">Cada compra al CEDI lleva un folio: el portal congela su cálculo, tú pegas lo que definiste en surtimiento, el portal compara y la propuesta se autoriza antes de levantar la OC. Escribe el folio en las Observaciones de la OC.</p></div>
+      <div class="row"><select id="quien" onchange="setQuien()"></select></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <select id="f-comp" onchange="pintarLista()"></select>
+      <select id="f-mes" onchange="pintarLista()" title="Mes en que se creó el folio. En «mes actual» también salen los folios abiertos de meses anteriores (borrador, en revisión o regresados)"></select>
+      <select id="f-est" onchange="pintarLista()"><option value="ABIERTOS">Abiertos (borrador, en revisión, regresados)</option><option value="">Todos</option><option>BORRADOR</option><option value="EN REVISION">En revisión</option><option>REGRESADO</option><option>AUTORIZADO</option><option>CANCELADO</option></select>
+      <button class="sec" onclick="recargar()">↻ Actualizar</button>
+      <button onclick="abrirNueva()" style="margin-left:auto">➕ Nueva propuesta</button>
+    </div>
+    <div class="scroll" style="max-height:34vh;margin-top:10px"><table><thead><tr><th>Folio</th><th>Comprador</th><th>Creado</th><th>Cálculo del</th><th class="num">Claves</th><th>Semáforo</th><th>Estado</th><th>Autorizó</th></tr></thead><tbody id="lista"></tbody></table></div>
+    <div class="d" id="corte" style="margin-top:6px"></div>
+  </div>
+
+  <!-- NUEVA PROPUESTA -->
+  <div class="card" id="nueva" style="display:none">
+    <h2>Nueva propuesta</h2>
+    <p class="d">Marca las claves que vas a revisar en surtimiento o pégalas abajo (separadas por espacio, coma o renglón). Puede ser cualquier clave del CEDI.</p>
+    <div id="n-cal" style="display:none;margin-top:8px;padding:8px 12px;border-radius:8px;background:#e8eefc;color:#1c4587;font-size:12.5px"></div>
+    <div class="row" style="margin:10px 0 4px">
+      <select id="n-tipo" onchange="NSEL=new Set();pintarNueva()" title="Nacional o Importación: solo las claves dadas de alta en Admin → Compra nacional e importación, con el tiempo de entrega y los meses objetivo de ese tipo. Cada folio es de un solo tipo."><option value="">Compra normal</option><option value="NACIONAL">🇲🇽 Compra nacional (stock del proveedor nacional)</option><option value="IMPORTACION">🚢 Compra de importación</option></select>
+      <span class="d" id="n-tipoav"></span>
+    </div>
+    <div class="row" style="margin:6px 0 10px">
+      <select id="n-modo" onchange="pintarNueva()"><option value="pedir">Mis claves por pedir (faltante y riesgo con propuesta, y sin historial con existencia 0)</option><option value="todas">Todas mis claves</option></select>
+      <select id="n-bo" onchange="pintarNueva()" title="Sin BO: estatus, nivel de riesgo y propuesta solo con la existencia (como las alarmas). Con BO: suma el BO del CEDI para ver si lo que viene en camino alcanza o hay que pedir más. El folio se crea con esta misma opción."><option value="0">Sin BO (solo existencia)</option><option value="1">Con BO del CEDI</option></select>
+      <span id="n-prov"></span><span id="n-ori"></span><span id="n-marca"></span><span id="n-est"></span><span id="n-niv"></span><span id="n-grupo"></span><span id="n-rot"></span>
+      <input type="search" id="n-q" placeholder="Filtrar por clave, descripción o marca…" oninput="pintarNueva()" style="width:260px">
+      <a class="lk" style="font-size:12px" onclick="['n-prov','n-ori','n-marca','n-est','n-niv','n-grupo','n-rot'].forEach(MS.clear);pintarNueva()">Limpiar filtros</a>
+      <span class="d" id="n-cnt"></span>
+    </div>
+    <div id="n-boav" style="margin:-4px 0 8px;padding:6px 10px;border-radius:8px;font-size:12px"></div>
+    <div class="scroll" style="max-height:38vh"><table><thead id="n-head"></thead><tbody id="n-body"></tbody></table></div>
+    <div class="row" style="margin-top:10px">
+      <textarea id="n-pegar" placeholder="O pega aquí claves: 44519, 163 26520…" style="width:420px;height:52px" oninput="pintarNueva()"></textarea>
+      <button onclick="crearFolio()" id="n-crear">Crear folio</button>
+      <button class="sec" onclick="document.getElementById('nueva').style.display='none'">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- FOLIO -->
+  <div class="card" id="folio" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <div><h2 id="f-tit"></h2><div class="d" id="f-sub"></div></div>
+      <div class="row" id="f-acc"></div>
+    </div>
+    <div class="pasos" id="f-pasos"></div>
+    <div class="d" id="f-cmp" style="margin:6px 0 2px"></div>
+    <div class="d" id="f-bo" style="margin:6px 0 2px"></div>
+    <div class="kpis" id="f-kpis"></div>
+    <div id="f-aviso"></div>
+    <div class="flt" id="f-flt"></div>
+    <div class="scroll"><table><thead id="f-head"></thead><tbody id="f-body"></tbody></table></div>
+    <p class="d" style="margin-top:8px"><b>Recomendada:</b> el portal elige la base según el historial de la clave. Si hay temporada (pronóstico ±50% contra antecedente) usa el <b>pronóstico</b>, que son los mismos meses del año pasado; si no hay temporada usa el <b>antecedente</b>, que es lo más reciente; si una base tiene pocos meses válidos por agotados usa la otra; si la venta es intermitente usa el promedio de 12 meses. La mezcla ya no se usa para proponer. Propuesta = consumo × (T. entrega + Objetivo) − existencia − BO (si el folio es con BO). Diferencia = pedido − recomendada, en piezas y en meses de consumo.<br>Meses = (existencia + BO si aplica + pedido) ÷ consumo; entre paréntesis, al llegar (meses − T. entrega). Rango al llegar: entre T. entrega × 1.4 y Objetivo × 1.4. <b>Semáforo (en meses, no en %)</b>: se mide con la base recomendada cuántos meses de inventario quedarían al llegar el pedido. <b>Verde</b>: pide lo recomendado (±20% o ±0.5 meses) o al llegar queda dentro del objetivo; si la propuesta es 0 y no se pide nada también es verde. <b>Amarillo</b>: se aleja de lo recomendado pero sin llegar a rojo (p. ej. queda arriba del máximo por menos de 1 mes, o abajo del objetivo sin llegar a riesgo); pide motivo. <b>Rojo</b>: el pedido causa el problema: pide de más y al llegar queda más de 1 mes arriba del máximo, o pide de menos y al llegar sigue en riesgo; pide motivo y comentario. El primer aviso de cada clave dice por qué tiene ese color.</p>
+    <input type="file" id="f-arch" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="subirPlantilla(this.files[0])">
+  </div>
+</main>
+<div id="pinbg" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:20;align-items:center;justify-content:center">
+  <div class="card" style="width:420px;max-width:92vw;margin:0">
+    <h2 id="pin-tit">Autorizar folio</h2>
+    <p class="d" id="pin-sub" style="margin-bottom:10px"></p>
+    <div style="display:grid;gap:8px">
+      <select id="pin-u"></select>
+      <input type="password" id="pin-p" placeholder="PIN" inputmode="numeric" autocomplete="off" onkeydown="if(event.key==='Enter')pinOk()">
+      <textarea id="pin-c" placeholder="Comentario" style="height:60px"></textarea>
+    </div>
+    <div class="err" id="pin-err"></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="sec" onclick="pinCerrar()">Cancelar</button><button id="pin-btn" onclick="pinOk()">Autorizar</button></div>
+    <p class="d" style="margin-top:8px">El nombre y el PIN son los mismos de la pestaña Comparativos. Se cambian allá, con el botón «Mi PIN».</p>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";
+const SB_KEY="sb_publishable_9CGnUVxR36vOvPLvaToJ7A_ztI7s6yT";
+const EMAIL_EQUIPO="equipo@portalcompras.app",EMAIL_ADMIN="admin@portalcompras.app";
+const sb=window.supabase.createClient(SB_URL,SB_KEY);
+// Portal de comparativos (otro proyecto de Supabase): autorizadores con PIN y envío de las cantidades autorizadas
+const CMP_URL="https://rbakkrzxdjkpbmbcurng.supabase.co";
+const CMP_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJiYWtrcnp4ZGprcGJtYmN1cm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwNzY1NzgsImV4cCI6MjEwNDY1MjU3OH0.504RZFk_kyH5POYWiNcZWdh8Nr8RTPNREMw-BtbJR2s";
+// Existencia con resguardo con proveedores (+RG)
+const exRG=p=>p&&p.rs>0?'<span title="CEDI '+nf(p.exC)+' + resguardo '+nf(p.rs)+((p.rsD||[]).length?': '+p.rsD.map(x=>x[0]+' '+nf(x[1])+' corte '+x[2]).join(' · '):'')+'">'+nf(p.ex)+' <span style="color:#0f766e;font-size:11px">+RG</span></span>':nf(p&&p.ex);
+const CMP_PORTAL="https://ftrevinor001-tr.github.io/Portal_comparativos_compras/";
+let _sbc=null;const sbc=()=>_sbc||(_sbc=window.supabase.createClient(CMP_URL,CMP_KEY,{auth:{persistSession:false,autoRefreshToken:false,storageKey:'cmp-prop'}}));
+let COMPRADORES=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MARITZA','MYRIAM VIDA CHRISTELL','SILVINO'];
+const ABIERTOS=['BORRADOR','EN REVISION','REGRESADO'];
+const S={est:null,byClave:new Map(),fecha:null,ocs:{},folios:[],lineasAbiertas:new Map(),actual:null,lineas:[],esAdmin:false};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(v,d=0)=>v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('es-MX',{minimumFractionDigits:d,maximumFractionDigits:d});
+const sg=(v,d=0)=>v==null||isNaN(v)?'—':(v>0?'+':v<0?'−':'')+nf(Math.abs(v),d);
+const pct=v=>v==null?'—':(v>0?'+':'')+Math.round(v*100)+'%';
+const fF=f=>f?String(f).slice(8,10)+'/'+String(f).slice(5,7)+'/'+String(f).slice(0,4):'—';
+const fFH=f=>f?new Date(f).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'}):'—';
+function toast(t){const el=$('toast');el.textContent=t;el.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>el.style.display='none',3200);}
+function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+async function todo(q){let out=[];for(let i=0;i<100;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;}
+const quien=()=>$('quien').value;
+const SEM_L={VERDE:'Verde',AMARILLO:'Amarillo',ROJO:'Rojo','SIN DATO':'Sin surtimiento'};
+const semChip=s=>'<span class="chip s-'+(s==='SIN DATO'||!s?'SIN':s)+'">'+(SEM_L[s]||'Sin surtimiento')+'</span>';
+const estChip=e=>'<span class="chip e-'+String(e||'').split(' ')[0]+'">'+(e==='EN REVISION'?'En revisión':e?e.charAt(0)+e.slice(1).toLowerCase():'—')+'</span>';
+
+async function entrar(){
+  const pw=$('pw').value,err=$('pw-err');err.style.display='none';
+  let r=await sb.auth.signInWithPassword({email:EMAIL_EQUIPO,password:pw});
+  if(r.error)r=await sb.auth.signInWithPassword({email:EMAIL_ADMIN,password:pw});
+  if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
+  abrir();
+}
+(async()=>{const{data:{session}}=await sb.auth.getSession();if(session)abrir();else $('lock').style.display='block';})();
+async function abrir(){
+  $('lock').style.display='none';$('app').style.display='block';
+  const{data:{session}}=await sb.auth.getSession();S.esAdmin=!!(session&&session.user&&session.user.email===EMAIL_ADMIN);
+  COMPRADORES=await P.compradores(sb,COMPRADORES);
+  const q=$('quien');q.innerHTML='<option value="">— ¿Quién eres? —</option>'+[...COMPRADORES,'ADMIN'].map(c=>'<option>'+c+'</option>').join('');
+  let pu='';try{pu=window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){}pu=pu?P.compCanon(pu,COMPRADORES):'';
+  if(pu&&![...q.options].some(o=>o.value===pu))q.insertAdjacentHTML('beforeend','<option>'+esc(pu)+'</option>');
+  q.value=pu||lsGet('plan_prop_quien')||'';
+  $('f-comp').innerHTML='<option value="">Todos los compradores</option>'+COMPRADORES.map(c=>'<option>'+c+'</option>').join('');
+  setQuien(true);
+  await recargar();
+  desdeCalendario();
+}
+// Viene del Calendario de pedidos (?claves=1,2,3&origen=Proveedor): abre Nueva propuesta con esas claves pegadas
+function desdeCalendario(){
+  let u;try{u=new URLSearchParams(location.search);}catch(e){return;}
+  const fo=u.get('folio');if(fo){try{history.replaceState(null,'',location.pathname);}catch(e){}abrirFolio(fo).then(()=>{try{$('f-tit').scrollIntoView({behavior:'smooth'});}catch(e){}});return;}const ks=(u.get('claves')||'').split(',').filter(x=>/^\d+$/.test(x));if(!ks.length)return;
+  if(u.get('bo')==='1'&&$('n-bo'))$('n-bo').value='1';
+  const gr=(u.get('grupo')||'').split(',').filter(x=>/^\d+$/.test(x)).map(Number),org=u.get('origen')||'';
+  NSEL=new Set(ks.map(Number).filter(k=>S.byClave.has(k)));$('n-pegar').value=ks.filter(k=>!S.byClave.has(Number(k))).join(' ');
+  S.calU=new Set([...NSEL,...gr]);$('nueva').style.display='block';
+  $('n-cal').innerHTML='🗓️ Del Calendario de pedidos: <b>'+esc(org)+'</b> · '+nf(S.calU.size)+' claves de este proveedor'+(gr.length?'':' (las del pedido)')+'. Ya vienen marcadas las <b>'+nf(NSEL.size)+'</b> que le toca pedir; marca las demás que quieras sumar al folio. <a class="lk" onclick="S.calU=null;$(\'n-cal\').style.display=\'none\';pintarNueva()">Ver todas mis claves</a>';
+  $('n-cal').style.display='block';try{pintarNueva();}catch(e){}cuentaNueva();$('nueva').scrollIntoView({behavior:'smooth'});
+  toast('🗓️ '+NSEL.size+' claves marcadas de '+(org||'calendario')+': revisa y crea el folio');
+  try{history.replaceState(null,'',location.pathname);}catch(e){}
+}
+function setQuien(inicial){
+  const v=quien();lsSet('plan_prop_quien',v);
+  // Por default: compradores ven sus folios abiertos; quien autoriza (no es comprador) ve los que están En revisión
+  if(v)$('f-est').value=COMPRADORES.includes(v)?'ABIERTOS':'EN REVISION';
+  $('ses').textContent=v?'Trabajando como: '+v:'';
+  if(COMPRADORES.includes(v))$('f-comp').value=v;else if(!inicial)$('f-comp').value='';
+  if(!inicial){pintarLista();if(S.actual)pintarFolio();}
+}
+
+// ── Datos: cálculo publicado del portal + folios ──
+async function cargarEstado(){
+  const{data:pub,error}=await sb.from('plan_publicacion').select('fecha,ruta').eq('id','estado').maybeSingle();
+  if(error)throw error;if(!pub)throw new Error('Todavía no hay un cálculo diario publicado.');
+  const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw e2;
+  const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
+  const js=JSON.parse(txt);S.est=js;S.fecha=js.fecha;S.ocs=js.ocs||{};S.byClave=new Map((js.claves||[]).map(r=>[Number(r.c),r]));
+}
+async function recargar(){
+  try{
+    await cargarEstado();
+    S.origen=new Map();try{(await todo(()=>sb.from('plan_origen_clave').select('clave,origen').order('clave'))).forEach(r=>S.origen.set(Number(r.clave),r.origen));}catch(e){}
+    await cargarProveedores();
+    await cargarDual();
+    S.folios=await todo(()=>sb.from('plan_propuestas').select('*').order('creado_en',{ascending:false}).order('folio'));
+    const abiertos=S.folios.filter(f=>ABIERTOS.includes(f.estado)).map(f=>f.folio);S.lineasAbiertas=new Map();
+    for(let i=0;i<abiertos.length;i+=100){(await todo(()=>sb.from('plan_propuesta_lineas').select('folio,clave').in('folio',abiertos.slice(i,i+100)).order('folio').order('clave'))).forEach(l=>S.lineasAbiertas.set(Number(l.clave),l.folio));}
+    const cnt=await todo(()=>sb.from('plan_propuesta_lineas').select('folio,semaforo').order('folio').order('clave'));
+    S.resumen={};cnt.forEach(l=>{const o=S.resumen[l.folio]||(S.resumen[l.folio]={n:0,VERDE:0,AMARILLO:0,ROJO:0,SIN:0});o.n++;o[l.semaforo&&l.semaforo!=='SIN DATO'?l.semaforo:'SIN']++;});
+    $('corte').textContent='Cálculo del portal al '+fF(S.fecha)+' · '+nf(S.byClave.size)+' claves. Al crear un folio se congela este cálculo.';
+    pintarLista();if(S.actual)await abrirFolio(S.actual.folio);
+  }catch(e){$('lista').innerHTML='<tr><td colspan="8" style="color:var(--err)">❌ '+esc(e.message||e)+(String(e.message||'').includes('plan_propuesta')?' · ¿Ya corriste plan_tablas_9.sql?':'')+'</td></tr>';}
+}
+// ── Compra nacional e importación (plan_tablas_24.sql): parámetros por clave, stock del proveedor nacional y BO por tipo ──
+async function cargarDual(){
+  S.dual=new Map();S.dualErr=null;
+  try{const du=await todo(()=>sb.from('plan_abasto_dual').select('*').order('clave'));if(!du.length)return;
+    let st=[],oc=[];const ks=du.map(r=>Number(r.clave));
+    try{st=await todo(()=>sb.from('plan_stock_proveedor').select('clave,proveedor,cantidad,fecha_corte').order('clave').order('proveedor'));}catch(e){}
+    try{for(let i=0;i<ks.length;i+=200){const sl=ks.slice(i,i+200);oc=oc.concat(await todo(()=>sb.from('plan_oc_lineas').select('folio,clave,proveedor,cantidad_pend,entrega_directa,cancelada,cerrada_en').in('clave',sl).is('cerrada_en',null).order('folio').order('clave')));}}catch(e){}
+    S.dual=P.dualMapa(du,st,oc,S.fecha);
+  }catch(e){S.dualErr=e.message||String(e);}
+}
+const esDual=k=>!!(S.dual&&S.dual.has(Number(k)));
+const conDual=r=>r&&esDual(r.c)?Object.assign({},r,{dual:S.dual.get(Number(r.c))}):r;
+const tipoN=()=>($('n-tipo')&&$('n-tipo').value)||'';
+const tipoF=()=>(S.actual&&S.actual.tipo_compra)||'';
+// Proveedor del tipo de compra (nacional o importación) para una clave dual; si no está capturado, el de siempre
+function provTipo(k,tipo,dual){const d=dual||(S.dual&&S.dual.get(Number(k)));if(!tipo||!d)return null;const pv=tipo==='NACIONAL'?d.provN:d.provI;return pv||null;}
+function provCeldaT(k,tipo,dual){const pv=provTipo(k,tipo,dual);if(!pv)return provCelda(k);
+  return '<div style="white-space:normal;min-width:150px;max-width:220px;line-height:1.25">'+esc(pv)+' <span class="chip s-SIN" style="font-size:10px">'+P.TIPO_I[tipo]+' '+P.TIPO_L[tipo].toLowerCase()+'</span></div>';}
+const stkTxt=d=>!d?'—':d.stk!=null?'<span title="Stock del proveedor nacional'+(d.stkP?' ('+esc(d.stkP)+')':'')+' · corte '+fF(d.stkF)+'">'+nf(d.stk)+'</span>':d.stkV!=null?'<span style="color:var(--err)" title="Corte '+fF(d.stkVF)+': más de '+P.R.STK_DIAS+' días, no cuenta">vencido</span>':'<span class="mut" title="Sin stock cargado en Admin">sin dato</span>';
+const boTxt=pp=>pp&&pp.tipo?'<span title="BO del CEDI '+nf(pp.boCEDI)+': '+nf(pp.boN)+' nacional + '+nf(pp.boI)+' importación">'+nf(pp.bo)+(pp.tipo==='NACIONAL'&&pp.boI>0?'<div class="badge">+'+nf(pp.boI)+' imp. aparte</div>':pp.tipo==='IMPORTACION'&&pp.boI>0?'<div class="badge">'+nf(pp.boI)+' de imp.</div>':'')+'</span>':nf(pp&&pp.bo);
+// Mes de creación del folio (hora de México)
+const mesDe=f=>f&&f.creado_en?new Date(f.creado_en).toLocaleDateString('en-CA',{timeZone:'America/Mexico_City'}).slice(0,7):'';
+const MESES_N=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const mesTxt=m=>MESES_N[Number(m.slice(5,7))-1]+' '+m.slice(0,4);
+function pintarMeses(){
+  const sel=$('f-mes'),hoy=new Date().toLocaleDateString('en-CA',{timeZone:'America/Mexico_City'}).slice(0,7),prev=sel.dataset.ok?sel.value:'ACTUAL';
+  const ms=[...new Set((S.folios||[]).map(mesDe).filter(Boolean))].filter(m=>m!==hoy).sort().reverse();
+  sel.innerHTML='<option value="ACTUAL">Mes actual ('+mesTxt(hoy)+')</option>'+ms.map(m=>'<option value="'+m+'">'+mesTxt(m).replace(/^./,c=>c.toUpperCase())+'</option>').join('')+'<option value="">Todos los meses</option>';
+  sel.value=[...sel.options].some(o=>o.value===prev)?prev:'ACTUAL';sel.dataset.ok='1';
+  return hoy;
+}
+function pintarLista(){
+  const fc=$('f-comp').value,fe=$('f-est').value,hoy=pintarMeses(),fm=$('f-mes').value;
+  const okMes=f=>!fm||(fm==='ACTUAL'?(mesDe(f)===hoy||ABIERTOS.includes(f.estado)):mesDe(f)===fm);
+  const rows=S.folios.filter(f=>(!fc||f.comprador===fc)&&(!fe||(fe==='ABIERTOS'?ABIERTOS.includes(f.estado):f.estado===fe))&&okMes(f));
+  $('lista').innerHTML=rows.map(f=>{const r=(S.resumen||{})[f.folio]||{n:0};
+    return '<tr><td><a class="lk" onclick="abrirFolio(\''+f.folio+'\')">'+esc(f.folio)+'</a>'+(f.tipo_compra?' '+P.tipoChip(f.tipo_compra):'')+'</td><td>'+esc(f.comprador)+'</td><td>'+fFH(f.creado_en)+'</td><td>'+fF(f.fecha_calculo)+'</td><td class="num">'+nf(r.n)+'</td><td>'
+      +(r.VERDE?'<span class="chip s-VERDE">'+r.VERDE+'</span> ':'')+(r.AMARILLO?'<span class="chip s-AMARILLO">'+r.AMARILLO+'</span> ':'')+(r.ROJO?'<span class="chip s-ROJO">'+r.ROJO+'</span> ':'')+(r.SIN?'<span class="chip s-SIN">'+r.SIN+' sin surt.</span>':'')
+      +'</td><td>'+estChip(f.estado)+(fm==='ACTUAL'&&mesDe(f)!==hoy?' <span class="chip s-SIN" title="Folio abierto creado en un mes anterior">'+mesTxt(mesDe(f)).slice(0,3)+'</span>':'')+'</td><td class="mut">'+(f.autorizado_por?esc(f.autorizado_por)+' · '+fFH(f.autorizado_en):'')+'</td></tr>';}).join('')||'<tr><td colspan="8" class="mut">No hay folios con estos filtros.</td></tr>';
+}
+
+// ── Nueva propuesta ──
+let NSEL=new Set();
+function abrirNueva(){if(!quien()){toast('Primero elige quién eres (arriba a la derecha)');return;}S.calU=null;$('n-cal').style.display='none';NSEL=new Set();$('n-pegar').value='';$('nueva').style.display='block';pintarNueva();$('nueva').scrollIntoView({behavior:'smooth'});}
+const pegadas=()=>[...new Set(String($('n-pegar').value||'').split(/[\s,;]+/).filter(x=>/^\d+$/.test(x)).map(Number))];
+// Filtros de selección múltiple en cascada (cada uno muestra solo lo que existe con los demás aplicados)
+const oriDe=k=>(S.origen&&S.origen.get(Number(k)))||'';
+// Proveedor por clave: propuesto (catálogo del Calendario o aprobado vigente en Comparativos) o el de la última compra (última OC)
+async function cargarProveedores(){
+  const cat=new Map(),cmp=new Map();let oc=new Map();
+  await Promise.all([
+    (async()=>{try{(await todo(()=>sb.from('plan_prov_clave').select('clave,proveedor').order('clave'))).forEach(r=>cat.set(Number(r.clave),String(r.proveedor).trim()));}catch(e){}})(),
+    (async()=>{try{oc=P.ultimaOC(await todo(()=>sb.from('plan_oc_lineas').select('clave,proveedor,fecha_oc').order('folio').order('clave')));}catch(e){}})(),
+    (async()=>{try{const c=sbc();let out=[];for(let i=0;i<100;i++){const{data,error}=await c.from('cmp_asignaciones').select('clave,proveedor,aprobado_en').eq('vigente',true).order('clave').range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}
+      out.forEach(r=>{const k=Number(r.clave),f=String(r.aprobado_en||'').slice(0,10),x=cmp.get(k);if(P.provValido(r.proveedor)&&(!x||f>=x.f))cmp.set(k,{p:String(r.proveedor).trim(),f});});}catch(e){}})()]);
+  S.prov=P.provPorClave([...S.byClave.values()],{cat,cmp,oc});
+  // claves del folio que ya no vienen en el cálculo
+  S.provRaw={cat,cmp,oc};
+}
+const provDe=k=>{k=Number(k);let x=S.prov&&S.prov.get(k);if(!x&&S.provRaw){x=P.provPorClave([{c:k,m:''}],S.provRaw).get(k);}return x||null;};
+const provNom=k=>{const x=provDe(k);return x&&x.o!=='MARCA'?x.p:'';};
+const PROV_ORG={'CATÁLOGO':'catálogo','COMPARATIVO':'aprobado','ÚLTIMA OC':'última compra'};
+function provCelda(k){const x=provDe(k);if(!x||x.o==='MARCA')return'<span class="mut">sin proveedor</span>';
+  const otra=x.oc&&P.provKey(x.oc)!==P.provKey(x.p)?'<div class="badge">últ. compra: '+esc(x.oc)+(x.ocF?' · '+fF(x.ocF):'')+'</div>':(x.o!=='ÚLTIMA OC'&&x.ocF?'<div class="badge">últ. compra '+fF(x.ocF)+'</div>':(x.ocF?'<div class="badge">'+fF(x.ocF)+'</div>':''));
+  return '<div style="white-space:normal;min-width:150px;max-width:220px;line-height:1.25">'+esc(x.p)+' <span class="chip s-SIN" style="font-size:10px">'+(PROV_ORG[x.o]||'')+'</span>'+otra+'</div>';}
+const NF=[['n-prov',r=>provNom(r.c)],['n-ori',r=>oriDe(r.c)],['n-marca',r=>r.m||''],['n-est',r=>r.est||''],['n-niv',r=>r.nv?({ALTO:'🔴 ALTO',MEDIO:'🟠 MEDIO',BAJO:'🟡 BAJO'})[r.nv]:r.est==='FALTANTE'?'FALTANTE':'— sin nivel'],['n-grupo',r=>r.g||''],['n-rot',r=>r.rot||'']];
+let NF_OK=false;
+function montarNF(){if(NF_OK||!window.MS)return;NF_OK=true;[['n-prov','Proveedor','Todos'],['n-ori','Origen recolección','Todos'],['n-marca','Marca','Todas'],['n-est','Estatus','Todos'],['n-niv','Nivel de riesgo','Todos'],['n-grupo','Grupo','Todos'],['n-rot','Rotación','Todas']].forEach(([id,t,todos])=>MS.mount(id,{t,todos,on:()=>pintarNueva()}));}
+// Claves resurtibles sin historial (nunca compradas o nunca vendidas): sí salen para que el comprador decida si se compran
+function sinHist(r){if(!r)return null;if(r.rot==='SIN COMPRA'||r.est==='SIN COMPRA')return 'nunca se ha comprado';if(r.est==='NUEVA'||(!(r.A>0)&&!(r.P>0)&&!(r.D>0)))return 'sin ventas ni consumo';return null;}
+function histChip(r){const t=sinHist(r);return t?'<div class="chip s-SIN" style="margin-top:3px;white-space:normal" title="No tiene historial de ventas, consumo o compra: la propuesta del portal no aplica; decide la cantidad con otra referencia">🆕 Sin historial: '+t+'</div>':'';}
+// Con o sin BO en la lista de Nueva propuesta (default: sin BO). Estatus, nivel y propuestas siguen la opción.
+const nBO=()=>{const x=$('n-bo');return !!x&&x.value==='1';};
+const vistaN=r=>{if(!r)return r;const v=P.vistaBO(r,nBO(),S.fecha),t=tipoN();if(!(t&&esDual(r.c)))return v;
+  const q=P.dualP(conDual(v),t,{cont:false});q.sA=P.propSug(q,q.A,nBO());q.sP=P.propSug(q,q.P,nBO());return q;};
+const conProp=r=>{const b=P.baseRec(r);return (P.propSug(r,b.c,nBO())||0)>0;};
+function avisoBO(){const x=$('n-boav');if(!x)return;const c=nBO();x.style.background=c?'#dbeafe':'#f1f5f9';x.style.color=c?'#1e40af':'#334155';
+  x.innerHTML=c?'🚚 <b>Considerando el BO actual del CEDI</b>: el estatus, el nivel de riesgo y las propuestas suman lo que viene en camino. Un faltante con BO sale como <b>FALTANTE · cubierto con BO</b>. El folio se crea con BO.'
+    :'📦 <b>Sin BO</b> (solo existencia): así se miden las alarmas. Cambia a <b>Con BO del CEDI</b> para ver si el BO que ya tienen tus claves alcanza o hay que pedir más.';}
+function candidatas(){const base=candBase();return window.MS?base.filter(r=>MS.pasa(r,NF)):base;}
+function candBase(){
+  // Desde el Calendario de pedidos: solo las claves de ese proveedor / marca (las que le toca pedir vienen marcadas y van primero)
+  if(S.calU){const q=($('n-q').value||'').trim().toUpperCase();return [...S.calU].map(k=>vistaN(S.byClave.get(k))).filter(r=>r&&(!q||String(r.c).startsWith(q)||(r.n||'').toUpperCase().includes(q)))
+    .sort((a,b)=>(NSEL.has(b.c)?1:0)-(NSEL.has(a.c)?1:0)||P.nivRank(a)-P.nivRank(b)||(a.mi??-1)-(b.mi??-1));}
+  const comp=COMPRADORES.includes(quien())?quien():$('f-comp').value;const modo=$('n-modo').value,q=($('n-q').value||'').trim().toUpperCase();
+  const tp=tipoN();
+  // Nacional o Importación: solo claves dadas de alta como compra nacional e importación; «por pedir» = con propuesta de ese tipo
+  return [...S.byClave.values()].filter(r=>!tp||esDual(r.c)).map(vistaN).filter(r=>!r.pr&&!P.esProd(r)&&(!comp||r.comp===comp)&&(modo==='todas'||(tp?conProp(r):((r.est==='RIESGO'||r.est==='FALTANTE')&&conProp(r))||(sinHist(r)&&!(r.ex>0))))
+    &&(!q||String(r.c).startsWith(q)||(r.n||'').toUpperCase().includes(q)||(r.m||'').toUpperCase().includes(q))).sort((a,b)=>P.nivRank(a)-P.nivRank(b)||(a.dA??a.mi??-1)-(b.dA??b.mi??-1));
+}
+function pintarNueva(){
+  montarNF();avisoBO();if(window.MS)MS.cascada(candBase(),NF);
+  const tp=tipoN(),nD=S.dual?S.dual.size:0;
+  $('n-tipoav').innerHTML=tp?(nD?'Solo las <b>'+nf(nD)+'</b> claves de compra nacional e importación (Admin). Propuesta con el T. entrega y los meses objetivo de '+(tp==='NACIONAL'?'<b>compra nacional</b>, con tope en el stock del proveedor nacional y restando solo el BO nacional (con BO).':'<b>importación</b>, restando también el stock del proveedor nacional y todo el BO (con BO).')+' El estatus y el nivel son los oficiales (hoja Detalle).'
+    :'<span style="color:var(--err)">No hay claves de compra nacional e importación'+(S.dualErr?' ('+esc(S.dualErr)+' · ¿ya corriste plan_tablas_24.sql?)':'')+'. Dalas de alta en Admin → «🌏 Compra nacional e importación».</span>'):'';
+  $('n-head').innerHTML='<tr><th><input type="checkbox" id="n-all" onchange="marcarTodas(this.checked)"></th><th>Clave</th><th>Descripción</th><th>Marca</th><th>Origen</th><th>Proveedor</th><th>Estatus</th><th class="num">Exist.</th><th class="num">BO'+(tp==='NACIONAL'?' nacional':' CEDI')+'</th>'+(tp?'<th class="num">Stock prov. nac.</th><th class="num">T. entr.</th><th class="num">Obj.</th>':'')+'<th class="num">Ant.</th><th class="num">Pron.</th><th class="num">Prop. ant.</th><th class="num">Prop. pron.</th><th class="num">Recomendada</th><th>Folio abierto</th></tr>';
+  const todas=candidatas(),rows=todas.slice(0,800);S.nVis=todas.length;
+  $('n-body').innerHTML=rows.map(r=>{const fo=S.lineasAbiertas.get(Number(r.c));return '<tr><td><input type="checkbox" '+(NSEL.has(r.c)?'checked':'')+' onchange="this.checked?NSEL.add('+r.c+'):NSEL.delete('+r.c+');cuentaNueva()"></td><td><b>'+r.c+'</b>'+(!tp&&esDual(r.c)?'<div class="badge" title="Clave de compra nacional e importación: usa un folio Nacional o de Importación">🌏 nac./imp.</div>':'')+'</td><td class="desc">'+esc(r.n)+'</td><td>'+esc(r.m||'')+'</td><td>'+(oriDe(r.c)?'<span class="chip s-SIN">🚛 '+esc(oriDe(r.c))+'</span>':'')+'</td><td>'+provCeldaT(r.c,tp)+'</td><td>'+esc(r.est||'')+P.nivChip(r)+histChip(r)+'</td><td class="num">'+nf(r.ex)+'</td><td class="num">'+(tp?boTxt(r):nf(r.bo))+'</td>'+(tp?'<td class="num">'+stkTxt(r.dual)+'</td><td class="num">'+nf(r.lt,1)+'</td><td class="num">'+nf(r.pm,1)+'</td>':'')+'<td class="num">'+nf(r.A,1)+'</td><td class="num">'+nf(r.P,1)+'</td><td class="num">'+nf(r.sA)+'</td><td class="num">'+nf(r.sP)+'</td><td class="num">'+(b=>b.b?'<b>'+nf(P.propSug(r,b.c,nBO()))+'</b><div class="badge" title="'+esc(b.por)+'">'+P.BASE_L[b.b]+'</div>':'—')(P.baseRec(r))+'</td><td>'+(fo?'<span class="chip s-AMARILLO">'+esc(fo)+'</span>':'')+'</td></tr>';}).join('')||'<tr><td colspan="'+(tp?19:16)+'" class="mut">Sin claves con este filtro.</td></tr>';
+  cuentaNueva();
+}
+function marcarTodas(on){candidatas().slice(0,800).forEach(r=>on?NSEL.add(r.c):NSEL.delete(r.c));pintarNueva();}
+function claveNueva(){return [...new Set([...NSEL,...pegadas()])];}
+function cuentaNueva(){const c=claveNueva();const no=c.filter(k=>!S.byClave.has(k));$('n-cnt').innerHTML=nf(S.nVis||0)+' en la lista'+((S.nVis||0)>800?' (se muestran 800)':'')+' · <b>'+nf(c.length)+' marcadas para el folio</b>'+(no.length?' · <span style="color:var(--err)">no están en el cálculo: '+esc(no.join(', '))+'</span>':'');$('n-crear').textContent='Crear folio con '+c.filter(k=>S.byClave.has(k)).length+' claves';}
+// Lo que se congela del portal por clave
+function snap(r){
+  const ocs=(S.ocs[r.c]||S.ocs[String(r.c)]||[]).filter(o=>!o[4]).length;
+  return{n:r.n,m:r.m||'',u:r.u||'',comp:r.comp,rot:r.rot,est:r.est,ex:r.ex,exC:r.exC??null,rs:r.rs||0,rsD:r.rsD||null,bo:r.bo,boT:r.boT,A:r.A,P:r.P,D:r.D,bD:r.bD||null,N:r.N||null,nA:r.nA??null,nP:r.nP??null,lt:r.lt,pm:r.pm,sA:r.sA,sP:r.sP,s:r.s,sE:r.sE,eT:r.eT||null,mi:r.mi,nv:r.nv||null,dA:r.dA??null,fAg:r.fAg||null,se:r.se||0,mfM:r.mfM??null,mfF:r.mfF||0,mfX:r.mfX??null,mfB:r.mfB??null,ocs,...(esDual(r.c)?{dual:S.dual.get(Number(r.c))}:{})};
+}
+async function crearFolio(){
+  const tp=tipoN();let claves=claveNueva().filter(k=>S.byClave.has(k));
+  if(tp){const no=claves.filter(k=>!esDual(k));if(no.length){if(!confirm(no.length+' clave(s) no son de compra nacional e importación y no entran a un folio '+P.TIPO_L[tp]+': '+no.slice(0,20).join(', ')+(no.length>20?'…':'')+'.\n¿Crear el folio solo con las demás?'))return;claves=claves.filter(esDual);}}
+  else{const du=claves.filter(esDual);if(du.length&&!confirm(du.length+' clave(s) son de compra nacional e importación: '+du.slice(0,20).join(', ')+(du.length>20?'…':'')+'.\nEn un folio normal se calculan con el tiempo de entrega y objetivo de la hoja Detalle. Para usar los de nacional o importación, elige el tipo arriba.\n¿Crear el folio normal de todos modos?'))return;}
+  if(!claves.length){toast('Marca o pega al menos una clave');return;}
+  const dup=claves.filter(k=>S.lineasAbiertas.has(k));
+  if(dup.length&&!confirm('Estas claves ya están en un folio abierto: '+dup.map(k=>k+' ('+S.lineasAbiertas.get(k)+')').join(', ')+'.\n¿Crear el folio de todos modos?'))return;
+  const comp=COMPRADORES.includes(quien())?quien():(S.byClave.get(claves[0]).comp||quien());
+  // Folio con día, mes y año (oct-2026): PC-DDMMAA-001, consecutivo por día (p. ej. PC-281026-001 = 28 de octubre de 2026)
+  const d=new Date(),pref='PC-'+String(d.getDate()).padStart(2,'0')+String(d.getMonth()+1).padStart(2,'0')+String(d.getFullYear()).slice(2)+'-';
+  let n=S.folios.filter(f=>f.folio.startsWith(pref)).map(f=>Number(f.folio.slice(pref.length))||0).reduce((a,b)=>Math.max(a,b),0);
+  let folio=null;
+  for(let t=0;t<5&&!folio;t++){n++;const f=pref+String(n).padStart(3,'0');
+    const{error}=await sb.from('plan_propuestas').insert({folio:f,comprador:comp,estado:'BORRADOR',fecha_calculo:S.fecha,creado_por:quien(),con_bo:nBO(),...(tp?{tipo_compra:tp,min_cont:false}:{}),actualizado_en:new Date().toISOString()});
+    if(!error)folio=f;else if(!/duplicate|unique|23505/i.test(error.message||'')){toast('❌ '+error.message+(/tipo_compra|min_cont/.test(error.message||'')?' · Corre plan_tablas_24.sql':''));return;}}
+  if(!folio){toast('No se pudo asignar folio, intenta de nuevo');return;}
+  const lineas=claves.map(k=>({folio,clave:k,portal:snap(S.byClave.get(k)),semaforo:'SIN DATO',avisos:'No viene en lo pegado de surtimiento',actualizado_en:new Date().toISOString()}));
+  for(let i=0;i<lineas.length;i+=500){const{error}=await sb.from('plan_propuesta_lineas').insert(lineas.slice(i,i+500));if(error){toast('❌ '+error.message);return;}}
+  toast('✓ Folio '+folio+(tp?' ('+P.TIPO_L[tp]+')':'')+' creado con '+claves.length+' claves');$('nueva').style.display='none';
+  await recargar();await abrirFolio(folio);
+}
+
+// ── Folio ──
+// Folio abierto: vuelve a tomar los datos del portal con el cálculo publicado más reciente (BO, existencia, consumo, estatus)
+async function refrescarFolio(){
+  const f=S.actual;if(!f||!editable())return;
+  if(!confirm('¿Actualizar el folio '+f.folio+' con el cálculo del portal del '+fF(S.fecha)+'? Lo pegado de surtimiento y los motivos se conservan.'))return;
+  const ahora=new Date().toISOString();let n=0,falt=0;
+  for(const l of S.lineas){const r=S.byClave.get(Number(l.clave));if(!r){falt++;continue;}l.portal=snap(r);
+    const e=l.surt?evaluar(l):null;if(e){l.semaforo=e.sem;l.avisos=e.avisos.join(' | ')||null;}
+    const{error}=await sb.from('plan_propuesta_lineas').update({portal:l.portal,semaforo:l.semaforo,avisos:l.avisos,actualizado_en:ahora}).eq('folio',f.folio).eq('clave',l.clave);if(error){toast('❌ '+error.message);return;}n++;}
+  const{error}=await sb.from('plan_propuestas').update({fecha_calculo:S.fecha,actualizado_en:ahora}).eq('folio',f.folio);if(error){toast('❌ '+error.message);return;}
+  f.fecha_calculo=S.fecha;toast('✓ '+n+' claves actualizadas al cálculo del '+fF(S.fecha)+(falt?' · '+falt+' ya no vienen en el cálculo':''));await recargar();await abrirFolio(f.folio);
+}
+async function abrirFolio(folio){
+  const f=S.folios.find(x=>x.folio===folio)||(await sb.from('plan_propuestas').select('*').eq('folio',folio).maybeSingle()).data;if(!f){toast('No encontré el folio');return;}
+  if(!S.actual||S.actual.folio!==f.folio)S.flt={q:'',sem:'',prov:'',marca:'',rot:'',niv:'',mot:'',dif:''};
+  S.actual=f;S.lineas=await todo(()=>sb.from('plan_propuesta_lineas').select('*').eq('folio',folio).order('clave'));
+  // Folios abiertos: el semáforo y los avisos se recalculan con la regla vigente (los autorizados o cancelados se quedan como se firmaron)
+  if(ABIERTOS.includes(f.estado)){const ahora=new Date().toISOString();for(const l of S.lineas){if(!l.surt)continue;const e=evaluar(l),av=e.avisos.join(' | ')||null;
+    if(e.sem!==l.semaforo||av!==l.avisos){l.semaforo=e.sem;l.avisos=av;try{await sb.from('plan_propuesta_lineas').update({semaforo:l.semaforo,avisos:l.avisos,actualizado_en:ahora}).eq('folio',folio).eq('clave',l.clave);}catch(x){}}}}
+  // costo unitario de compra (plan_costos) para valuar las claves que no traen Inversión de surtimiento
+  S.costos=new Map();try{const ks=S.lineas.map(l=>Number(l.clave));for(let i=0;i<ks.length;i+=200){const{data}=await sb.from('plan_costos').select('clave,costo').in('clave',ks.slice(i,i+200));(data||[]).forEach(r=>S.costos.set(Number(r.clave),Number(r.costo)));}}catch(e){}
+  $('folio').style.display='block';pintarFolio();$('folio').scrollIntoView({behavior:'smooth'});
+}
+const editable=()=>S.actual&&['BORRADOR','REGRESADO'].includes(S.actual.estado);
+const conBO=()=>!(S.actual&&S.actual.con_bo===false);
+// Estatus y nivel de la clave en el folio: si el folio considera el BO, se recalculan sumando el BO del CEDI (sin BO abajo si cambia)
+const estTxt=p=>{if(!conBO()||!(Number(p.bo)>0))return p.est;const v=P.vistaBO(p,true,null);return (v.boCub?'FALTANTE cubierto con BO':v.est)+(v.est!==p.est||v.boCub?' (sin BO: '+p.est+')':'');};
+function estFolio(p){if(!conBO()||!(Number(p.bo)>0))return esc(p.est||'')+P.nivChip(p);
+  const v=P.vistaBO(p,true,S.actual&&S.actual.fecha_calculo);
+  return esc(v.est||'')+P.nivChip(v)+(v.est!==p.est||(v.nv!==p.nv&&!v.boCub)?'<div class="badge" title="Estatus solo con existencia (como las alarmas)">sin BO: '+esc(p.est||'')+(p.nv?' · '+p.nv.toLowerCase():'')+'</div>':'');}
+// Cálculo de la clave con el tipo de compra del folio (nacional o importación); en folios normales es el cálculo tal cual
+const pp=l=>P.dualP(l.portal||{},tipoF(),{cont:!!(S.actual&&S.actual.min_cont)});
+function evaluar(l){return P.propLinea(pp(l),l.surt||null,{conBO:conBO()});}
+const baseTxt=e=>e.br&&e.br.b?P.BASE_L[e.br.b]:'—';
+function faltaMotivo(l){return (l.semaforo==='AMARILLO'||l.semaforo==='ROJO')&&!l.motivo||(l.semaforo==='ROJO'&&!String(l.comentario||'').trim());}
+function pintarFolio(){
+  const f=S.actual,L=S.lineas;
+  $('f-tit').innerHTML='Folio '+esc(f.folio)+' '+estChip(f.estado)+(f.tipo_compra?' '+P.tipoChip(f.tipo_compra):'');
+  $('f-sub').innerHTML='Comprador: <b>'+esc(f.comprador)+'</b> · creado '+fFH(f.creado_en)+(f.creado_por&&f.creado_por!==f.comprador?' por '+esc(f.creado_por):'')+' · cálculo del portal al '+fF(f.fecha_calculo)+(f.cargado_en?' · surtimiento pegado '+fFH(f.cargado_en):'')+(f.autorizado_por?' · <b>'+(f.estado==='REGRESADO'?'regresado':'autorizado')+' por '+esc(f.autorizado_por)+'</b> '+fFH(f.autorizado_en):'');
+  const conS=L.filter(l=>l.surt).length,falt=L.filter(faltaMotivo).length;
+  const pasos=[['Folio creado',true],['Plantilla con surtimiento',conS===L.length&&L.length>0],['Motivos completos',conS===L.length&&!falt],['Enviado a autorización',['EN REVISION','AUTORIZADO'].includes(f.estado)],['Autorizado',f.estado==='AUTORIZADO']];
+  let on=pasos.findIndex(p=>!p[1]);$('f-pasos').innerHTML=pasos.map((p,i)=>'<span class="paso '+(p[1]?'hecho':i===on?'on':'')+'">'+(p[1]?'✓ ':'')+p[0]+'</span>').join('');
+  const c={VERDE:0,AMARILLO:0,ROJO:0,SIN:0};L.forEach(l=>c[l.semaforo&&l.semaforo!=='SIN DATO'?l.semaforo:'SIN']++);
+  const piezas=L.reduce((s,l)=>s+(Number(l.pedido_aut??l.pedido)||0),0);
+  const VF=valorFolio(),RG=rangoDe(VF.total);
+  $('f-kpis').innerHTML='<div class="kpi" title="Inversión de surtimiento'+(VF.est?'; '+VF.est+' claves valuadas con costo de compra':'')+(VF.sin?'; '+VF.sin+' sin precio':'')+'"><b>'+mxn(VF.total)+'</b><span>valor · autoriza '+RG[1]+(RG[0]==='DIRECTOR'?'':' o superior')+'</span></div><div class="kpi"><b>'+L.length+'</b><span>claves</span></div><div class="kpi"><b style="color:var(--ok)">'+c.VERDE+'</b><span>verde</span></div><div class="kpi"><b style="color:var(--warn)">'+c.AMARILLO+'</b><span>amarillo (motivo)</span></div><div class="kpi"><b style="color:var(--err)">'+c.ROJO+'</b><span>rojo (motivo y comentario)</span></div><div class="kpi"><b style="color:var(--gray)">'+c.SIN+'</b><span>sin surtimiento</span></div><div class="kpi"><b>'+nf(piezas)+'</b><span>piezas del pedido</span></div>';
+  const ed=editable(),adm=S.esAdmin||quien()==='ADMIN';
+  let acc='';
+  if(ed)acc+='<button class="sec" onclick="descargarPlantilla()">⬇ Plantilla</button><button onclick="$(\'f-arch\').value=\'\';$(\'f-arch\').click()">⬆ Subir plantilla con surtimiento</button><button class="ok" onclick="enviar()" '+(conS===L.length&&L.length&&!falt?'':'style="opacity:.6" title="Faltan claves con surtimiento o motivos: da clic para ver cuáles"')+'>Enviar a autorización</button>';
+  if(f.estado==='EN REVISION')acc+='<button class="ok" onclick="autorizar()">🔒 Autorizar con PIN</button><button class="bad" onclick="regresar()">↩ Regresar</button>';
+  if(f.estado==='AUTORIZADO'&&!f.cmp_id)acc+='<button onclick="enviarComparativos()">➜ Enviar a comparativos</button>';
+  acc+='<button class="sec" onclick="imprimir()">🖨 Imprimir</button><button class="sec" onclick="excelFolio()">⬇ Excel</button>';
+  if(ed&&S.fecha&&S.fecha!==f.fecha_calculo)acc+='<button class="sec" onclick="refrescarFolio()" title="Vuelve a tomar existencia, BO, consumo y estatus del cálculo del portal más reciente ('+fF(S.fecha)+'); lo pegado de surtimiento y los motivos se conservan">↻ Actualizar al cálculo del '+fF(S.fecha)+'</button>';
+  if(ed)acc+='<button class="sec" onclick="cancelarFolio()" title="Cancelar el folio (pide motivo)">✕</button>';
+  else if(f.estado==='EN REVISION'||f.estado==='AUTORIZADO')acc+='<button class="sec" style="color:var(--err)" onclick="cancelarFolio()" title="Cancelar el folio con PIN de administrador y motivo">⛔ Cancelar folio</button>';
+  $('f-acc').innerHTML=acc;
+  $('f-bo').innerHTML='Meses y propuestas: <select id="f-conbo" onchange="cambiarBO(this.value)" '+(ed?'':'disabled')+'><option value="1">Con BO del CEDI</option><option value="0">Sin BO (solo existencia)</option></select> <span class="mut">Usa la misma opción que "¿Considerar BO?" de surtimiento.</span>'+(conBO()?' <span class="chip" style="background:#dbeafe;color:#1e40af">🚚 Estatus, nivel, propuestas y semáforo consideran el BO actual del CEDI</span>':' <span class="chip s-SIN">📦 Estatus, nivel, propuestas y semáforo sin BO (solo existencia)</span>')
+    +(f.tipo_compra==='IMPORTACION'?'<div style="margin-top:6px">'+P.tipoChip('IMPORTACION')+' T. entrega y objetivo de importación; la propuesta resta el stock del proveedor nacional'+(conBO()?' y todo el BO (nacional + importación)':'')+'. <label><input type="checkbox" id="f-cont" '+(f.min_cont?'checked':'')+' '+(ed?'':'disabled')+' onchange="cambiarCont(this.checked)"> Redondear la propuesta al mínimo por contenedor</label></div>'
+     :f.tipo_compra==='NACIONAL'?'<div style="margin-top:6px">'+P.tipoChip('NACIONAL')+' T. entrega y objetivo de compra nacional; la propuesta tiene tope en el stock disponible del proveedor nacional'+(conBO()?' y resta solo el BO de OCs nacionales':'')+'.</div>':'');$('f-conbo').value=conBO()?'1':'0';
+  $('f-aviso').innerHTML=f.estado==='REGRESADO'&&f.comentario?'<div class="card" style="background:var(--warnbg);border-color:#f0d58a;margin:0 0 10px"><b>Regresado:</b> '+esc(f.comentario)+'</div>':f.estado==='EN REVISION'?'<p class="d" style="margin-bottom:8px">En revisión. Lo autoriza el Jefe o el Gerente de Compras con su nombre y PIN.</p>':'';
+  pintarCmp();
+  const tp=f.tipo_compra||'';
+  $('f-head').innerHTML='<tr><th colspan="5"></th><th colspan="'+(tp?10:9)+'" class="gP" style="text-align:center">Portal (al '+fF(f.fecha_calculo)+') · '+(conBO()?'con BO':'sin BO')+(tp?' · '+P.TIPO_L[tp].toLowerCase():'')+'</th><th colspan="4" class="gS" style="text-align:center">Surtimiento</th><th colspan="5" class="gR" style="text-align:center">Comparativo</th><th colspan="2"></th></tr>'
+    +'<tr><th>Clave</th><th>Descripción</th><th>Origen</th><th>Proveedor</th><th>Estatus</th><th class="num gP">Exist.</th><th class="num gP">BO'+(tp==='NACIONAL'?' nacional':' CEDI')+'</th>'+(tp?'<th class="num gP">Stock prov. nac.</th>':'')+'<th class="num gP">Cons. ant.</th><th class="num gP">Cons. pron.</th><th class="num gP">T. entr.</th><th class="num gP">Obj.</th><th class="num gP">Prop. ant.</th><th class="num gP">Prop. pron.</th><th class="gP">Recomendada</th>'
+    +'<th class="num gS">Pedido</th><th class="num gS">Anteo</th><th class="num gS">Pron</th><th class="num gS">Redond</th>'
+    +'<th class="num gR">Meses ant. portal<br>(al llegar)</th><th class="num gR">Meses pron. portal<br>(al llegar)</th><th class="num gR">Diferencia vs<br>recomendada</th><th class="num gR">Diferencia en meses<br>vs ant. / pron.</th><th class="gR">Semáforo</th><th>Avisos</th><th>Motivo y comentario</th></tr>';
+  const ops='<option value="">— Motivo —</option>'+P.PROP_MOTIVOS.map(m=>'<option>'+esc(m)+'</option>').join('');
+  const pend=l=>ed&&(!l.surt||faltaMotivo(l));const Lo=ed?[...L.filter(pend),...L.filter(l=>!pend(l))]:L;
+  $('f-body').innerHTML=Lo.map(l=>{const p=l.portal||{},q=pp(l),s=l.surt||{},e=evaluar(l);const necesita=l.semaforo==='AMARILLO'||l.semaforo==='ROJO';
+    const v=e.dmA!=null||e.dmP!=null?'<div>ant. '+sg(e.dmA,1)+'</div><div>pron. '+sg(e.dmP,1)+'</div>':'—';
+    const vR=e.difR==null?'—':'<b>'+sg(e.difR)+' pzs</b><div class="mut">'+sg(e.dmR,1)+' meses</div>';
+    const rec=e.br&&e.br.b?'<b>'+nf(e.sR)+'</b><div class="badge" title="'+esc(e.br.por)+'">'+esc(baseTxt(e))+'</div>':'—';
+    const mot=necesita||l.motivo?(ed?'<select onchange="guardarMotivo('+l.clave+',this.value,null)">'+ops.replace('<option>'+esc(l.motivo||'')+'</option>','<option selected>'+esc(l.motivo||'')+'</option>')+'</select><br><textarea placeholder="'+(l.semaforo==='ROJO'?'Comentario obligatorio':'Comentario')+'" onchange="guardarMotivo('+l.clave+',null,this.value)">'+esc(l.comentario||'')+'</textarea>':'<b>'+esc(l.motivo||'—')+'</b><div class="av">'+esc(l.comentario||'')+'</div>'):'<span class="mut">—</span>';
+    return '<tr data-k="'+l.clave+'"'+(ed&&!l.surt?' class="pend" style="background:#fdeaea"':faltaMotivo(l)&&ed?' class="pend" style="background:#fffaf0"':'')+'><td><b>'+l.clave+'</b>'+(ed?'<br><a class="lk" style="font-size:11px;font-weight:400" onclick="quitarClave('+l.clave+')">quitar</a>':'')+'</td><td class="desc">'+esc(p.n)+'<div class="badge">'+esc(p.m||'')+'</div></td><td>'+(oriDe(l.clave)?'<span class="chip s-SIN">🚛 '+esc(oriDe(l.clave))+'</span>':'<span class="mut">—</span>')+'</td><td>'+provCeldaT(l.clave,tp,p.dual)+'</td><td>'+estFolio(p)+histChip(p)+(tp&&!p.dual?'<div class="chip s-ROJO" style="margin-top:3px" title="La clave no tiene datos de compra nacional e importación: se calcula con la hoja Detalle. Dala de alta en Admin y usa «Actualizar al cálculo».">sin datos nac./imp.</div>':'')+'</td>'
+      +'<td class="num">'+exRG(p)+'</td><td class="num">'+(tp?boTxt(q):nf(p.bo))+'</td>'+(tp?'<td class="num">'+stkTxt(p.dual)+'</td>':'')+'<td class="num">'+nf(p.A,1)+'</td><td class="num">'+nf(p.P,1)+'</td><td class="num">'+nf(q.lt,1)+(tp&&q.lt!==q.lt0?'<div class="badge" title="Hoja Detalle">det. '+nf(q.lt0,1)+'</div>':'')+'</td><td class="num">'+nf(q.pm,1)+(tp&&q.pm!==q.pm0?'<div class="badge" title="Hoja Detalle">det. '+nf(q.pm0,1)+'</div>':'')+'</td><td class="num">'+nf(e.sA)+'</td><td class="num">'+nf(e.sP)+'</td><td style="min-width:160px;max-width:200px;white-space:normal;line-height:1.3">'+rec+'<div style="font-size:10.5px;color:var(--tx2)">'+esc(e.br?e.br.por:'')+'</div></td>'
+      +'<td class="num"><b>'+nf(l.pedido)+'</b>'+(l.pedido_aut!=null&&l.pedido_aut!==l.pedido?'<div style="color:var(--ok)">aut. '+nf(l.pedido_aut)+'</div>':'')+'</td><td class="num">'+nf(s.anteo,1)+'</td><td class="num">'+nf(s.pron,1)+'</td><td class="num mut">'+nf(s.redond)+'</td>'
+      +'<td class="num">'+nf(e.mA,1)+'<div class="mut">('+nf(e.lA,1)+')</div></td><td class="num">'+nf(e.mP,1)+'<div class="mut">('+nf(e.lP,1)+')</div></td><td class="num">'+vR+'</td><td class="num mut">'+v+'</td><td>'+semChip(l.semaforo)+'</td><td class="av">'+(l.avisos?String(l.avisos).split(' | ').map(a=>'<div>'+esc(a)+'</div>').join(''):'')+'</td><td>'+mot+'</td></tr>';}).join('')||'<tr><td colspan="'+(tp?26:25)+'" class="mut">El folio no tiene claves.</td></tr>';
+  pintarFiltros();fijarColumnas();
+}
+async function cambiarBO(v){
+  const nuevo=v==='1';if(nuevo===conBO())return;
+  const{error}=await sb.from('plan_propuestas').update({con_bo:nuevo,actualizado_en:new Date().toISOString()}).eq('folio',S.actual.folio);
+  if(error){toast('❌ '+error.message+(/con_bo/.test(error.message)?' · Corre plan_tablas_10.sql':''));$('f-conbo').value=conBO()?'1':'0';return;}
+  S.actual.con_bo=nuevo;const f=S.folios.find(x=>x.folio===S.actual.folio);if(f)f.con_bo=nuevo;
+  const ahora=new Date().toISOString();
+  for(const l of S.lineas){if(!l.surt)continue;const e=evaluar(l);l.semaforo=e.sem;l.avisos=e.avisos.join(' | ')||null;
+    const{error:e2}=await sb.from('plan_propuesta_lineas').update({semaforo:l.semaforo,avisos:l.avisos,actualizado_en:ahora}).eq('folio',S.actual.folio).eq('clave',l.clave);if(e2){toast('❌ '+e2.message);return;}}
+  toast('✓ Folio '+(nuevo?'con':'sin')+' BO: semáforo recalculado');await recargar();
+}
+async function cambiarCont(on){
+  const{error}=await sb.from('plan_propuestas').update({min_cont:!!on,actualizado_en:new Date().toISOString()}).eq('folio',S.actual.folio);
+  if(error){toast('❌ '+error.message+(/min_cont/.test(error.message)?' · Corre plan_tablas_24.sql':''));$('f-cont').checked=!!S.actual.min_cont;return;}
+  S.actual.min_cont=!!on;const f=S.folios.find(x=>x.folio===S.actual.folio);if(f)f.min_cont=!!on;
+  const ahora=new Date().toISOString();
+  for(const l of S.lineas){if(!l.surt)continue;const e=evaluar(l);l.semaforo=e.sem;l.avisos=e.avisos.join(' | ')||null;
+    const{error:e2}=await sb.from('plan_propuesta_lineas').update({semaforo:l.semaforo,avisos:l.avisos,actualizado_en:ahora}).eq('folio',S.actual.folio).eq('clave',l.clave);if(e2){toast('❌ '+e2.message);return;}}
+  toast(on?'✓ Propuestas redondeadas al mínimo por contenedor':'✓ Propuestas sin redondeo a contenedor');await recargar();
+}
+async function guardarMotivo(clave,motivo,comentario){
+  const l=S.lineas.find(x=>Number(x.clave)===Number(clave));if(!l)return;
+  if(motivo!==null)l.motivo=motivo||null;if(comentario!==null)l.comentario=comentario||null;
+  const{error}=await sb.from('plan_propuesta_lineas').update({motivo:l.motivo,comentario:l.comentario,actualizado_en:new Date().toISOString()}).eq('folio',S.actual.folio).eq('clave',l.clave);
+  if(error){toast('❌ '+error.message);return;}toast('✓ Guardado');pintarFolio();
+}
+async function quitarClave(clave){
+  if(!confirm('¿Quitar la clave '+clave+' del folio?'))return;
+  const{error}=await sb.from('plan_propuesta_lineas').delete().eq('folio',S.actual.folio).eq('clave',clave);if(error){toast('❌ '+error.message);return;}
+  S.lineas=S.lineas.filter(l=>Number(l.clave)!==Number(clave));pintarFolio();
+}
+async function cambiarEstado(campos,msg){
+  const{error}=await sb.from('plan_propuestas').update({...campos,actualizado_en:new Date().toISOString()}).eq('folio',S.actual.folio);
+  if(error){toast('❌ '+error.message);return false;}Object.assign(S.actual,campos);toast(msg);await recargar();return true;
+}
+async function codigoFolio(estado){
+  const txt=S.actual.folio+'|'+estado+'|'+S.lineas.map(l=>l.clave+':'+(l.pedido_aut??l.pedido)+':'+(l.semaforo||'')+':'+(l.motivo||'')).join(';');
+  try{const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(txt));return [...new Uint8Array(h)].slice(0,5).map(b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();}catch(e){return null;}
+}
+
+// ── Filtros de la tabla del folio (solo cambian lo que se ve; KPIs, envío e impresión usan todo el folio) ──
+S.flt=S.flt||{q:'',sem:'',prov:'',marca:'',rot:'',niv:'',mot:'',dif:''};
+function semDe(l){return !l.surt?'SIN':(l.semaforo&&l.semaforo!=='SIN DATO'?l.semaforo:'SIN');}
+function difDe(l){try{const e=evaluar(l);if(e.difR==null)return'';return Math.abs(e.difR)<1e-9?'IGUAL':e.difR>0?'MAS':'MENOS';}catch(e){return'';}}
+function rotTxt(p){return p&&p.rot?((P.ROT_X&&P.ROT_X[p.rot])||p.rot):'';}
+function nivTxt(p){p=p||{};return p.se?'SIN ENTRADAS':(p.nv||'SIN NIVEL');}
+function fltOk(l){const F=S.flt,p=l.portal||{};
+  if(F.q){const q=P.norm(F.q);if(!String(l.clave).includes(F.q.trim())&&!P.norm(p.n||'').includes(q)&&!P.norm(p.m||'').includes(q))return false;}
+  if(F.sem==='PEND'){if(!(!l.surt||faltaMotivo(l)))return false;}else if(F.sem&&semDe(l)!==F.sem)return false;
+  if(F.prov&&(provNom(l.clave)||'(sin proveedor)')!==F.prov)return false;
+  if(F.marca&&(p.m||'(sin marca)')!==F.marca)return false;
+  if(F.rot&&rotTxt(p)!==F.rot)return false;
+  if(F.niv&&nivTxt(p)!==F.niv)return false;
+  if(F.mot&&(F.mot==='(sin motivo)'?!!l.motivo:l.motivo!==F.mot))return false;
+  if(F.dif&&difDe(l)!==F.dif)return false;
+  return true;}
+function pintarFiltros(){
+  const L=S.lineas||[],F=S.flt,box=$('f-flt');if(!box)return;
+  if(!L.length){box.innerHTML='';return;}
+  const uniq=a=>[...new Set(a)].sort((x,y)=>String(x).localeCompare(String(y),'es'));
+  const cnt=(arr,fn)=>{const m={};arr.forEach(x=>{const k=fn(x);m[k]=(m[k]||0)+1;});return m;};
+  const sel=(k,lbl,vals,cur,cn)=>'<select onchange="setFlt(\''+k+'\',this.value)"><option value="">'+lbl+': todos</option>'+vals.map(v=>'<option value="'+esc(v)+'"'+(v===cur?' selected':'')+'>'+esc(v)+(cn&&cn[v]!=null?' ('+cn[v]+')':'')+'</option>').join('')+'</select>';
+  const cS=cnt(L,semDe),pend=L.filter(l=>!l.surt||faltaMotivo(l)).length;
+  const chip=(v,t,bg,col)=>'<span class="chip'+(F.sem===v?' on':'')+'" style="background:'+bg+';color:'+col+'" onclick="setFlt(\'sem\',S.flt.sem===\''+v+'\'?\'\':\''+v+'\')">'+t+'</span>';
+  const fP=l=>provNom(l.clave)||'(sin proveedor)',fM=l=>(l.portal||{}).m||'(sin marca)';
+  const rots=L.map(l=>rotTxt(l.portal)).filter(Boolean),nivs=L.map(l=>nivTxt(l.portal)),mots=L.filter(l=>l.motivo).map(l=>l.motivo);
+  const ORD=['SAGRADOS','ALTA ROTACIÓN','MEDIA ROTACIÓN','LENTA ROTACIÓN','NUEVOS'];const rotU=uniq(rots).sort((a,b)=>(ORD.indexOf(a)<0?9:ORD.indexOf(a))-(ORD.indexOf(b)<0?9:ORD.indexOf(b)));
+  box.innerHTML='<b style="color:#1e3a5f">Filtrar:</b>'
+    +'<input type="search" placeholder="Clave, descripción o marca" value="'+esc(F.q)+'" oninput="S.flt.q=this.value;aplicarFiltros()" style="width:190px">'
+    +chip('VERDE','Verde '+(cS.VERDE||0),'#e6f2e8','#2e7d32')+chip('AMARILLO','Amarillo '+(cS.AMARILLO||0),'#fdf3d8','#a16207')+chip('ROJO','Rojo '+(cS.ROJO||0),'#fdeaea','#c0392b')
+    +chip('SIN','Sin surtimiento '+L.filter(l=>!l.surt).length,'#eef1f6','#64748b')+(pend&&editable()?chip('PEND','⚠ Pendientes '+pend,'#fff4e5','#b45309'):'')
+    +sel('prov','Proveedor',uniq(L.map(fP)),F.prov,cnt(L,fP))+sel('marca','Marca',uniq(L.map(fM)),F.marca,cnt(L,fM))
+    +(rots.length?sel('rot','Clasificación',rotU,F.rot,cnt(rots,x=>x)):'')
+    +sel('niv','Nivel de riesgo',['ALTO','MEDIO','BAJO','SIN NIVEL','SIN ENTRADAS'].filter(v=>nivs.includes(v)),F.niv,cnt(nivs,x=>x))
+    +(mots.length||F.mot?sel('mot','Motivo',[...uniq(mots),'(sin motivo)'],F.mot,cnt(L,l=>l.motivo||'(sin motivo)')):'')
+    +'<select onchange="setFlt(\'dif\',this.value)"><option value="">Vs recomendada: todos</option>'+[['MAS','Pide más'],['MENOS','Pide menos'],['IGUAL','Igual']].map(([v,t])=>'<option value="'+v+'"'+(F.dif===v?' selected':'')+'>'+t+'</option>').join('')+'</select>'
+    +'<span id="flt-n" class="mut"></span><a class="lk" onclick="limpiarFlt()" style="font-size:12px">Limpiar</a>';
+  aplicarFiltros();
+}
+function setFlt(k,v){S.flt[k]=v;pintarFiltros();}
+function limpiarFlt(){S.flt={q:'',sem:'',prov:'',marca:'',rot:'',niv:'',mot:'',dif:''};pintarFiltros();}
+function aplicarFiltros(){
+  const by=new Map((S.lineas||[]).map(l=>[String(l.clave),l]));let n=0,t=0;
+  document.querySelectorAll('#f-body tr[data-k]').forEach(tr=>{const l=by.get(tr.dataset.k);t++;const ok=!l||fltOk(l);tr.style.display=ok?'':'none';if(ok)n++;});
+  const act=Object.values(S.flt).some(v=>v);const e=$('flt-n');if(e)e.innerHTML=act?'Mostrando <b>'+n+'</b> de '+t+' claves':'';
+}
+// Columnas fijas: Clave, Descripción, Origen, Proveedor y Estatus quedan visibles al desplazar la tabla a la derecha
+const FIJAS=5;
+function fijarColumnas(){
+  try{const tb=document.querySelector('#folio .scroll table');if(!tb)return;const hs=tb.tHead?tb.tHead.rows:[];if(hs.length<2)return;
+    const h2=hs[hs.length-1];if(h2.cells.length<FIJAS)return;
+    const lefts=[];let x=0;for(let i=0;i<FIJAS;i++){lefts.push(x);x+=h2.cells[i].getBoundingClientRect().width;}
+    const pon=(c,i)=>{c.classList.add('fx');c.style.left=lefts[i]+'px';if(i===FIJAS-1)c.classList.add('fxu');};
+    for(let i=0;i<FIJAS;i++)pon(h2.cells[i],i);
+    if(hs.length>1&&hs[0].cells[0]&&hs[0].cells[0].colSpan===FIJAS){const c=hs[0].cells[0];c.classList.add('fx','fxu');c.style.left='0px';}
+    tb.tBodies[0]&&[...tb.tBodies[0].rows].forEach(tr=>{if(tr.cells.length<FIJAS+3)return;for(let i=0;i<FIJAS;i++)pon(tr.cells[i],i);});
+  }catch(e){}
+}
+function irPrimera(){limpiarFlt();S.flt.sem='PEND';pintarFiltros();try{const t=document.querySelector('#f-body tr.pend');if(t)t.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}}
+async function enviar(){
+  const sinS=S.lineas.filter(l=>!l.surt).map(l=>l.clave);
+  if(sinS.length){toast('No se puede enviar: '+sinS.length+' clave'+(sinS.length>1?'s':'')+' sin surtimiento ('+sinS.join(', ')+'). Agrega sus filas a la plantilla y vuelve a subirla, o da clic en «quitar» debajo de la clave.');irPrimera();return;}
+  const f=S.lineas.filter(faltaMotivo);if(f.length){toast('No se puede enviar: faltan motivos en '+f.length+' claves ('+f.slice(0,10).map(l=>l.clave).join(', ')+(f.length>10?'…':'')+'; en rojo también el comentario).');irPrimera();return;}
+  const V=valorFolio(),fol=S.actual.folio,comp=S.actual.comprador;
+  const ok=await cambiarEstado({estado:'EN REVISION',enviado_en:new Date().toISOString(),comentario:null,codigo:await codigoFolio('EN REVISION')},'✓ Folio enviado a autorización');
+  if(ok)await avisarPorAutorizar(fol,comp,V);
+}
+// ── Avisos dentro del portal (campana 🔔, tabla plan_avisos · plan_tablas_18.sql) ──
+// Por autorizar: al nivel que le toca por monto (hasta $500 mil Jefe de Compras, hasta $1 millón Gerente, más Director).
+// Autorizado, regresado o cancelado: al comprador del folio.
+async function avisar(para,tipo,folio,texto){
+  const rows=[...new Set((para||[]).filter(Boolean).map(x=>String(x).trim()))].map(p=>({para:p,tipo,folio,texto,creado_por:quien()||null}));if(!rows.length)return 0;
+  try{const{error}=await sb.from('plan_avisos').insert(rows);if(error)throw error;return rows.length;}catch(e){console.warn('aviso',e);toast('⚠️ No se pudo dejar el aviso ('+(e.message||e)+'). ¿Ya corriste plan_tablas_18.sql?');return 0;}
+}
+async function avisarPorAutorizar(folio,comp,V){
+  let us=[];try{const{data}=await sbc().from('cmp_usuarios').select('id,nombre,rol,puesto,activo');us=(data||[]).filter(u=>u.activo!==false);}catch(e){}
+  const rg=rangoDe(V.total),orden=['COMPRADOR','JEFE','GERENTE','DIRECTOR'];let i=Math.max(orden.indexOf(rg[0]),1),dest=[];
+  for(;i<orden.length&&!dest.length;i++)dest=us.filter(u=>nivelU(u)===orden[i]).map(u=>u.nombre);
+  if(!dest.length)dest=us.filter(u=>{const n=nivelU(u);return n&&n!=='COMPRADOR'&&limiteN(n)>=V.total;}).map(u=>u.nombre);
+  const n=await avisar(dest,'POR_AUTORIZAR',folio,'Folio '+folio+' de '+comp+' por autorizar · valor '+mxn(V.total)+' ('+rg[1]+' o superior)');
+  if(n)toast('✓ Folio enviado a autorización · aviso a '+dest.join(', '));
+}
+async function cerrarAvisos(folio){try{await sb.from('plan_avisos').update({leido_en:new Date().toISOString()}).eq('folio',folio).eq('tipo','POR_AUTORIZAR').is('leido_en',null);}catch(e){}}
+// ── Rangos de autorización por valor del folio (oct-2026) ──
+// Cada puesto autoriza hasta su límite (y todo lo menor). El comprador solo autoriza sus propios folios.
+const AUT_RANGOS=[['COMPRADOR','Comprador',100000],['JEFE','Jefe de Compras',500000],['GERENTE','Gerente de Compras',1000000],['DIRECTOR','Director',Infinity]];
+const nNom=x=>P.norm(x||'');
+function nivelU(u){const p=nNom(u.puesto);if(/COSTO/.test(p))return null;if(/DIRECTOR/.test(p))return'DIRECTOR';if(/GERENTE/.test(p))return'GERENTE';if(/JEFE/.test(p))return'JEFE';
+  if(u.rol==='COMPRADOR')return'COMPRADOR';return(u.rol==='ADMIN'||u.rol==='APROBADOR')?'JEFE':null;}
+const limiteN=n=>{const r=AUT_RANGOS.find(x=>x[0]===n);return r?r[2]:0;};
+const rangoDe=v=>AUT_RANGOS.find(x=>v<=x[2]);
+const mismoComp=(u,comp)=>{const a=nNom(u.nombre),b=nNom(comp);return!!a&&!!b&&(a===b||a.startsWith(b+' ')||b.startsWith(a+' '));};
+// Valor del folio: Inversión de surtimiento (ajustada si se autoriza otra cantidad); si no trae, cantidad × costo de compra
+function valorFolio(){
+  let total=0,est=0,sin=0;
+  (S.lineas||[]).forEach(l=>{const q=Number(l.pedido_aut??l.pedido)||0;if(q<=0)return;const s=l.surt||{},inv=Number(s.inversion)||0,ps=Number(s.pedido)||0;
+    if(inv>0){total+=ps>0&&q!==ps?inv*q/ps:inv;}else{const c=S.costos&&S.costos.get(Number(l.clave));if(c>0){total+=q*c;est++;}else sin++;}});
+  return{total:Math.round(total*100)/100,est,sin};
+}
+const mxn=v=>'$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:0,maximumFractionDigits:0});
+// ── Autorización con nombre + PIN (usuarios y PIN del portal de comparativos) ──
+// Autorizan el Jefe o el Gerente de Compras: aprobadores de comparativos cuyo puesto no es de Costos.
+let PINACC=null;
+async function autorizadores(accion,valor){
+  const{data,error}=await sbc().from('cmp_usuarios').select('id,nombre,rol,puesto,activo').order('nombre');
+  if(error)throw new Error('No pude leer los autorizadores del portal de comparativos: '+error.message);
+  const us=(data||[]).filter(u=>u.activo!==false);
+  if(accion==='CANCELAR')return us.filter(u=>u.rol==='ADMIN');
+  if(accion!=='AUTORIZAR')return us.filter(u=>u.rol!=='COMPRADOR'&&!/COSTO/i.test(u.puesto||''));
+  // Autorizar: puesto con límite suficiente para el valor del folio; el comprador, solo su propio folio
+  return us.filter(u=>{const n=nivelU(u);if(!n||limiteN(n)<valor)return false;return n!=='COMPRADOR'||mismoComp(u,S.actual.comprador);})
+    .sort((a,b)=>limiteN(nivelU(a))-limiteN(nivelU(b)));
+}
+async function pinAbrir(accion){
+  if(accion==='CANCELAR')return cancelarAbrir();
+  const V=valorFolio(),rg=rangoDe(V.total);
+  let us;try{us=await autorizadores(accion,V.total);}catch(e){toast('❌ '+e.message);return;}
+  if(!us.length){toast(accion==='AUTORIZAR'?'❌ Nadie con rango para autorizar '+mxn(V.total)+' ('+rg[1]+' o superior). Dalo de alta con ese puesto en Comparativos → Administración.':'❌ No hay Jefe o Gerente de Compras dados de alta en el portal de comparativos');return;}
+  PINACC=accion;const aut=accion==='AUTORIZAR';
+  $('pin-tit').textContent=(aut?'Autorizar ':'Regresar ')+'folio '+S.actual.folio;
+  $('pin-sub').textContent=(aut?'Valor del folio '+mxn(V.total)+(V.est?' ('+V.est+' claves valuadas con costo de compra)':'')+(V.sin?' · '+V.sin+' claves sin precio':'')+': autoriza '+rg[1]+' o superior. ':'')+(aut?'Al autorizar, las cantidades pasan a la pestaña Comparativos como un comparativo en borrador para '+S.actual.comprador+'.':'El folio regresa al comprador con tu comentario.');
+  $('pin-u').innerHTML='<option value="">— ¿Quién '+(aut?'autoriza':'regresa')+'? —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+(aut?' (hasta '+(limiteN(nivelU(u))===Infinity?'sin límite':mxn(limiteN(nivelU(u))))+')':'')+'</option>').join('');
+  $('pin-p').value='';$('pin-c').value='';$('pin-c').placeholder=aut?'Comentario (opcional)':'¿Por qué se regresa? (obligatorio)';
+  $('pin-btn').textContent=aut?'Autorizar':'Regresar';$('pin-btn').className=aut?'ok':'bad';$('pin-err').style.display='none';
+  $('pinbg').style.display='flex';$('pin-u').focus();
+}
+async function cancelarAbrir(){
+  const f=S.actual,pinReq=conPinCancelar();let us=[];
+  if(pinReq){try{us=await autorizadores('CANCELAR');}catch(e){toast('❌ '+e.message);return;}
+    if(!us.length){toast('❌ No hay administradores dados de alta en Comparativos (rol ADMIN) para cancelar con PIN');return;}}
+  PINACC='CANCELAR';
+  $('pin-tit').textContent='Cancelar folio '+f.folio;
+  $('pin-sub').textContent=(f.estado==='AUTORIZADO'?'El folio ya está autorizado. ':'')+(pinReq?'Se cancela con el nombre y PIN de un administrador. ':'')+'El folio queda CANCELADO (no se borra, queda en el historial con el motivo)'+(f.cmp_id?'; su comparativo '+(f.cmp_folio||'#'+f.cmp_id)+' también se cancela (si ya estaba aprobado, se anula y regresa el proveedor anterior).':'.');
+  $('pin-u').style.display=$('pin-p').style.display=pinReq?'':'none';
+  $('pin-u').innerHTML='<option value="">— Administrador que cancela —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+'</option>').join('');
+  $('pin-p').value='';$('pin-c').value='';$('pin-c').placeholder='Motivo de la cancelación (obligatorio), p. ej. folio de prueba o la compra ya no se hará';
+  $('pin-btn').textContent='Cancelar folio';$('pin-btn').className='bad';$('pin-err').style.display='none';
+  $('pinbg').style.display='flex';(pinReq?$('pin-u'):$('pin-c')).focus();
+}
+function pinCerrar(){$('pin-u').style.display=$('pin-p').style.display='';$('pinbg').style.display='none';PINACC=null;}
+function pinErr(t){const e=$('pin-err');e.textContent=t;e.style.display='block';}
+async function pinOk(){
+  const o=$('pin-u').selectedOptions[0],uid=Number($('pin-u').value),pin=$('pin-p').value,com=$('pin-c').value.trim();
+  if(PINACC==='CANCELAR'){
+    if(!com){pinErr('Escribe el motivo de la cancelación');return;}
+    const pinReq=conPinCancelar();if(pinReq&&!uid){pinErr('Elige el administrador que cancela');return;}if(pinReq&&!pin){pinErr('Escribe el PIN');return;}
+    $('pin-btn').disabled=true;
+    try{let nombre=quien()||'—';
+      if(pinReq){const{data,error}=await sbc().rpc('cmp_verificar_pin',{p_usuario_id:uid,p_pin:pin});if(error)throw new Error(error.message);if(!data){pinErr('PIN incorrecto');return;}nombre=o.dataset.n;}
+      await cancelarConMotivo(nombre,uid,pin,com);pinCerrar();
+    }catch(e){pinErr('❌ '+(e.message||e));}
+    finally{$('pin-btn').disabled=false;}
+    return;
+  }
+  if(!uid){pinErr('Elige quién '+(PINACC==='AUTORIZAR'?'autoriza':'regresa'));return;}
+  if(!pin){pinErr('Escribe tu PIN');return;}
+  if(PINACC==='REGRESAR'&&!com){pinErr('Escribe por qué se regresa');return;}
+  $('pin-btn').disabled=true;
+  try{
+    const{data,error}=await sbc().rpc('cmp_verificar_pin',{p_usuario_id:uid,p_pin:pin});
+    if(error)throw new Error(error.message);
+    if(!data){pinErr('PIN incorrecto');return;}
+    const nombre=o.dataset.n,ahora=new Date().toISOString(),acc=PINACC;pinCerrar();
+    if(acc==='AUTORIZAR'){
+      const V=valorFolio();
+      const ok=await cambiarEstado({estado:'AUTORIZADO',autorizado_por:nombre,autorizado_en:ahora,comentario:[com,'Valor '+mxn(V.total)].filter(Boolean).join(' · ')||null,codigo:await codigoFolio('AUTORIZADO')},'✓ Folio autorizado por '+nombre);
+      if(ok){await cerrarAvisos(S.actual.folio);await avisar([S.actual.comprador],'AUTORIZADO',S.actual.folio,'Folio '+S.actual.folio+' autorizado por '+nombre+' · valor '+mxn(V.total)+'. Ya puedes levantar la OC.');await enviarComparativos(true);}
+    }else{const fol=S.actual.folio,comp=S.actual.comprador;const ok=await cambiarEstado({estado:'REGRESADO',comentario:com,autorizado_por:nombre,autorizado_en:ahora},'↩ Folio regresado al comprador');
+      if(ok){await cerrarAvisos(fol);await avisar([comp],'REGRESADO',fol,'Folio '+fol+' regresado por '+nombre+': '+com);}}
+  }catch(e){pinErr('❌ '+(e.message||e));}
+  finally{$('pin-btn').disabled=false;}
+}
+function autorizar(){pinAbrir('AUTORIZAR');}
+function regresar(){pinAbrir('REGRESAR');}
+
+// ── Envío al portal de comparativos: crea un comparativo en BORRADOR con las cantidades autorizadas ──
+// El portal de comparativos completa las líneas (catálogo, proveedor vigente, proveedores sugeridos y listas) la primera vez que se abre.
+async function enviarComparativos(auto){
+  const f=S.actual;if(!f||f.estado!=='AUTORIZADO')return;
+  let soloPend=null,ligaMuerta=false;
+  if(f.cmp_id){
+    if(auto){return;}
+    let st;try{st=await cmpsDelFolio(f);}catch(e){toast('❌ No pude revisar los comparativos del folio: '+(e.message||e));return;}
+    if(!st.pend.size){toast('Todas las claves de este folio ya están en comparativos');return;}
+    if(!confirm('Crear un comparativo en borrador con las '+st.pend.size+' clave(s) de este folio que no están en ningún comparativo activo?'))return;
+    soloPend=st.pend;ligaMuerta=!st.vivos.some(c=>c.id===f.cmp_id);
+  }
+  const lineas=S.lineas.filter(l=>Number(l.pedido_aut??l.pedido)>0&&(!soloPend||soloPend.has(Number(l.clave)))).map(l=>{const p=l.portal||{},s=l.surt||{};
+    return{clave:Number(l.clave),descripcion:p.n||'',cantidad:Number(l.pedido_aut??l.pedido),clasificacion:p.rot||'',inversion:s.inversion??null,pron:s.pron??null,antec:s.anteo??null,
+      precios:{},elegido:null,manual:false,motivo:'',_completar:true,folio_propuesta:f.folio,
+      ...(()=>{const pt=provTipo(l.clave,f.tipo_compra,p.dual);if(pt)return{proveedor_prop:pt,prov_origen:'CATÁLOGO'};const x=provDe(l.clave);return x&&x.o!=='MARCA'?{proveedor_prop:x.p,prov_origen:x.o}:{proveedor_prop:'',prov_origen:''};})()};});
+  if(!lineas.length){toast('El folio no tiene claves con pedido mayor a cero');return;}
+  const quienEnvia=f.autorizado_por||quien()||'PORTAL V2';
+  const row={titulo:'Propuesta '+f.folio+' · '+f.comprador+(f.tipo_compra?' · '+P.TIPO_L[f.tipo_compra].toUpperCase():''),comprador:f.comprador,estatus:'BORRADOR',proveedores:[],lineas,
+    notas:'Creado desde la propuesta de compra '+f.folio+' del Portal de Compras V2, autorizada por '+(f.autorizado_por||'—')+' el '+fFH(f.autorizado_en)+'. Cantidades = pedido autorizado ('+lineas.length+' claves).',
+    importe_actual:0,importe_propuesto:0,enviado_en:null,creado_por:quienEnvia,actualizado_por:quienEnvia};
+  const{data,error}=await sbc().from('cmp_comparativos').insert(row).select('id,folio').single();
+  if(error){toast('❌ No se pudo crear el comparativo: '+error.message+'. Usa "Enviar a comparativos" para reintentar.');pintarFolio();return;}
+  if(soloPend&&!ligaMuerta){toast('✓ Comparativo '+(data.folio||'#'+data.id)+' creado en borrador con '+lineas.length+' clave(s) pendientes');pintarFolio();return;}
+  const campos={cmp_id:data.id,cmp_folio:data.folio||null,cmp_enviado_en:new Date().toISOString()};
+  const{error:e2}=await sb.from('plan_propuestas').update(campos).eq('folio',f.folio);
+  if(e2){toast('⚠️ El comparativo '+(data.folio||data.id)+' se creó, pero no pude guardar la liga en el folio: '+e2.message+(/cmp_/.test(e2.message)?' · Corre plan_tablas_11.sql':''));return;}
+  Object.assign(f,campos);const fl=S.folios.find(x=>x.folio===f.folio);if(fl)Object.assign(fl,campos);
+  toast('✓ Comparativo '+(data.folio||'#'+data.id)+' creado en borrador para '+f.comprador);pintarFolio();
+}
+// Comparativos del folio (el ligado y los que se crearon después con claves pendientes o al dividir) y claves que no están en ninguno activo
+async function cmpsDelFolio(f){
+  const q1=f.cmp_id?sbc().from('cmp_comparativos').select('id,folio,titulo,estatus,aprobado_por,aprobado_en,lineas').eq('id',f.cmp_id):null;
+  const q2=sbc().from('cmp_comparativos').select('id,folio,titulo,estatus,aprobado_por,aprobado_en,lineas').ilike('titulo','Propuesta '+f.folio+' %');
+  const rs=await Promise.all([q1,q2].filter(Boolean));rs.forEach(r=>{if(r.error)throw new Error(r.error.message);});
+  const m=new Map();rs.forEach(r=>(r.data||[]).forEach(c=>m.set(c.id,c)));
+  const todos=[...m.values()].sort((a,b)=>a.id-b.id),vivos=todos.filter(c=>!['CANCELADO','ANULADO'].includes(c.estatus));
+  const en=new Set();vivos.forEach(c=>(c.lineas||[]).forEach(l=>en.add(Number(l.clave))));
+  const pend=new Set(S.lineas.filter(l=>Number(l.pedido_aut??l.pedido)>0&&!en.has(Number(l.clave))).map(l=>Number(l.clave)));
+  return{todos,vivos,pend};
+}
+// Estado del comparativo ligado (se consulta en vivo en el portal de comparativos)
+async function pintarCmp(){
+  const f=S.actual,el=$('f-cmp');if(!el)return;
+  if(!f||!f.cmp_id){el.innerHTML='';return;}
+  // Dentro del Portal V2 se abre en la pestaña Comparativos; fuera, en el portal de comparativos
+  const enV2=(()=>{try{return window.self!==window.top&&typeof window.parent.abrirComparativo==='function';}catch(e){return false;}})();
+  const liga=enV2?'<a class="lk" onclick="window.parent.abrirComparativo('+Number(f.cmp_id)+')">'+esc(f.cmp_folio||('#'+f.cmp_id))+' → pestaña Comparativos</a>'
+    :'<a class="lk" href="'+CMP_PORTAL+'?cmp='+f.cmp_id+'" target="_blank" rel="noopener">'+esc(f.cmp_folio||('#'+f.cmp_id))+' ↗</a>';
+  el.innerHTML='<b>Comparativo:</b> '+liga+' · enviado '+fFH(f.cmp_enviado_en);
+  try{const{data}=await sbc().from('cmp_comparativos').select('folio,estatus,aprobado_por,aprobado_en').eq('id',f.cmp_id).maybeSingle();
+    if(data&&S.actual===f)el.innerHTML='<b>Comparativo:</b> '+liga.replace(esc(f.cmp_folio||('#'+f.cmp_id)),esc(data.folio||f.cmp_folio||('#'+f.cmp_id)))+' · '+esc(data.estatus)+(data.aprobado_por?' por '+esc(data.aprobado_por)+' '+fFH(data.aprobado_en):'')+' · enviado '+fFH(f.cmp_enviado_en);
+    const st=await cmpsDelFolio(f);if(S.actual!==f)return;
+    // Otros comparativos del mismo folio (claves pendientes enviadas después o división por proveedor)
+    const otros=st.todos.filter(o=>o.id!==f.cmp_id);
+    if(otros.length){const lk=o=>enV2?'<a class="lk" onclick="window.parent.abrirComparativo('+Number(o.id)+')">'+esc(o.folio||('#'+o.id))+'</a>':'<a class="lk" href="'+CMP_PORTAL+'?cmp='+o.id+'" target="_blank" rel="noopener">'+esc(o.folio||('#'+o.id))+' ↗</a>';
+      el.innerHTML+='<div style="margin-top:3px"><b>También en:</b> '+otros.map(o=>lk(o)+' <span class="mut">'+esc((o.titulo.split(' · ').slice(2).join(' · '))||'')+' · '+(o.lineas||[]).length+' clave(s) · '+esc(o.estatus)+'</span>').join(' &nbsp;|&nbsp; ')+'</div>';}
+    if(st.pend.size&&f.estado==='AUTORIZADO')el.innerHTML+='<div style="margin-top:3px"><b>'+st.pend.size+' clave(s) sin comparativo</b> <span class="mut">(no están en ningún comparativo activo de este folio)</span> <button onclick="enviarComparativos()">➜ Enviar '+st.pend.size+' clave(s) pendientes a comparativos</button></div>';
+  }catch(e){}
+}
+// Cancelar folio (oct-2026): siempre con motivo. En revisión o autorizado, además con nombre y PIN de un ADMINISTRADOR (usuarios de Comparativos).
+// Si ya se había creado su comparativo: en borrador / en revisión / rechazado se cancela; aprobado se anula (regresa el proveedor anterior).
+function cancelarFolio(){pinAbrir('CANCELAR');}
+const conPinCancelar=()=>['EN REVISION','AUTORIZADO'].includes(S.actual&&S.actual.estado);
+async function cancelarConMotivo(nombre,uid,pin,motivo){
+  const f=S.actual,ahora=new Date(),txt='Cancelado por '+nombre+' el '+fFH(ahora.toISOString())+': '+motivo;
+  let lista=[];
+  try{lista=(await cmpsDelFolio(f)).vivos;}catch(e){throw new Error('No pude revisar los comparativos del folio: '+(e.message||e));}
+  for(const x of lista){
+    const c=sbc();const{data:cm,error}=await c.from('cmp_comparativos').select('id,folio,estatus,notas').eq('id',x.id).maybeSingle();
+    if(error)throw new Error('No pude revisar el comparativo '+(x.folio||x.id)+': '+error.message);
+    if(cm&&['BORRADOR','EN REVISION','RECHAZADO'].includes(cm.estatus)){
+      const{error:e2}=await c.from('cmp_comparativos').update({estatus:'CANCELADO',notas:[cm.notas,'Propuesta '+f.folio+' — '+txt].filter(Boolean).join('\n'),actualizado_por:nombre,actualizado_en:ahora.toISOString()}).eq('id',cm.id);
+      if(e2)throw new Error('No pude cancelar el comparativo '+(cm.folio||cm.id)+': '+e2.message);
+    }else if(cm&&cm.estatus==='APROBADO'){
+      const{error:e3}=await c.rpc('cmp_anular',{p_id:cm.id,p_usuario_id:uid,p_pin:pin,p_motivo:'Propuesta '+f.folio+' cancelada: '+motivo});
+      if(e3)throw new Error('No pude anular el comparativo aprobado '+(cm.folio||cm.id)+': '+e3.message);
+    }
+  }
+  const fol=f.folio,comp=f.comprador,ok=await cambiarEstado({estado:'CANCELADO',comentario:[txt,f.comentario?'Antes: '+f.comentario:''].filter(Boolean).join(' · ')},'✓ Folio '+f.folio+' cancelado'+(lista.length?' (y '+(lista.length>1?'sus '+lista.length+' comparativos':'su comparativo')+')':''));
+  if(ok){await cerrarAvisos(fol);if(!P.mismoComp(nombre,comp))await avisar([comp],'CANCELADO',fol,'Folio '+fol+' '+txt.charAt(0).toLowerCase()+txt.slice(1));}
+  return ok;
+}
+
+// ── Plantilla y carga de surtimiento ──
+function descargarPlantilla(){
+  const f=S.actual;
+  const ins=[['Propuesta de compra '+f.folio],['Comprador: '+f.comprador+' · cálculo del portal al '+fF(f.fecha_calculo)],['Propuestas '+(conBO()?'CON BO del CEDI: en surtimiento pon ¿Considerar BO? = Sí':'SIN BO: en surtimiento pon ¿Considerar BO? = No')],
+    ...(f.tipo_compra?[['Compra '+P.TIPO_L[f.tipo_compra].toUpperCase()+': en surtimiento usa el T. entrega y el pedido máximo (objetivo) de la hoja Folio, que son los de '+P.TIPO_L[f.tipo_compra].toLowerCase()+(f.tipo_compra==='NACIONAL'?'; no pidas más del stock del proveedor nacional.':'; el stock del proveedor nacional ya se restó en la propuesta.')]]:[]),[],
+    ['Cómo llenarla'],['1. En tu archivo de surtimiento filtra las claves de la hoja "Folio". Usa la base recomendada (antecedente o pronóstico) para definir el Pedido; la mezcla ya no se usa.'],['2. Copia las filas con todo y encabezados, de la columna A (ID) a la AE (Redond).'],
+    ['3. Pégalas en la hoja "Pegar surtimiento" a partir de la celda A1 (pegar valores).'],['4. Guarda y súbela en el portal con "Subir plantilla con surtimiento".'],[],
+    ['El portal toma por su encabezado: ID, Pedido, Pron, Anteo, Redond, Tiempos de entrega, Pedido máximo, Exist, BO, Exist MF e Inversión. No importa el orden ni que vengan columnas de más.'],
+    ['Si pegas dos escenarios de la misma clave, el portal toma el último.']];
+  const fol=S.lineas.map(l=>{const p=l.portal||{},q=pp(l),e=evaluar(l);return{'Clave':l.clave,'Descripción':p.n,'Marca':p.m,...(f.tipo_compra?{'Tipo de compra':P.TIPO_L[f.tipo_compra],'Proveedor':provTipo(l.clave,f.tipo_compra,p.dual)||provNom(l.clave)}:{}),'Estatus portal':estTxt(p),'Existencia':p.ex,'Existencia CEDI':p.exC??p.ex,'Resguardo':p.rs||0,'BO CEDI':p.bo,...(f.tipo_compra?{'BO nacional':q.boN,'BO importación':q.boI,'Stock proveedor nacional':p.dual&&p.dual.stk!=null?p.dual.stk:null}:{}),'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':q.lt,'Objetivo':q.pm,'Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Por qué esa base':e.br.por,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP};});
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(ins),'Instrucciones');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(fol),'Folio');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([[]]),'Pegar surtimiento');
+  XLSX.writeFile(wb,'Plantilla_'+f.folio+'.xlsx');
+}
+async function subirPlantilla(file){
+  if(!file)return;
+  try{
+    const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:'array'});
+    const nom=wb.SheetNames.find(n=>P.norm(n)==='PEGAR SURTIMIENTO');const orden=nom?[nom,...wb.SheetNames.filter(n=>n!==nom)]:wb.SheetNames;
+    let res=null;for(const n of orden){if(P.norm(n)==='FOLIO'||P.norm(n)==='INSTRUCCIONES')continue;const r=P.leerSurtimiento(XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:''}));if(r.filas.length){res=r;break;}if(!res)res=r;}
+    if(!res||!res.filas.length){toast('❌ '+((res&&res.error)||'No encontré filas de surtimiento con ID y Pedido.'));return;}
+    const m=new Map(res.filas.map(x=>[x.clave,x]));const enFolio=new Set(S.lineas.map(l=>Number(l.clave)));
+    const sobran=res.filas.filter(x=>!enFolio.has(x.clave)).map(x=>x.clave);
+    const ahora=new Date().toISOString();
+    for(const l of S.lineas){const s=m.get(Number(l.clave))||null;const e=P.propLinea(pp(l),s,{conBO:conBO()});
+      Object.assign(l,{surt:s,pedido:s?s.pedido:null,semaforo:e.sem,avisos:e.avisos.join(' | ')||null,actualizado_en:ahora});
+      const{error}=await sb.from('plan_propuesta_lineas').update({surt:l.surt,pedido:l.pedido,semaforo:l.semaforo,avisos:l.avisos,actualizado_en:ahora}).eq('folio',S.actual.folio).eq('clave',l.clave);
+      if(error){toast('❌ '+error.message);return;}}
+    await sb.from('plan_propuestas').update({cargado_en:ahora,actualizado_en:ahora}).eq('folio',S.actual.folio);S.actual.cargado_en=ahora;
+    const sin=S.lineas.filter(l=>!l.surt).map(l=>l.clave);
+    toast('✓ Surtimiento cargado: '+(S.lineas.length-sin.length)+' de '+S.lineas.length+' claves'+(sin.length?' · faltan '+sin.join(', '):'')+(sobran.length?' · se ignoraron '+sobran.length+' claves que no son del folio':'')+(res.faltan.length?' · no encontré columnas '+res.faltan.join(', '):''));
+    await recargar();
+  }catch(e){toast('❌ No se pudo leer el archivo: '+(e.message||e));}
+}
+function excelFolio(){
+  const tf=tipoF();
+  const rows=S.lineas.map(l=>{const p=l.portal||{},q=pp(l),s=l.surt||{},e=evaluar(l);return{'Folio':S.actual.folio,...(tf?{'Tipo de compra':P.TIPO_L[tf],['Proveedor '+P.TIPO_L[tf].toLowerCase()]:provTipo(l.clave,tf,p.dual)||'','BO nacional':q.boN,'BO importación':q.boI,'Stock proveedor nacional':p.dual&&p.dual.stk!=null?p.dual.stk:null,'Mínimo por contenedor':p.dual&&p.dual.mc||null,'T. entrega hoja Detalle':q.lt0,'Objetivo hoja Detalle':q.pm0}:{}),'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Origen recolección':oriDe(l.clave),'Proveedor':provNom(l.clave),'Origen del proveedor':(()=>{const x=provDe(l.clave);return x&&x.o!=='MARCA'?PROV_ORG[x.o]:'';})(),'Proveedor última compra':(provDe(l.clave)||{}).oc||'','Fecha última compra':(provDe(l.clave)||{}).ocF||'','Estatus':estTxt(p),'Existencia':p.ex,'Resguardo':p.rs||0,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':q.lt,'Objetivo':q.pm,'Con BO':conBO()?'Sí':'No','Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP,'Diferencia vs recomendada (pzs)':e.difR,'Diferencia vs recomendada (meses)':e.dmR,
+    'Pedido':l.pedido,'Pedido autorizado':l.pedido_aut??l.pedido,'Anteo surtimiento':s.anteo,'Pron surtimiento':s.pron,'Redond':s.redond,'Meses antecedente portal':e.mA,'Meses pronóstico portal':e.mP,'Meses al llegar (recomendada)':e.lR,'Diferencia vs antecedente (meses)':e.dmA,'Diferencia vs pronóstico (meses)':e.dmP,'Semáforo':l.semaforo,'Avisos':l.avisos,'Motivo':l.motivo,'Comentario':l.comentario};});
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),'Folio');XLSX.writeFile(wb,S.actual.folio+'.xlsx');
+}
+
+// ── Impresión para firma (carta horizontal, membrete SANVER) ──
+// Nombre del PDF al guardar: folio, comprador, fecha del día de impresión y estado (p. ej. PC-281026-001 IVAN 28-10-2026 AUTORIZADO)
+function nombrePDF(f){const d=new Date(),h=String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+d.getFullYear();return [f.folio,f.comprador,h,f.estado].filter(Boolean).join(' ');}
+function imprimir(){
+  const f=S.actual,L=S.lineas,valido=['EN REVISION','AUTORIZADO'].includes(f.estado);
+  const c={VERDE:0,AMARILLO:0,ROJO:0,SIN:0};L.forEach(l=>c[l.semaforo&&l.semaforo!=='SIN DATO'?l.semaforo:'SIN']++);
+  const base=location.href.replace(/[^/]*$/,'');
+  const tf=f.tipo_compra||'';
+  const fila=l=>{const p=l.portal||{},q=pp(l),s=l.surt||{},e=evaluar(l);return '<tr><td><b>'+l.clave+'</b></td><td class="d">'+esc(p.n)+(sinHist(p)?'<div class="av" style="color:#b45309">Sin historial: '+sinHist(p)+'</div>':'')+(provTipo(l.clave,tf,p.dual)||provNom(l.clave)||oriDe(l.clave)?'<div class="av">'+[(provTipo(l.clave,tf,p.dual)||provNom(l.clave))?'Prov.: '+esc(provTipo(l.clave,tf,p.dual)||provNom(l.clave)):'',oriDe(l.clave)?'Origen: '+esc(oriDe(l.clave)):''].filter(Boolean).join(' · ')+'</div>':'')+'</td><td class="n">'+nf(p.ex)+(p.rs>0?'<div style="font-size:8px;color:#0f766e">incl. '+nf(p.rs)+' resguardo</div>':'')+'</td><td class="n">'+nf(q.bo)+(tf&&p.dual&&p.dual.stk!=null?'<div style="font-size:8px;color:#075985">stock prov. nac. '+nf(p.dual.stk)+'</div>':'')+'</td><td class="n">'+nf(q.lt,1)+'</td><td class="n">'+nf(q.pm,1)+'</td><td class="n">'+nf(e.sA)+'</td><td class="n">'+nf(e.sP)+'</td><td class="n"><b>'+nf(e.sR)+'</b><br>'+esc(baseTxt(e))+'</td><td class="n"><b>'+nf(l.pedido_aut??l.pedido)+'</b><br>'+(e.difR==null?'':sg(e.difR)+' pzs · '+sg(e.dmR,1)+' m')+'</td><td class="n">'+nf(s.anteo,1)+' / '+nf(e.mA,1)+' ('+nf(e.lA,1)+')</td><td class="n">'+nf(s.pron,1)+' / '+nf(e.mP,1)+' ('+nf(e.lP,1)+')</td><td class="n">'+sg(e.dmA,1)+' / '+sg(e.dmP,1)+'</td><td><span class="sm '+(l.semaforo||'SIN').split(' ')[0]+'">'+(SEM_L[l.semaforo]||'—')+'</span></td><td class="d">'+(l.motivo?'<b>'+esc(l.motivo)+'</b>':'')+(l.comentario?'<br>'+esc(l.comentario):'')+(l.avisos?'<div class="av">'+esc(l.avisos).split(' | ').join('<br>')+'</div>':'')+'</td></tr>';};
+  const html='<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>'+esc(nombrePDF(f))+'</title><style>@page{size:letter landscape;margin:8mm 10mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:Calibri,"Segoe UI",sans-serif;color:#1a2035;font-size:9.5px;margin:0}'
+    +'.top{width:100%;height:auto}.bot{width:100%;height:auto;margin-top:8px}h1{font-size:16px;margin:6px 0 2px;color:#1e3a5f}.meta{font-size:10.5px;margin-bottom:6px}.meta b{color:#1e3a5f}'
+    +'table{border-collapse:collapse;width:100%}th{background:#1e3a5f;color:#fff;font-size:8.5px;padding:4px;text-align:left}td{border-bottom:1px solid #d5dce8;padding:3px 4px;vertical-align:top}td.n,th.n{text-align:right;white-space:nowrap}td.d{max-width:220px}.av{color:#6b7a99;font-size:8.5px;margin-top:2px}'
+    +'.sm{font-weight:700;padding:1px 6px;border-radius:8px}.VERDE{background:#e6f2e8;color:#2e7d32}.AMARILLO{background:#fdf3d8;color:#a16207}.ROJO{background:#fdeaea;color:#c0392b}.SIN{background:#eef1f6;color:#64748b}'
+    +'.res{display:flex;gap:14px;font-size:10.5px;margin:6px 0}.com{margin-top:10px;padding:6px 8px;border:1px solid #d5dce8;border-left:3px solid #1e3a5f;border-radius:4px;font-size:10.5px;page-break-inside:avoid}.firmas{display:flex;gap:60px;margin-top:34px;page-break-inside:avoid}.firma{flex:1;border-top:1px solid #1a2035;padding-top:4px;text-align:center;font-size:10px}'
+    +'.marca{position:fixed;top:40%;left:15%;font-size:70px;color:rgba(192,57,43,.12);transform:rotate(-20deg);font-weight:800}.pie{display:flex;justify-content:space-between;font-size:8.5px;color:#6b7a99;margin-top:6px}</style></head><body>'
+    +(valido?'':'<div class="marca">BORRADOR · NO VÁLIDO</div>')
+    +'<img class="top" src="'+base+'membrete_sup.png"><h1>Propuesta de compra '+esc(f.folio)+(tf?' · '+P.TIPO_L[tf].toUpperCase():'')+'</h1>'
+    +'<div class="meta"><b>Comprador:</b> '+esc(f.comprador)+' · <b>Estado:</b> '+esc(f.estado)+' · <b>Cálculo del portal:</b> '+fF(f.fecha_calculo)+' · <b>'+(conBO()?'Con':'Sin')+' BO del CEDI</b>'+(f.cmp_id?' · <b>Comparativo:</b> '+esc(f.cmp_folio||('#'+f.cmp_id)):'')+' · <b>Surtimiento pegado:</b> '+fFH(f.cargado_en)+(f.autorizado_por&&f.estado==='AUTORIZADO'?' · <b>Autorizó en portal:</b> '+esc(f.autorizado_por)+' '+fFH(f.autorizado_en):'')+'</div>'
+    +'<div class="res"><span><b>'+L.length+'</b> claves</span><span><b>'+nf(L.reduce((s,l)=>s+(Number(l.pedido_aut??l.pedido)||0),0))+'</b> piezas</span><span>Verde <b>'+c.VERDE+'</b></span><span>Amarillo <b>'+c.AMARILLO+'</b></span><span>Rojo <b>'+c.ROJO+'</b></span>'+(c.SIN?'<span>Sin surtimiento <b>'+c.SIN+'</b></span>':'')+'</div>'
+    +'<table><thead><tr><th>Clave</th><th>Descripción</th><th class="n">Exist.</th><th class="n">BO CEDI</th><th class="n">T. entr.</th><th class="n">Obj.</th><th class="n">Prop. ant.</th><th class="n">Prop. pron.</th><th class="n">Recomendada</th><th class="n">Pedido / dif. vs recom.</th><th class="n">Meses ant. surt / portal (al llegar)</th><th class="n">Meses pron. surt / portal (al llegar)</th><th class="n">Dif. meses ant / pron</th><th>Semáforo</th><th>Motivo, comentario y avisos</th></tr></thead><tbody>'+L.map(fila).join('')+'</tbody></table>'
+    +'<p style="font-size:8.5px;color:#6b7a99;margin-top:6px">Base recomendada: pronóstico si hay temporada (±50% contra antecedente), antecedente si no; intermitente = promedio 12 meses. Propuesta = consumo × (T. entrega + Objetivo) − existencia'+(tf==='IMPORTACION'?' − stock del proveedor nacional':'')+(conBO()?(tf==='NACIONAL'?' − BO de OCs nacionales':' − BO del CEDI'):'')+(tf==='NACIONAL'?', con tope en el stock del proveedor nacional':'')+(tf==='IMPORTACION'&&f.min_cont?', redondeada al mínimo por contenedor':'')+(tf?'; T. entrega y objetivo de compra '+P.TIPO_L[tf].toLowerCase():'')+'. Meses = (existencia'+(conBO()?' + BO del CEDI':'')+' + pedido) ÷ consumo; al llegar = meses − T. entrega. Rango aceptable al llegar: entre T. entrega × 1.4 y Objetivo × 1.4. Diferencia = pedido − recomendada (piezas y meses de consumo). Verde: pide lo recomendado (±20% o ±0.5 meses) o queda en rango; amarillo: se aleja sin llegar a rojo; rojo: pide de más y queda más de 1 mes arriba del máximo, o pide de menos y sigue en riesgo.</p>'
+    +(f.comentario?'<div class="com"><b>'+({AUTORIZADO:'Comentario de autorización',REGRESADO:'Motivo de regreso',CANCELADO:'Motivo de cancelación'}[f.estado]||'Comentario')+':</b> '+esc(f.comentario)+(f.autorizado_por&&f.estado!=='CANCELADO'?'<div class="av">'+esc(f.autorizado_por)+(f.autorizado_en?' · '+fFH(f.autorizado_en):'')+'</div>':'')+'</div>':'')
+    +'<div class="firmas"><div class="firma">Elaboró<br><b>'+esc(f.comprador)+'</b><br>Comprador</div><div class="firma">Autorizó<br><b>'+(f.estado==='AUTORIZADO'&&f.autorizado_por?esc(f.autorizado_por):'&nbsp;')+'</b><br>Jefe o Gerente de Compras</div></div>'
+    +'<div class="pie"><span>Impreso '+new Date().toLocaleString('es-MX')+'</span><span>Código de verificación: <b>'+esc(f.codigo||'—')+'</b></span></div><img class="bot" src="'+base+'membrete_inf.png">'
+    +'<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>';
+  const w=window.open('','_blank');if(!w){toast('Permite ventanas emergentes para imprimir');return;}w.document.write(html);w.document.close();
+}
+</script>
+<script>window.addEventListener('resize',()=>{clearTimeout(window.__fxT);window.__fxT=setTimeout(()=>{try{fijarColumnas();}catch(e){}},150);});</script>
+</body>
+</html>

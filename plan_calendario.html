@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calendario de pedidos</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="plan_logica.js?v=20261105a" charset="utf-8"></script>
+<script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
+<style>
+:root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6;--blue:#1c4587;--bluebg:#e8eefc;--teal:#0f766e;--tealbg:#e3f4f1}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);font-size:14px}
+header{background:var(--navy);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:17px;font-weight:700}
+header .ses{margin-left:auto;font-size:12px;opacity:.9}
+main{max-width:1500px;margin:0 auto;padding:16px 16px 60px}
+.card{background:var(--sf);border:1px solid var(--brd);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.card h2{font-size:15px;color:var(--navy);margin-bottom:6px}
+.d{color:var(--tx2);font-size:12.5px;line-height:1.45}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input,select{padding:7px 10px;border:1.5px solid #c9d4f0;border-radius:8px;font-size:13px;font-family:inherit;background:#fff}
+button{background:var(--navy2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit}
+button.sec{background:#fff;color:var(--navy2);border:1.5px solid #c9d4f0}
+button.sm{padding:5px 10px;font-size:12px}
+button:disabled{opacity:.45;cursor:not-allowed}
+#lock{max-width:420px;margin:60px auto}
+.err{color:var(--err);font-size:12.5px;margin-top:8px;display:none}
+.scroll{overflow:auto;max-height:62vh;border:1px solid var(--brd);border-radius:10px;background:#fff}
+table{border-collapse:collapse;font-size:12.5px;width:100%}
+th,td{border-bottom:1px solid var(--brd);padding:6px 8px;text-align:left;white-space:nowrap;vertical-align:middle}
+th{background:#f0f4ff;color:var(--navy);position:sticky;top:0;z-index:1;font-size:11.5px}
+td.num,th.num{text-align:right}
+td.desc{white-space:normal;min-width:200px;max-width:300px;line-height:1.3}
+td.wrap{white-space:normal;max-width:280px;line-height:1.3}
+tr.sel td{background:#f3f7ff}
+tr.clic{cursor:pointer}tr.clic:hover td{background:#f8faff}
+.chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;display:inline-block;white-space:nowrap}
+.c-venc{background:var(--errbg);color:var(--err)}.c-sem{background:var(--warnbg);color:var(--warn)}.c-prox{background:var(--bluebg);color:var(--blue)}.c-lejos{background:var(--graybg);color:var(--gray)}
+.c-ok{background:var(--okbg);color:var(--ok)}.c-teal{background:var(--tealbg);color:var(--teal)}
+.o-CATÁLOGO{background:var(--okbg);color:var(--ok)}.o-COMPARATIVO{background:var(--tealbg);color:var(--teal)}.o-ÚLTIMA{background:var(--bluebg);color:var(--blue)}.o-MARCA{background:var(--graybg);color:var(--gray)}
+.e-FALTANTE{color:var(--err);font-weight:700}.e-RIESGO{color:var(--warn);font-weight:700}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 4px}
+.kpi{border:1px solid var(--brd);border-radius:10px;padding:8px 14px;min-width:140px;background:#fff}
+.kpi b{display:block;font-size:19px;color:var(--navy)}.kpi span{font-size:11.5px;color:var(--tx2)}
+.kpi.r b{color:var(--err)}.kpi.a b{color:var(--warn)}
+.vistas{display:flex;gap:6px;margin:10px 0}
+.vistas button{background:#fff;color:var(--navy2);border:1.5px solid #c9d4f0}
+.vistas button.on{background:var(--navy2);color:#fff;border-color:var(--navy2)}
+.av{color:var(--warn);font-size:11.5px;white-space:normal;line-height:1.3}
+.mut{color:var(--tx2)}.sm{font-size:11.5px}
+a.lk{color:var(--navy2);cursor:pointer;text-decoration:underline;font-weight:600}
+/* calendario mensual */
+.cal-nav{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.cal-nav b{font-size:15px;color:var(--navy);min-width:220px;text-align:center}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border:1px solid var(--brd);border-radius:10px;overflow:hidden;background:var(--brd);gap:1px}
+.cal .h{background:#f0f4ff;color:var(--navy);font-size:11.5px;font-weight:700;padding:6px;text-align:center}
+.cal .dia{background:#fff;min-height:96px;padding:5px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.cal .dia.fuera{background:#fafbfd}.cal .dia.fuera .n{color:#c0c7d6}
+.cal .dia.hoy{box-shadow:inset 0 0 0 2px var(--navy2)}
+.cal .n{font-size:11.5px;font-weight:700;color:var(--tx2)}
+.cal .ev{font-size:11px;padding:2px 6px;border-radius:5px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.cal .mas{font-size:11px;color:var(--navy2);cursor:pointer;font-weight:600}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1a2035;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;display:none;z-index:9;max-width:90vw}
+.ped-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.ped-tabs button{background:#fff;color:var(--navy2);border:1.5px solid #c9d4f0;padding:5px 10px;font-size:12px}
+.ped-tabs button.on{background:var(--navy2);color:#fff;border-color:var(--navy2)}
+.reglas{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;margin:6px 0}
+.reglas span b{color:var(--navy)}
+@media (max-width:700px){main{padding:10px 8px 40px}.cal .dia{min-height:64px}.cal .ev{font-size:10px;padding:1px 3px}}
+</style>
+<script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
+<style>.embed header{display:none}</style>
+</head>
+<body>
+<header>
+  <h1>🗓️ Calendario de pedidos</h1>
+  <span class="ses" id="ses"></span>
+</header>
+
+<div id="lock" class="card">
+  <h2>Acceso</h2>
+  <p class="d" style="margin-bottom:10px">Usa la contraseña del portal.</p>
+  <div class="row"><input type="password" id="pw" placeholder="Contraseña" style="flex:1" onkeydown="if(event.key==='Enter')entrar()"><button onclick="entrar()">Entrar</button></div>
+  <div class="err" id="pw-err"></div>
+</div>
+
+<main id="app" style="display:none">
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div style="max-width:980px"><h2>Calendario de pedidos</h2>
+        <p class="d">Cuándo levantarle pedido a cada proveedor. Cada clave se pide cuando su cobertura (existencia + BO) baja a <b>T. entrega × 1.2</b> (justo antes de entrar a riesgo), y al pedido se suman las demás claves del mismo proveedor que llegarían a ese punto dentro de su <b>ciclo</b>. Cantidades = propuesta del portal redondeada a empaque. Es una estimación: se recalcula con cada Cálculo diario.</p></div>
+      <div class="row"><select id="quien" onchange="setQuien()"></select></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <select id="f-comp" onchange="calcular()"></select>
+      <select id="f-ag" onchange="calcular()"><option value="PROV">Agrupar por proveedor</option><option value="MARCA">Agrupar por marca</option><option value="GRUPO">Agrupar por grupo</option><option value="COMPRADOR">Agrupar por comprador</option><option value="ORIGEN">Agrupar por origen de recolección</option></select>
+      <select id="f-h" onchange="calcular()"><option value="30">Próximos 30 días</option><option value="60">Próximos 60 días</option><option value="90" selected>Próximos 90 días</option></select>
+      <select id="f-bo" onchange="calcular()" title="Sin BO: la cobertura, la fecha de pedido, la cantidad, el estatus y el nivel de riesgo solo cuentan la existencia. Con BO: suman el BO del CEDI para ver si lo que viene en camino alcanza."><option value="0">Sin BO (solo existencia)</option><option value="1">Con BO del CEDI</option></select>
+      <span id="f-marca"></span><span id="f-grupo"></span>
+      <input type="search" id="f-q" placeholder="Buscar proveedor, marca o clave…" oninput="pintar()" style="width:240px">
+      <button class="sec" onclick="recargar()">↻ Actualizar</button>
+      <button class="sec" onclick="exportar()">⬇ Excel</button>
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <div id="sh" style="display:none;margin:8px 0"></div>
+    <div class="d" id="corte"></div>
+    <div id="boav" style="margin-top:6px;padding:6px 10px;border-radius:8px;font-size:12px"></div>
+    <div class="d" id="avisos" style="color:var(--warn)"></div>
+  </div>
+
+  <div class="card">
+    <div class="vistas"><button id="v-lista" class="on" onclick="vista('lista')">📋 Próximos pedidos</button><button id="v-cal" onclick="vista('cal')">🗓️ Calendario</button></div>
+    <div id="w-lista">
+      <div class="scroll"><table><thead><tr><th>Próximo pedido</th><th>Proveedor / grupo</th><th>Compradores</th><th>Ciclo</th><th class="num">Claves</th><th class="num">Piezas</th><th class="num">Valor estimado</th><th>Avisos</th><th>Siguientes</th><th>Proveedor de las claves</th></tr></thead><tbody id="lista"></tbody></table></div>
+      <div class="d" id="lista-pie" style="margin-top:6px"></div>
+    </div>
+    <div id="w-cal" style="display:none">
+      <div class="cal-nav"><button class="sec sm" onclick="mesMover(-1)">◀</button><b id="cal-mes"></b><button class="sec sm" onclick="mesMover(1)">▶</button><button class="sec sm" onclick="S.mes=0;pintarCal()">Hoy</button><span class="d">Rojo = vencido (pedir hoy) · amarillo = esta semana · azul = después. Clic para ver las claves.</span></div>
+      <div class="cal" id="cal"></div>
+    </div>
+  </div>
+
+  <div class="card" id="det" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <div><h2 id="det-t"></h2><div class="reglas" id="det-r"></div></div>
+      <div class="row"><button class="sec sm" onclick="exportarDet()">⬇ Excel de este pedido</button><button class="sec sm" onclick="document.getElementById('det').style.display='none'">✕ Cerrar</button></div>
+    </div>
+    <div class="ped-tabs" id="det-p"></div>
+    <div class="row" id="det-acc" style="margin:6px 0 10px"></div>
+    <div class="scroll" style="max-height:55vh"><table><thead><tr><th>Clave</th><th>Descripción</th><th>Marca</th><th>Comprador</th><th>Estatus</th><th class="num">Demanda/mes</th><th class="num">Cobertura (meses)</th><th class="num">Punto de pedido</th><th>Le toca</th><th class="num">Cantidad</th><th>Empaque</th><th class="num">Costo</th><th class="num">Valor</th><th>Proveedor (origen)</th><th>Folio abierto</th></tr></thead><tbody id="det-b"></tbody></table></div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const SB_URL="https://lyjbuhttdikfhmufunra.supabase.co";
+const SB_KEY="sb_publishable_9CGnUVxR36vOvPLvaToJ7A_ztI7s6yT";
+const EMAIL_EQUIPO="equipo@portalcompras.app",EMAIL_ADMIN="admin@portalcompras.app";
+const sb=window.supabase.createClient(SB_URL,SB_KEY);
+const CMP_URL="https://rbakkrzxdjkpbmbcurng.supabase.co";
+const CMP_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJiYWtrcnp4ZGprcGJtYmN1cm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwNzY1NzgsImV4cCI6MjEwNDY1MjU3OH0.504RZFk_kyH5POYWiNcZWdh8Nr8RTPNREMw-BtbJR2s";
+let _sbc=null;const sbc=()=>{try{return _sbc||(_sbc=window.supabase.createClient(CMP_URL,CMP_KEY,{auth:{persistSession:false,autoRefreshToken:false,storageKey:'cmp-cal'}}));}catch(e){return null;}};
+let COMPRADORES=['ALEJANDRO','ARICELIA','ESTELA','FRANCISCO JAVIER','IVAN','JISHELL MARINTHYA','KARLA ANAID','LEONELA','LUCIA','MARIA VICTORIA','MARITZA','MYRIAM VIDA CHRISTELL','SILVINO'];
+const ABIERTOS=['BORRADOR','EN REVISION','REGRESADO'];
+const S={est:null,fecha:null,claves:[],F:null,cal:[],abiertas:new Map(),sel:null,ped:0,mes:null,vista:'lista'};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nf=(v,d=0)=>v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('es-MX',{minimumFractionDigits:d,maximumFractionDigits:d});
+const mxn=v=>v==null?'—':'$'+nf(v);
+const fF=f=>f?String(f).slice(8,10)+'/'+String(f).slice(5,7)+'/'+String(f).slice(0,4):'—';
+const DS=['dom','lun','mar','mié','jue','vie','sáb'],MS_=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const fCorta=f=>{const d=new Date(f+'T12:00:00');return DS[d.getDay()]+' '+d.getDate()+'/'+String(d.getMonth()+1).padStart(2,'0');};
+function toast(t){const el=$('toast');el.textContent=t;el.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>el.style.display='none',3600);}
+function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+async function todo(q){let out=[];for(let i=0;i<100;i++){const{data,error}=await q().range(i*1000,i*1000+999);if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;}
+const quien=()=>$('quien').value;
+const hoyReal=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);};
+
+async function entrar(){
+  const pw=$('pw').value,err=$('pw-err');err.style.display='none';
+  let r=await sb.auth.signInWithPassword({email:EMAIL_EQUIPO,password:pw});
+  if(r.error)r=await sb.auth.signInWithPassword({email:EMAIL_ADMIN,password:pw});
+  if(r.error){err.textContent='Contraseña incorrecta.';err.style.display='block';return;}
+  abrir();
+}
+(async()=>{const{data:{session}}=await sb.auth.getSession();if(session)abrir();else $('lock').style.display='block';})();
+async function abrir(){
+  $('lock').style.display='none';$('app').style.display='block';
+  COMPRADORES=await P.compradores(sb,COMPRADORES);
+  const q=$('quien');q.innerHTML='<option value="">— ¿Quién eres? —</option>'+[...COMPRADORES,'ADMIN'].map(c=>'<option>'+c+'</option>').join('');
+  let pu='';try{pu=window.self!==window.top?(window.parent.sessionStorage.getItem('pc_usuario')||''):'';}catch(e){}pu=pu?P.compCanon(pu,COMPRADORES):'';
+  if(pu&&![...q.options].some(o=>o.value===pu))q.insertAdjacentHTML('beforeend','<option>'+esc(pu)+'</option>');
+  q.value=pu||lsGet('plan_prop_quien')||'';
+  $('f-comp').innerHTML='<option value="">Todos los compradores</option>'+COMPRADORES.map(c=>'<option>'+c+'</option>').join('');
+  if(COMPRADORES.includes(quien()))$('f-comp').value=quien();
+  $('ses').textContent=quien()?'Trabajando como: '+quien():'';
+  if(window.MS){MS.mount('f-marca',{t:'Marca',todos:'Todas',on:()=>calcular()});MS.mount('f-grupo',{t:'Grupo',todos:'Todos',on:()=>calcular()});}
+  await recargar();
+}
+function setQuien(){const v=quien();lsSet('plan_prop_quien',v);$('ses').textContent=v?'Trabajando como: '+v:'';if(COMPRADORES.includes(v)){$('f-comp').value=v;calcular();}}
+
+// ── Datos ──
+async function recargar(){
+  $('lista').innerHTML='<tr><td colspan="10" class="mut">Cargando cálculo publicado, proveedores, OCs y costos…</td></tr>';
+  try{
+    const{data:pub,error}=await sb.from('plan_publicacion').select('fecha,ruta').eq('id','estado').maybeSingle();
+    if(error)throw error;if(!pub)throw new Error('Todavía no hay un cálculo diario publicado.');
+    const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw e2;
+    const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
+    const js=JSON.parse(txt);S.est=js;S.fecha=js.fecha;S.raw=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));aplicarBO();
+    S.F=await P.calFuentes(sb,sbc());S.F.prov=P.provPorClave(S.raw,S.F);
+    S.abiertas=new Map();
+    try{const fol=(await todo(()=>sb.from('plan_propuestas').select('folio,estado').order('folio'))).filter(f=>ABIERTOS.includes(f.estado)).map(f=>f.folio);
+      for(let i=0;i<fol.length;i+=100)(await todo(()=>sb.from('plan_propuesta_lineas').select('folio,clave').in('folio',fol.slice(i,i+100)).order('folio').order('clave'))).forEach(l=>S.abiertas.set(Number(l.clave),l.folio));}catch(e){}
+    const org={};S.F.prov.forEach(x=>org[x.o]=(org[x.o]||0)+1);
+    $('corte').innerHTML='Cálculo del portal al <b>'+fF(S.fecha)+'</b> · proveedor de cada clave: catálogo '+nf(org['CATÁLOGO']||0)+' · Comparativos '+nf(org['COMPARATIVO']||0)+' · última OC '+nf(org['ÚLTIMA OC']||0)+' · <span title="Sin proveedor conocido: se agrupan por marca hasta confirmar su proveedor (Admin → Calendario de pedidos)">solo marca '+nf(org['MARCA']||0)+'</span>'
+      +' · reglas capturadas para '+nf(S.F.reglas.size)+' proveedores.';
+    $('avisos').textContent=S.F.avisos.length?'⚠️ '+S.F.avisos.join(' · '):'';
+    if(S.mes==null)S.mes=0;
+    calcular();
+  }catch(e){$('lista').innerHTML='<tr><td colspan="10" style="color:var(--err)">❌ '+esc(e.message||e)+'</td></tr>';}
+}
+const FC=[['f-marca',r=>r.m||''],['f-grupo',r=>r.g||'']];
+function filasFiltradas(){const comp=$('f-comp').value;const base=S.claves.filter(r=>!comp||r.comp===comp);if(window.MS){MS.cascada(base,FC);return base.filter(r=>MS.pasa(r,FC));}return base;}
+// Con o sin BO (default sin BO): estatus, nivel, cobertura, fecha y cantidad siguen la opción
+const conBO=()=>{const x=$('f-bo');return !!x&&x.value==='1';};
+function aplicarBO(){if(!S.raw)return;S.claves=P.aplicarBO(S.raw,conBO(),S.fecha);S.byC=new Map(S.claves.map(r=>[Number(r.c),r]));
+  const x=$('boav');if(x){const c=conBO();x.style.background=c?'#dbeafe':'#f1f5f9';x.style.color=c?'#1e40af':'#334155';
+    x.innerHTML=c?'🚚 <b>Considerando el BO actual del CEDI</b>: la cobertura, la fecha y la cantidad a pedir, el estatus y el nivel de riesgo suman lo que viene en camino. Un faltante con BO sale como <b>cubierto con BO</b>.'
+      :'📦 <b>Sin BO</b> (solo existencia): la cobertura, la fecha y la cantidad a pedir, el estatus y el nivel de riesgo no cuentan el BO. Cambia a <b>Con BO del CEDI</b> para ver si el BO alcanza o hay que pedir más.';}}
+function calcular(){
+  if(!S.F)return;
+  aplicarBO();
+  const hoy=S.fecha;
+  S.cal=P.calendario(filasFiltradas(),{hoy,conBO:conBO(),prov:S.F.prov,reglas:S.F.reglas,costo:S.F.costo,emp:S.F.emp,agrupar:$('f-ag').value,origen:S.F.origen,horiz:Number($('f-h').value)});
+  if(S.sel){const g=S.cal.find(x=>x.g===S.sel);if(!g){S.sel=null;$('det').style.display='none';}}
+  pintar();if(S.sel)pintarDet();
+}
+const enPed=(p,h)=>p&&p.t<=h;
+function clasePed(p){if(!p)return'c-lejos';if(p.atr>0||p.t===0)return'c-venc';if(p.t<=7)return'c-sem';if(p.t<=30)return'c-prox';return'c-lejos';}
+function etqPed(p){if(!p)return'sin pedido en el horizonte';if(p.atr>0)return'Vencido · pedir '+fCorta(p.f);if(p.t===0)return'Hoy '+fCorta(p.f);return fCorta(p.f)+' · en '+p.t+' días';}
+// Claves en riesgo ALTO de un pedido (del cálculo del portal)
+const altoDe=p=>p?p.lineas.filter(l=>(S.byC.get(Number(l.c))||{}).nv==='ALTO').length:0;
+function gruposVisibles(){
+  const q=($('f-q').value||'').trim().toUpperCase();
+  return S.cal.filter(g=>(!S.diaF||g.pedidos.some(p=>p.f===S.diaF))).filter(g=>!S.soloAlto||altoDe(g.prox)>0).filter(g=>!q||g.g.toUpperCase().includes(q)||g.pedidos.some(p=>p.lineas.some(l=>String(l.c).startsWith(q)||(l.m||'').toUpperCase().includes(q))));
+}
+// ── Claves resurtibles sin historial (nunca compradas o sin ventas/consumo) con existencia 0 ──
+// No entran al cálculo de pedidos (no tienen consumo para proyectar), pero se listan para que el comprador decida si se piden.
+function sinHist(r){if(!r)return null;if(r.rot==='SIN COMPRA'||r.est==='SIN COMPRA')return 'nunca se ha comprado';if(r.est==='NUEVA'||(!(r.A>0)&&!(r.P>0)&&!(r.D>0)))return 'sin ventas ni consumo';return null;}
+function grupoDe(r){const ag=$('f-ag').value,k=Number(r.c);return ag==='MARCA'?(r.m||'SIN MARCA'):ag==='GRUPO'?(r.g||'SIN GRUPO'):ag==='COMPRADOR'?(r.comp||'SIN COMPRADOR'):ag==='ORIGEN'?((S.F.origen.get(k))||'SIN ORIGEN DE RECOLECCIÓN'):((S.F.prov.get(k)||{}).p||('MARCA '+(r.m||'SIN MARCA')));}
+function clavesSH(){const q=($('f-q').value||'').trim().toUpperCase();return filasFiltradas().filter(r=>sinHist(r)&&!(r.ex>0)&&(!q||String(r.c).startsWith(q)||(r.n||'').toUpperCase().includes(q)||grupoDe(r).toUpperCase().includes(q)));}
+function shPorGrupo(){const m=new Map();clavesSH().forEach(r=>{const g=grupoDe(r);(m.get(g)||m.set(g,[]).get(g)).push(r);});return [...m.entries()].sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0]));}
+function shTabla(rs){return '<table style="margin-top:4px"><thead><tr><th>Clave</th><th>Descripción</th><th>Marca</th><th>Comprador</th><th>Sin historial</th><th>Folio abierto</th></tr></thead><tbody>'
+  +rs.map(r=>'<tr><td><b>'+r.c+'</b></td><td class="desc">'+esc(r.n)+'</td><td>'+esc(r.m||'')+'</td><td>'+esc(r.comp||'')+'</td><td><span class="chip" style="background:#eef1f6;color:#475569">🆕 '+sinHist(r)+'</span></td><td>'+(S.abiertas.has(r.c)?'<span class="chip c-teal">'+esc(S.abiertas.get(r.c))+'</span>':'')+'</td></tr>').join('')+'</tbody></table>';}
+function shBotones(g,rs){const pc={};rs.forEach(r=>(pc[r.comp||'—']=pc[r.comp||'—']||[]).push(r.c));
+  return Object.entries(pc).map(([c,ks])=>'<button class="sm" onclick="crearPropSH(\''+encodeURIComponent(g)+'\',\''+esc(c)+'\')">📝 Crear propuesta '+esc(c)+' · '+ks.length+(ks.length===1?' clave':' claves')+'</button>').join(' ');}
+function pintarSH(){const box=$('sh');if(!S.verSH){box.style.display='none';return;}box.style.display='block';const G=shPorGrupo();
+  box.innerHTML='<div class="card" style="margin:0;border-left:4px solid #64748b"><b>🆕 Claves sin historial con existencia 0</b> <span class="d">— resurtibles que nunca se han comprado o que no tienen ventas ni consumo. No entran al calendario porque no hay consumo para calcular cuándo pedir; revisa si se compran. En la propuesta salen marcadas y la recomendada es 0.</span> <a class="lk" onclick="S.verSH=false;pintar()">cerrar</a>'
+    +(G.length?G.map(([g,rs])=>'<details style="margin-top:8px"><summary><b>'+esc(g)+'</b> · '+rs.length+(rs.length===1?' clave':' claves')+'</summary><div style="margin:6px 0">'+shBotones(g,rs)+'</div>'+shTabla(rs)+'</details>').join(''):'<div class="d" style="margin-top:6px">No hay claves sin historial con estos filtros.</div>')+'</div>';}
+function crearPropSH(gEnc,comp){
+  const g=decodeURIComponent(gEnc),eq=r=>$('f-ag').value==='PROV'?P.provKey(grupoDe(r))===P.provKey(g):grupoDe(r)===g;
+  const todasG=S.claves.filter(r=>(r.comp||'—')===comp&&eq(r));
+  const ks=clavesSH().filter(r=>(r.comp||'—')===comp&&eq(r)).map(r=>Number(r.c));if(!ks.length)return;
+  const todas=todasG.map(r=>Number(r.c));
+  try{if(window.self!==window.top&&window.parent.abrirPropuestaCon){window.parent.abrirPropuestaCon(ks,g,todas,conBO());return;}}catch(e){}
+  window.open('plan_propuestas.html?claves='+ks.join(',')+'&grupo='+todas.join(',')+'&origen='+encodeURIComponent(g)+(conBO()?'&bo=1':''),'_blank');
+}
+function pintar(){
+  const G=gruposVisibles(),H=Number($('f-h').value);
+  const conP=G.filter(g=>g.prox);
+  const venc=conP.filter(g=>g.prox.atr>0||g.prox.t===0),sem=conP.filter(g=>g.prox.t>0&&g.prox.t<=7&&!g.prox.atr),q14=conP.filter(g=>g.prox.t<=14);
+  const v14=G.reduce((a,g)=>a+g.pedidos.filter(p=>p.t<=14).reduce((b,p)=>b+p.valor,0),0);
+  const sinProv=G.filter(g=>/^MARCA /.test(g.g)).reduce((a,g)=>a+g.claves,0);
+  $('kpis').innerHTML='<div class="kpi r"><b>'+nf(venc.length)+'</b><span>pedidos vencidos o de hoy</span></div><div class="kpi a"><b>'+nf(sem.length)+'</b><span>pedidos esta semana</span></div>'
+    +'<div class="kpi"><b>'+nf(q14.length)+'</b><span>pedidos en 14 días</span></div><div class="kpi"><b>'+mxn(v14)+'</b><span>valor estimado a 14 días</span></div>'
+    +'<div class="kpi"><b>'+nf(G.reduce((a,g)=>a+g.pedidos.length,0))+'</b><span>pedidos en '+H+' días</span></div>'
+    +($('f-ag').value==='PROV'?'<div class="kpi"><b>'+nf(sinProv)+'</b><span>claves sin proveedor (agrupadas por marca)</span></div>':'')
+    +(n=>'<div class="kpi" style="cursor:pointer;'+(S.verSH?'outline:2px solid #64748b':'')+'" onclick="S.verSH=!S.verSH;pintar()" title="Clic para ver las claves resurtibles sin historial (nunca compradas o sin ventas) con existencia 0, para decidir si se piden"><b>'+nf(n)+'</b><span>🆕 sin historial, existencia 0'+(S.verSH?' (viendo)':'')+'</span></div>')(clavesSH().length)
+    +'<div class="kpi r" style="cursor:pointer;'+(S.soloAlto?'outline:2px solid var(--err)':'')+'" onclick="S.soloAlto=!S.soloAlto;pintar()" title="Clic para ver solo los pedidos con claves en riesgo alto"><b>'+nf(G.filter(g=>altoDe(g.prox)>0).length)+'</b><span>🔴 con claves en riesgo alto'+(S.soloAlto?' · <u>quitar filtro</u>':' · ver solo estos')+'</span></div>';
+  pintarSH();
+  const pedDe=g=>S.diaF?g.pedidos.find(x=>x.f===S.diaF):g.prox;
+  const rows=G.filter(g=>pedDe(g));
+  $('lista').innerHTML=rows.map(g=>{const p=pedDe(g),ip=g.pedidos.indexOf(p);const enF=p.lineas.filter(l=>S.abiertas.has(l.c)).length;
+    const org=Object.entries(g.org).map(([o,n])=>'<span class="chip o-'+o.split(' ')[0]+'">'+esc(o.toLowerCase())+' '+n+'</span>').join(' ');
+    return '<tr class="clic'+(S.sel===g.g?' sel':'')+'" onclick="abrirG(\''+encodeURIComponent(g.g)+'\','+ip+')"><td><span class="chip '+clasePed(p)+'">'+etqPed(p)+'</span></td><td><b>'+esc(g.g)+'</b></td><td class="sm" title="'+esc(g.comps.join(', '))+'">'+esc(g.comps.slice(0,2).join(', '))+(g.comps.length>2?' <span class="mut">+'+(g.comps.length-2)+'</span>':'')+'</td>'
+      +'<td class="sm">'+(g.cicloAuto?'cada '+g.ciclo+' días <span class="mut">(auto)</span>':'cada <b>'+g.ciclo+'</b> días')+(g.dias?' · '+esc(g.dias):'')+'</td>'
+      +'<td class="num">'+nf(p.claves)+(altoDe(p)?' <span class="chip" style="background:#fde2e0;color:#b42318" title="Claves de este pedido en riesgo alto: se acaban antes de la mitad del tiempo de entrega">🔴 '+altoDe(p)+' alto</span>':'')+(enF?' <span class="chip c-teal" title="Ya están en un folio de propuesta abierto">'+enF+' en folio</span>':'')+'</td><td class="num">'+nf(p.pzas)+'</td><td class="num">'+mxn(p.valor)+(p.sinCosto?' <span class="mut sm" title="Claves sin costo de compra">+'+p.sinCosto+' s/c</span>':'')+'</td>'
+      +'<td class="av">'+esc(p.av.join(' · '))+'</td><td class="sm mut">'+g.pedidos.slice(1,5).map(x=>fCorta(x.f)).join(' · ')+'</td><td>'+org+'</td></tr>';}).join('')
+    ||'<tr><td colspan="10" class="mut">No hay pedidos en el horizonte con estos filtros.</td></tr>';
+  const sinP=G.length-rows.length;
+  if(S.diaF){$('lista-pie').innerHTML='Mostrando solo los pedidos del <b>'+fCorta(S.diaF)+'</b> ('+nf(rows.length)+') · <a class="lk" onclick="S.diaF=null;pintar()">ver todos</a>';if(S.vista==='cal')pintarCal();return;}
+  $('lista-pie').textContent=nf(rows.length)+' '+({PROV:'proveedores',COMPRADOR:'compradores',ORIGEN:'orígenes'}[$('f-ag').value]||'grupos')+' con pedido en los próximos '+H+' días'+(sinP?' · '+nf(sinP)+' sin pedido en el horizonte (inventario suficiente)':'')+'. Ordenado por fecha del próximo pedido.';
+  if(S.vista==='cal')pintarCal();
+}
+function vista(v){S.vista=v;if(v==='cal'&&S.diaF){S.diaF=null;pintar();}$('v-lista').classList.toggle('on',v==='lista');$('v-cal').classList.toggle('on',v==='cal');$('w-lista').style.display=v==='lista'?'':'none';$('w-cal').style.display=v==='cal'?'':'none';if(v==='cal')pintarCal();}
+// Vista de 5 semanas a partir de la semana del cálculo; ◀ ▶ mueven 4 semanas
+function mesMover(d){S.mes=(S.mes||0)+d*4;pintarCal();}
+function pintarCal(){
+  const ev=new Map();gruposVisibles().forEach(g=>g.pedidos.forEach((p,i)=>{(ev.get(p.f)||ev.set(p.f,[]).get(p.f)).push({g,p,i});}));
+  const base=new Date(S.fecha+'T12:00:00'),off=(base.getDay()+6)%7;const d0=new Date(base);d0.setDate(base.getDate()-off+(S.mes||0)*7);
+  const d1=new Date(d0);d1.setDate(d0.getDate()+34);
+  $('cal-mes').textContent=d0.getDate()+' '+MS_[d0.getMonth()].slice(0,3)+' – '+d1.getDate()+' '+MS_[d1.getMonth()].slice(0,3)+' '+d1.getFullYear();
+  const hoy=S.fecha;let h='';['lun','mar','mié','jue','vie','sáb','dom'].forEach(x=>h+='<div class="h">'+x+'</div>');
+  for(let i=0;i<35;i++){const d=new Date(d0);d.setDate(d0.getDate()+i);const f=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const L=(ev.get(f)||[]).sort((a,b)=>b.p.valor-a.p.valor);const MAX=5;
+    h+='<div class="dia'+(f<hoy?' fuera':'')+(f===hoy?' hoy':'')+'"><span class="n">'+(d.getDate()===1||i===0?d.getDate()+' '+MS_[d.getMonth()].slice(0,3):d.getDate())+'</span>'
+      +L.slice(0,MAX).map(x=>'<div class="ev '+clasePed(x.p)+'" title="'+esc(x.g.g+' · '+x.p.claves+' claves · '+mxn(x.p.valor))+'" onclick="abrirG(\''+encodeURIComponent(x.g.g)+'\','+x.i+')">'+esc(x.g.g.replace(/^MARCA /,'Ⓜ '))+'</div>').join('')
+      +(L.length>MAX?'<span class="mas" onclick="verDia(\''+f+'\')">+'+(L.length-MAX)+' más</span>':'')+'</div>';}
+  $('cal').innerHTML=h;
+}
+function verDia(f){S.diaF=f;vista('lista');pintar();}
+
+// ── Detalle de un proveedor / grupo ──
+function abrirG(gEnc,i){S.sel=decodeURIComponent(gEnc);S.ped=i||0;pintar();pintarDet();$('det').scrollIntoView({behavior:'smooth',block:'start'});}
+function pintarDet(){
+  const g=S.cal.find(x=>x.g===S.sel);if(!g){$('det').style.display='none';return;}
+  $('det').style.display='block';if(S.ped>=g.pedidos.length)S.ped=0;
+  const r=g.regla||{};
+  $('det-t').textContent=g.g;
+  $('det-r').innerHTML='<span>Ciclo: <b>'+(g.cicloAuto?'cada '+g.ciclo+' días (automático: compra estimada '+mxn(g.valMes)+'/mes)':'cada '+g.ciclo+' días (definido)')+'</b></span>'
+    +'<span>Días de pedido: <b>'+esc(g.dias||'cualquiera menos domingo')+'</b></span>'
+    +(r.minimo_monto?'<span>Mínimo: <b>'+mxn(r.minimo_monto)+'</b></span>':'')+(r.minimo_piezas?'<span>Mínimo piezas: <b>'+nf(r.minimo_piezas)+'</b></span>':'')
+    +(r.flete_completo?'<span>Flete completo: <b>'+(r.monto_flete?mxn(r.monto_flete):'sí')+'</b></span>':'')+(r.lead_time_dias?'<span>Entrega real: <b>'+nf(r.lead_time_dias)+' días</b></span>':'')
+    +(r.contacto?'<span>Contacto: <b>'+esc(r.contacto)+'</b></span>':'')+(r.notas?'<span>Notas: '+esc(r.notas)+'</span>':'')
+    +'<span class="mut">'+nf(g.claves)+' claves con consumo'+(g.ag==='PROV'?'':' · agrupado por '+({MARCA:'marca',GRUPO:'grupo',COMPRADOR:'comprador',ORIGEN:'origen de recolección'}[g.ag]))+'</span>';
+  $('det-p').innerHTML=g.pedidos.length?g.pedidos.map((p,i)=>'<button class="'+(i===S.ped?'on':'')+'" onclick="S.ped='+i+';pintarDet()">'+(p.atr>0?'⚠️ ':'')+fCorta(p.f)+' · '+p.claves+' cl · '+mxn(p.valor)+'</button>').join(''):'<span class="d">Sin pedidos en el horizonte.</span>';
+  const p=g.pedidos[S.ped];
+  if(!p){$('det-b').innerHTML='';$('det-acc').innerHTML='';return;}
+  const porComp={};p.lineas.forEach(l=>(porComp[l.comp||'—']=porComp[l.comp||'—']||[]).push(l.c));
+  $('det-acc').innerHTML=(p.av.length?'<span class="av">⚠️ '+esc(p.av.join(' · '))+'</span>':'')
+    +Object.entries(porComp).map(([c,ks])=>'<button class="sm" onclick="crearProp(\''+esc(c)+'\','+S.ped+')">📝 Crear propuesta '+esc(c)+' · '+ks.length+(ks.length===1?' clave':' claves')+'</button>').join('')
+    +(sh=>sh.length?'<div class="d" style="margin:6px 0">🆕 Además, <b>'+sh.length+'</b> clave'+(sh.length===1?'':'s')+' de este grupo sin historial y con existencia 0 (no entran al cálculo): '+sh.slice(0,8).map(r=>r.c).join(', ')+(sh.length>8?'…':'')+'. Si creas la propuesta desde aquí aparecen en la lista del grupo para que decidas si se piden. '+shBotones(g.g,sh)+'</div>':'')(clavesSH().filter(r=>g.ag==='PROV'?P.provKey(grupoDe(r))===P.provKey(g.g):grupoDe(r)===g.g))
+    +'<span class="d">'+(p.atr>0?'Pedido vencido: hay claves que ya pasaron su punto de pedido (en riesgo o faltante). ':'')+'La propuesta se abre en Propuestas de compra con estas claves para que la revises y crees el folio.</span>';
+  const rk=l=>P.nivRank(S.byC.get(Number(l.c)));
+  $('det-b').innerHTML=p.lineas.slice().sort((a,b)=>rk(a)-rk(b)||a.pos-b.pos).map(l=>'<tr><td><b>'+l.c+'</b></td><td class="desc">'+esc(l.n)+'</td><td>'+esc(l.m)+'</td><td>'+esc(l.comp||'')+'</td><td class="e-'+esc(l.est||'')+'">'+esc(l.est||'')+P.nivChip(S.byC.get(Number(l.c)))+'</td>'
+    +'<td class="num">'+nf(l.D,1)+'</td><td class="num">'+nf(l.pos,1)+'</td><td class="num">'+nf(l.rop,1)+'</td><td>'+(l.atr>0?'<span class="chip c-venc">ya pasó</span>':fCorta(l.fp))+'</td>'
+    +'<td class="num"><b>'+nf(l.q)+'</b> <span class="mut sm">'+esc(l.u)+'</span></td><td class="sm">'+esc(l.emp?l.emp.toLowerCase():'')+'</td><td class="num">'+(l.costo!=null?mxn(l.costo):'—')+'</td><td class="num">'+(l.valor!=null?mxn(l.valor):'—')+'</td>'
+    +'<td class="sm">'+esc(l.prov.o==='MARCA'?'(sin proveedor)':l.prov.p)+' <span class="chip o-'+l.prov.o.split(' ')[0]+'">'+esc(l.prov.o.toLowerCase())+'</span></td><td>'+(S.abiertas.has(l.c)?'<span class="chip c-teal">'+esc(S.abiertas.get(l.c))+'</span>':'')+'</td></tr>').join('');
+}
+function crearProp(comp,i){
+  const g=S.cal.find(x=>x.g===S.sel);if(!g)return;const p=g.pedidos[i];if(!p)return;
+  const ks=p.lineas.filter(l=>(l.comp||'—')===comp).map(l=>l.c);if(!ks.length)return;
+  // Todas las claves asignadas a ese proveedor / marca / grupo del mismo comprador (aunque hoy no les toque), para poder sumarlas al folio
+  const ag=g.ag,kg=P.provKey(g.g);
+  const todas=S.claves.filter(r=>(r.comp||'—')===comp&&(ag==='MARCA'?(r.m||'SIN MARCA')===g.g:ag==='GRUPO'?(r.g||'SIN GRUPO')===g.g:ag==='COMPRADOR'?(r.comp||'SIN COMPRADOR')===g.g:ag==='ORIGEN'?((S.F.origen.get(Number(r.c))||'SIN ORIGEN DE RECOLECCIÓN')===g.g):P.provKey((S.F.prov.get(Number(r.c))||{}).p||'')===kg)).map(r=>Number(r.c));
+  try{if(window.self!==window.top&&window.parent.abrirPropuestaCon){window.parent.abrirPropuestaCon(ks,g.g,todas,conBO());return;}}catch(e){}
+  window.open('plan_propuestas.html?claves='+ks.join(',')+'&grupo='+todas.join(',')+'&origen='+encodeURIComponent(g.g)+(conBO()?'&bo=1':''),'_blank');
+}
+// ── Excel ──
+function filasXL(gs,soloPed){
+  const out=[];gs.forEach(g=>g.pedidos.forEach((p,i)=>{if(soloPed!=null&&i!==soloPed)return;p.lineas.forEach(l=>out.push({'Fecha de pedido':p.f,'Vencido':p.atr>0?'SÍ':'','Proveedor / grupo':g.g,'Ciclo (días)':g.ciclo,'Ciclo':g.cicloAuto?'automático':'definido',
+    'Clave':l.c,'Descripción':l.n,'Marca':l.m,'Grupo':l.g,'Comprador':l.comp,'Estatus':l.est+((S.byC.get(Number(l.c))||{}).boCub?' (cubierto con BO)':''),'Nivel de riesgo':(S.byC.get(Number(l.c))||{}).nv||'','BO':conBO()?'con BO':'sin BO','Se acaba (estimado)':(S.byC.get(Number(l.c))||{}).fAg||'','Demanda/mes':l.D,'Cobertura (meses)':l.pos,'Punto de pedido (meses)':l.rop,'Le toca':l.atr>0?'ya pasó':l.fp,
+    'Cantidad':l.q,'Unidad':l.u,'Empaque':l.emp||'','Costo':l.costo,'Valor':l.valor,'Proveedor de la clave':l.prov.o==='MARCA'?'':l.prov.p,'Origen proveedor':l.prov.o,'Folio abierto':S.abiertas.get(l.c)||'','Avisos del pedido':p.av.join(' · ')}));}));
+  return out;
+}
+function exportar(){
+  const gs=gruposVisibles();const det=filasXL(gs);if(!det.length){toast('No hay pedidos con estos filtros');return;}
+  const res=[];gs.forEach(g=>g.pedidos.forEach(p=>res.push({'Fecha de pedido':p.f,'Vencido':p.atr>0?'SÍ':'','Proveedor / grupo':g.g,'Compradores':g.comps.join(', '),'Ciclo (días)':g.ciclo,'Ciclo':g.cicloAuto?'automático':'definido','Días de pedido':g.dias||'','Claves':p.claves,'Piezas':p.pzas,'Valor estimado':p.valor,'Claves sin costo':p.sinCosto,'Avisos':p.av.join(' · ')})));
+  res.sort((a,b)=>a['Fecha de pedido'].localeCompare(b['Fecha de pedido']));
+  const wb=XLSX.utils.book_new();const w1=XLSX.utils.json_to_sheet(res),w2=XLSX.utils.json_to_sheet(det);w1['!autofilter']={ref:w1['!ref']};w2['!autofilter']={ref:w2['!ref']};
+  w1['!cols']=[12,8,40,24,10,11,14,8,10,14,10,50].map(w=>({wch:w}));w2['!cols']=[12,8,36,10,11,8,44,16,22,18,16,11,11,11,11,10,8,9,10,12,36,12,14,40].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb,w1,'Pedidos');XLSX.utils.book_append_sheet(wb,w2,'Claves por pedido');
+  XLSX.writeFile(wb,'Calendario_pedidos_'+S.fecha+($('f-comp').value?'_'+$('f-comp').value.replace(/\s+/g,'_'):'')+'.xlsx');
+}
+function exportarDet(){
+  const g=S.cal.find(x=>x.g===S.sel);if(!g)return;const det=filasXL([g],S.ped);if(!det.length)return;
+  const wb=XLSX.utils.book_new();const w=XLSX.utils.json_to_sheet(det);XLSX.utils.book_append_sheet(wb,w,'Pedido');
+  XLSX.writeFile(wb,'Pedido_'+g.g.replace(/[^\w]+/g,'_').slice(0,40)+'_'+g.pedidos[S.ped].f+'.xlsx');
+}
+</script>
+</body>
+</html>
