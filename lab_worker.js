@@ -1,6 +1,6 @@
 // Portal de Compras V2 · LABORATORIO · cálculo en segundo plano (no congela la pantalla)
 'use strict';
-importScripts('plan_logica.js?v=20261113a','lab_motor.js?v=20261113a');
+importScripts('plan_logica.js?v=20261113a','lab_motor.js?v=20261113c');
 let D=null,portal=null;
 self.onmessage=e=>{
   const m=e.data;

@@ -8,7 +8,7 @@
 //   v  = arreglo 0/1 del mismo largo: 1 = el mes cuenta, 0 = no cuenta (agotado, antes de la primera venta…).
 (function(root){
 'use strict';
-const L={VERSION:'0.2.0'};
+const L={VERSION:'0.3.0'};
 
 // ── Variables del cálculo (todas modificables; estos son los valores sugeridos) ──
 L.PARAM={
@@ -39,6 +39,10 @@ L.PARAM={
   SERVICIO_DEF:0.90,
   DIAS_REACCION:7,    // días entre que suena la alarma y se levanta el pedido (se suman al T. entrega)
   COBERTURA_MESES:0,  // meses de venta que debe cubrir cada pedido; 0 = los meses objetivo de cada clave
+  // Red: mayoreo y tiendas Mas Ferre
+  RED_ACTIVA:1,       // 1 = ajustar «pedir hasta» con el inventario y el número base de las tiendas
+  RED_MESES:24,       // meses para medir qué parte de la venta de tiendas surte el CEDI
+  RED_MESES_MALOS:['2026-03','2026-08'],   // meses con venta MF incompleta: no se usan
   CON_BO:0,           // 1 = el BO del CEDI cuenta como disponible
   FACT_ALARMA:1.2,    // regla actual del portal: alarma con menos de T. entrega × este factor
   H_MAX:9,            // horizonte máximo que se puede probar con el historial
@@ -238,6 +242,113 @@ L.inventario=(x,P)=>{
 // error = Σ|pronóstico − real| ÷ Σ real en las pruebas de la clave (venta de H_SEL meses)
 L.calificar=(errRel,n,P)=>n<P.CONF_MIN_PRUEBAS||errRel==null||isNaN(errRel)?'C':errRel<=P.CONF_A?'A':errRel<=P.CONF_B?'B':'C';
 
+// ── Red: mayoreo y tiendas Mas Ferre ──
+// Lectura de la plantilla de ventas y del archivo de existencias (como matrices de renglones) y cálculo por clave.
+L.red={ALIAS:{'PUEBLA':'CHOLULA','VALLES':'CIUDAD VALLES','MARTINEZ':'MARTINEZ DE LA TORRE','SAN RAFAEL':'SN RAFA'},NO_SURTE:['B','BX','P']};
+const nrm=x=>String(x==null?'':x).normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+const num=x=>{if(typeof x==='number')return isFinite(x)?x:0;if(x==null||x==='')return 0;const v=Number(String(x).replace(/,/g,''));return isFinite(v)?v:0;};
+const cla=x=>{const v=Math.round(num(x));return v>0&&Math.abs(v-num(x))<1e-6?v:null;};
+// Encabezado de mes → 'AAAA-MM' (acepta '2024-01', '01/01/2024', fecha o número de serie de Excel)
+L.red.mes=h=>{
+  if(h==null||h==='')return null;const p2=x=>String(x).padStart(2,'0');
+  if(h instanceof Date)return isNaN(h)?null:h.getUTCFullYear()+'-'+p2(h.getUTCMonth()+1);
+  if(typeof h==='number'){if(h<30000||h>80000)return null;const d=new Date(Math.round((h-25569)*86400000));return d.getUTCFullYear()+'-'+p2(d.getUTCMonth()+1);}
+  const s=String(h).trim();let m=/^(\d{4})-(\d{1,2})/.exec(s);if(m)return m[1]+'-'+p2(m[2]);
+  m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s);return m?m[3]+'-'+p2(m[2]):null;
+};
+const unidadN=u=>{let s=nrm(u).replace(/\s*\d+$/,'');return s==='1-PZA'?'PIEZA':s;};
+L.red.unidad=unidadN;
+// aoas = {mayoreo, tiendas, base, conv}: cada una es una matriz (primer renglón = encabezados). mesFin = último mes completo 'AAAA-MM'.
+// Devuelve lo que se guarda por clave: mayoreo y venta MF por mes, y por tienda su venta mensual promedio y su número base.
+L.red.reducir=(aoas,mesFin,opc)=>{
+  const o=Object.assign({convertir:true},opc||{}),notas=[];
+  const ini='2023-01',meses=[];{let[y,m]=ini.split('-').map(Number);for(;;){const k=y+'-'+String(m).padStart(2,'0');if(k>mesFin)break;meses.push(k);if(++m>12){m=1;y++;}}}
+  const T=meses.length,mi=new Map(meses.map((m,i)=>[m,i]));
+  const col=(hdr,nombres)=>{for(let j=0;j<hdr.length;j++)if(nombres.indexOf(nrm(hdr[j]).replace(/[_ ]/g,''))>=0)return j;return -1;};
+  const cmes=hdr=>{const r=[];hdr.forEach((h,j)=>{const m=L.red.mes(h);if(m&&mi.has(m))r.push([j,mi.get(m)]);});return r;};
+  // factores de conversión (hoja CONVERSIONES): la venta MF de esas claves viene multiplicada por el factor
+  const F=new Map();
+  if(o.convertir&&aoas.conv&&aoas.conv.length){const h=aoas.conv[0],ic=col(h,['CLAVE']),ir=col(h,['RESULTADO']);let ifa=-1;h.forEach((x,j)=>{if(nrm(x).indexOf('FACTOR')===0)ifa=j;});
+    if(ic>=0&&ir>=0&&ifa>=0)for(let i=1;i<aoas.conv.length;i++){const r=aoas.conv[i],k=cla(r[ic]),f=num(r[ifa]);if(k&&f>0&&f!==1&&nrm(r[ir]).indexOf('CONVERTIDA')===0)F.set(k,Math.max(f,F.get(k)||0));}
+    notas.push(F.size+' claves con venta MF dividida entre su factor de conversión');}
+  const filas=new Map(),fila=k=>{let x=filas.get(k);if(!x){x={my:new Float64Array(T),mf:new Float64Array(T),t:{},uv:null};filas.set(k,x);}return x;};
+  // mayoreo
+  {const A=aoas.mayoreo||[];if(!A.length)throw new Error('La plantilla no tiene la hoja VENTAS_MAYOREO.');const h=A[0],ic=col(h,['CLAVE','IDART']),cm=cmes(h);if(ic<0||!cm.length)throw new Error('VENTAS_MAYOREO: no encontré la columna CLAVE o los meses.');
+   for(let i=1;i<A.length;i++){const r=A[i],k=cla(r[ic]);if(!k)continue;let x=null;for(const[j,t]of cm){const v=num(r[j]);if(v){x=x||fila(k);x.my[t]+=v;}}}}
+  // tiendas
+  const A=aoas.tiendas||[];if(!A.length)throw new Error('La plantilla no tiene la hoja VENTAS_MF_SUCURSALES.');
+  const h=A[0],is=col(h,['SUCURSAL']),ic=col(h,['CLAVE','IDART']),iu=col(h,['UNIDADBVENTA','UNIDADBVENT','UNIDAD']),cm=cmes(h);
+  if(is<0||ic<0||!cm.length)throw new Error('VENTAS_MF_SUCURSALES: no encontré SUCURSAL, CLAVE o los meses.');
+  const mfIni=Math.min.apply(null,cm.map(x=>x[1])),malo=new Uint8Array(T);(o.mesesMalos||L.PARAM.RED_MESES_MALOS).forEach(m=>{if(mi.has(m))malo[mi.get(m)]=1;});
+  const tot=new Map(),tt=s=>{let x=tot.get(s);if(!x){x=new Float64Array(T);tot.set(s,x);}return x;};
+  const ser=[];   // [clave, sucursal, serie]
+  for(let i=1;i<A.length;i++){const r=A[i],k=cla(r[ic]),s=nrm(r[is]);if(!k||!s)continue;const f=F.get(k)||1,v=new Float64Array(T);let hay=0;
+    for(const[j,t]of cm){const q=num(r[j])/f;if(q){v[t]+=q;hay=1;}}if(!hay)continue;
+    const x=fila(k),T_=tt(s);for(let t=0;t<T;t++)if(v[t]){x.mf[t]+=v[t];T_[t]+=v[t];}
+    if(iu>=0&&!x.uv&&r[iu])x.uv=unidadN(r[iu]);ser.push([k,s,v]);}
+  // por tienda: primer mes con venta, cerrada (sin venta en los últimos 3 meses) y crecimiento (mediana de sus claves, 12 contra 12 previos)
+  const tiendas=[...tot.keys()].sort(),prim={},cerr=[],crec={};
+  tiendas.forEach(s=>{const x=tot.get(s);let p=-1;for(let t=0;t<T;t++)if(x[t]>0){p=t;break;}prim[s]=p;let u=0;for(let t=T-3;t<T;t++)u+=x[t];if(!(u>0))cerr.push(s);});
+  const ok=(s,t)=>t>prim[s]&&t>=mfIni&&!malo[t];
+  const rat={};ser.forEach(([k,s,v])=>{if(prim[s]+1>T-24)return;let a=0,na=0,b=0,nb=0;for(let t=T-12;t<T;t++)if(ok(s,t)){a+=v[t];na++;}for(let t=T-24;t<T-12;t++)if(ok(s,t)){b+=v[t];nb++;}
+    if(na>=6&&nb>=6&&a>0&&b>0)(rat[s]=rat[s]||[]).push((a/na)/(b/nb));});
+  tiendas.forEach(s=>{const a=rat[s];crec[s]=a&&a.length>=50?Math.pow(clip(mediana(a),0.8,1.25),0.5):1;});
+  ser.forEach(([k,s,v])=>{let a=0,n=0;for(let t=T-12;t<T;t++)if(ok(s,t)){a+=v[t];n++;}if(n&&a>0)fila(k).t[s]=[Math.round(a/n*1000)/1000,null];});
+  // número base por tienda (hoja BASE DE NEGOCIO): número, o la letra que trae la celda (B, BX, P, D, V), o vacío
+  {const B=aoas.base||[];if(!B.length)throw new Error('La plantilla no tiene la hoja BASE DE NEGOCIO.');const hb=B[0],ib=col(hb,['IDART','CLAVE']);if(ib<0)throw new Error('BASE DE NEGOCIO: no encontré la columna IDART.');
+   const cs=[];tiendas.forEach(s=>{const n=nrm(L.red.ALIAS[s]||s);for(let j=0;j<hb.length;j++)if(nrm(hb[j])===n){cs.push([s,j]);return;}notas.push('La tienda '+s+' no tiene columna en BASE DE NEGOCIO');});
+   const vistos=new Set();for(let i=1;i<B.length;i++){const r=B[i],k=cla(r[ib]);if(!k||vistos.has(k))continue;vistos.add(k);let x=filas.get(k);
+     for(const[s,j]of cs){const c=r[j];if(c==null||c==='')continue;const b=typeof c==='number'?Math.max(0,c):(isNaN(Number(c))?nrm(c):Math.max(0,Number(c)));if(b===0&&!(x&&x.t[s]))continue;
+       x=x||fila(k);if(x.t[s])x.t[s][1]=b;else x.t[s]=[0,b];}}}
+  // compacto: series como pares [posición, cantidad, …]
+  const par=v=>{const r=[];for(let t=0;t<T;t++)if(v[t])r.push(t,Math.round(v[t]*1000)/1000);return r;};
+  const out=[];filas.forEach((x,k)=>out.push({clave:k,datos:{my:par(x.my),mf:par(x.mf),t:x.t,uv:x.uv}}));
+  return{meta:{meses,mfIni:meses[mfIni],tiendas,cerradas:cerr,crec,primer:prim,convertidas:F.size},filas:out,notas};
+};
+// Existencias MF por tienda: aoa con columnas SUCURSAL, CLAVE, EXISTENCIA, PEND ENT, UNIBASMAY, FECHA (el encabezado puede no estar en el primer renglón)
+L.red.inventario=aoa=>{
+  let f0=-1;for(let i=0;i<Math.min(15,aoa.length);i++){const r=(aoa[i]||[]).map(nrm);if(r.indexOf('CLAVE')>=0&&r.indexOf('EXISTENCIA')>=0&&r.indexOf('SUCURSAL')>=0){f0=i;break;}}
+  if(f0<0)throw new Error('No encontré las columnas SUCURSAL, CLAVE y EXISTENCIA.');
+  const h=aoa[f0].map(nrm),is=h.indexOf('SUCURSAL'),ic=h.indexOf('CLAVE'),ie=h.indexOf('EXISTENCIA'),ip=h.indexOf('PEND ENT'),iu=h.indexOf('UNIBASMAY'),ifx=h.indexOf('FECHA');
+  const m=new Map(),uni=new Map();let neg=0,fecha=null;const tiendas=new Set();
+  for(let i=f0+1;i<aoa.length;i++){const r=aoa[i];if(!r)continue;const k=cla(r[ic]),s=nrm(r[is]);if(!k||!s)continue;tiendas.add(s);
+    let e=num(r[ie]);if(e<0){neg++;e=0;}const p=ip>=0?Math.max(0,num(r[ip])):0;
+    let x=m.get(k);if(!x){x={};m.set(k,x);}const a=x[s]||(x[s]=[0,0]);a[0]+=e;a[1]+=p;
+    if(iu>=0&&r[iu]){const u=unidadN(r[iu]);let c=uni.get(k);if(!c){c={};uni.set(k,c);}c[u]=(c[u]||0)+1;}
+    if(ifx>=0){const f=L.red.mes(r[ifx])&&(r[ifx] instanceof Date?r[ifx].toISOString().slice(0,10):(typeof r[ifx]==='number'?new Date(Math.round((r[ifx]-25569)*86400000)).toISOString().slice(0,10):String(r[ifx]).slice(0,10)));if(f&&(!fecha||f>fecha))fecha=f;}}
+  const out=[];m.forEach((t,k)=>{const c=uni.get(k);let u=null;if(c){let b=0;for(const z in c)if(c[z]>b){b=c[z];u=z;}}
+    for(const s in t){t[s][0]=Math.round(t[s][0]*1000)/1000;t[s][1]=Math.round(t[s][1]*1000)/1000;if(!t[s][0]&&!t[s][1])delete t[s];}out.push({clave:k,datos:{u,t}});});
+  return{meta:{fecha,tiendas:[...tiendas].sort(),negativas:neg},filas:out};
+};
+// Junta lo guardado de una clave (ventas de la red + existencias por tienda) alineado a los meses del cálculo
+L.red.armar=(dat,inv,meta,MES)=>{
+  const T=MES.length,pos=new Map(MES.map((m,i)=>[m,i])),den=p=>{const v=new Float64Array(T);for(let i=0;i<(p||[]).length;i+=2){const t=pos.get(meta.meses[p[i]]);if(t!=null)v[t]=p[i+1];}return v;};
+  const t=[],it=(inv&&inv.t)||{},vt=(dat&&dat.t)||{},nom=new Set(Object.keys(vt).concat(Object.keys(it)));
+  nom.forEach(s=>{const a=vt[s]||[0,null],b=it[s]||[0,0];t.push({s,v:a[0]||0,b:a[1],ex:b[0]||0,pe:b[1]||0});});
+  let mi=0;for(let i=0;i<T;i++)if(MES[i]>=meta.mfIni){mi=i;break;}
+  return{my:den(dat&&dat.my),mf:den(dat&&dat.mf),t,uv:dat?dat.uv:null,ui:inv?inv.u:null,crec:meta.crec||{},cerradas:new Set(meta.cerradas||[]),mfIni:mi};
+};
+// Cálculo por clave. r = {my:[T], mf:[T], t:[{s, v, b, ex, pe}], uv, ui, crec:{}, cerradas:Set}; x = {s (venta SANVER), f (pronóstico mensual), I, mo0 (mes del año del primer mes pronosticado), meses, H, cob, hasta, punto, Fcic}
+L.red.calcular=(r,x,P)=>{
+  const T=x.s.length,malo=m=>P.RED_MESES_MALOS.indexOf(m)>=0;let d=0,m_=0,n=0,sv12=0,my12=0,mf12=0,n12=0;
+  for(let t=T-1;t>=0&&n<P.RED_MESES;t--){if(malo(x.meses[t])||!(t>=r.mfIni))continue;n++;d+=Math.max(0,x.s[t]-Math.min(r.my[t],x.s[t]));m_+=r.mf[t];
+    if(n12<12){n12++;sv12+=x.s[t];my12+=Math.min(r.my[t],x.s[t]);mf12+=r.mf[t];}}
+  const alfa=m_>0?clip(d/m_,0,1):0;
+  const pMy=sv12>0?clip(my12/sv12,0,1):0,pTi=sv12>0?clip(alfa*mf12/sv12,0,1-pMy):0;
+  // índice de temporada acumulado en el periodo que cubre la compra (protección + cobertura)
+  const Hc=Math.min(12,x.H+x.cob);let sI=0;for(let h=0;h<Math.ceil(Hc);h++)sI+=Math.min(1,Hc-h)*x.I[(x.mo0+h)%12];
+  const uok=!r.ui||!r.uv||r.ui===r.uv;let so=0,need=0,exc=0,inv=0,base=0,soB=0;const det=[];
+  r.t.forEach(z=>{if(r.cerradas.has(z.s))return;const noS=typeof z.b==='string'&&L.red.NO_SURTE.indexOf(z.b)>=0,b=typeof z.b==='number'?z.b:0;
+    const v=z.v*(r.crec[z.s]||1),s_=v*sI,iv=(z.ex||0)+(z.pe||0);inv+=iv;
+    if(noS){soB+=s_;det.push([z.s,v,s_,z.b,iv,0,0]);return;}
+    const nd=uok?Math.max(0,s_+b-iv):s_,ex_=uok?Math.max(0,iv-b-s_):0;so+=s_;need+=nd;exc+=ex_;base+=b;det.push([z.s,v,s_,z.b==null?'':z.b,iv,nd,ex_]);});
+  const aj=P.RED_ACTIVA&&uok?alfa*(need-so):0;
+  const hasta=Math.max(x.punto,x.hasta+aj),vm=r.t.reduce((a,z)=>r.cerradas.has(z.s)?a:a+z.v,0);
+  const r1=v=>Math.round(v*100)/100;
+  return{alfa,pMy,pTi,pOt:Math.max(0,1-pMy-pTi),so:r1(so),need:r1(need),exc:r1(exc),inv:r1(inv),base:r1(base),soB:r1(soB),aj:r1(hasta-x.hasta),ajCalc:r1(aj),uok,uv:r.uv,ui:r.ui,
+    mesesMF:vm>0&&uok?r1(inv/vm):null,vm:r1(vm),hasta,det:det.map(a=>[a[0],r1(a[1]),r1(a[2]),a[3],r1(a[4]),r1(a[5]),r1(a[6])])};
+};
+
 // ── Cálculo completo: prueba histórica + niveles vigentes ──
 // D = {meses:['AAAA-MM',…], claves:[{c,rot,g,sg,ssg,lt,pm,ex,bo,s:[venta por mes], ag:[1 = mes agotado] (opcional)}],
 //      portal:(i,o)=>venta mensual del método actual con información anterior a la posición o (opcional)}
@@ -350,7 +461,9 @@ L.correr=(D,Pin,hooks)=>{
     const Fh=L.acum(f,H),esc=L.escala(Fh,PR[b],H,P),Dm=Fh/H;
     const Fcic=Math.max(0,L.acum(f,Math.min(12,H+cob))-Fh);
     const pozo=er.pozo[TP[b]][hb(H)][E.gr[i]],pr=er.propios[i],q=x=>L.cuantilMezcla(pr,pozo,x,P);
-    const inv=L.inventario({Fh,Dm,esc,qServ:q(p),Fcic,ex:k.ex,bo:k.bo,conBO:!!P.CON_BO},P);
+    let inv=L.inventario({Fh,Dm,esc,qServ:q(p),Fcic,ex:k.ex,bo:k.bo,conBO:!!P.CON_BO},P),red=null;
+    if(k.red){red=L.red.calcular(k.red,{s:k.s,f,I:u.I,mo0:(m0+T)%12,meses:MES,H,cob,hasta:inv.hasta,punto:inv.punto},P);
+      red.hastaSin=inv.hasta;inv=Object.assign({},inv,{hasta:red.hasta,propuesta:Math.max(0,red.hasta-inv.disp)});}
     // probabilidad de agotarse antes de que llegue un pedido levantado hoy (según los errores pasados de claves parecidas)
     let pa=null;const base=pozo.length>=20?pozo:null;
     if(base&&esc>0){const lim=(inv.disp-Fh)/esc;let lo=0,hi=base.length;while(lo<hi){const md=(lo+hi)>>1;if(base[md]<=lim)lo=md+1;else hi=md;}pa=1-lo/base.length;}
@@ -361,7 +474,7 @@ L.correr=(D,Pin,hooks)=>{
       bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
       punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,
       Dportal:pd,puntoPortal:pd!=null?pd*(k.lt||0)*P.FACT_ALARMA:null,hastaPortal:pd!=null?pd*((k.lt||0)+(k.pm||0)):null,
-      val:Array.from(u.v)};
+      val:Array.from(u.v),red};
   }
   av('Listo',1);
   return{version:L.VERSION,param:P,meses:MES,pruebas:pruebas.map(t=>MES[t]),resumen,calibracion,
