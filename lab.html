@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113a" charset="utf-8"></script>
-<script src="lab_motor.js?v=20261113c" charset="utf-8"></script>
+<script src="lab_motor.js?v=20261113d" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;font-size:13px;color:#1a2035;background:#f3f5f9}
@@ -202,6 +202,16 @@ async function cargarDatos(){
   const FM=new Map(fam.map(r=>[Number(r.clave),r]));
   // Meses: del primero con venta al último mes completo antes de la fecha del cálculo
   const fin=P.ym(String(fecha).slice(0,7),-1);let ini=fin;
+  // Mes en curso: la plantilla trae la venta hasta el día anterior al día en que se subió
+  const mesAct=P.ym(fin,1);let parcial=null;
+  try{const{data:ua}=await sb.from('plan_ventas').select('actualizado_en').eq('empresa','SANVER').order('actualizado_en',{ascending:false}).limit(1);
+    const iso=ua&&ua[0]&&ua[0].actualizado_en;
+    if(iso){const loc=new Date(iso).toLocaleDateString('en-CA',{timeZone:'America/Mexico_City'}),corte=P.addDias(loc,-1);
+      const dm=new Date(Number(mesAct.slice(0,4)),Number(mesAct.slice(5,7)),0).getDate();
+      if(corte.slice(0,7)===mesAct)parcial={mes:mesAct,corte,p:Number(corte.slice(8,10))/dm,pHoy:String(fecha).slice(0,7)===mesAct?Math.min(1,Math.max(Number(corte.slice(8,10)),Number(String(fecha).slice(8,10))-1)/dm):null};
+      else S.parNota='La plantilla de ventas se subió por última vez el '+loc+': no trae venta de '+mesAct+'.';}
+  }catch(e){}
+
   V.forEach(m=>{for(const k in m)if(k<ini&&/^\d{4}-\d{2}$/.test(k))ini=k;});
   const meses=[];for(let m=ini;m<=fin;m=P.ym(m,1))meses.push(m);
   if(meses.length<24)throw new Error('Hay menos de 24 meses de ventas cargados; el laboratorio necesita al menos 2 años.');
@@ -212,12 +222,13 @@ async function cargarDatos(){
     const ser=P.serie(V.get(c)||{},ED.get(c)).s,a=AG.get(c),f=FM.get(c)||{};
     const s=meses.map(m=>Math.max(0,Number(ser[m])||0));if(!s.some(x=>x>0))return;
     const k={c,rot,g:r.g||'SIN GRUPO',sg:f.subgrupo||'',ssg:f.subsubgrupo||'',lt:Number(r.lt)||0,pm:Number(r.pm)||0,ex:Number(r.ex)||0,bo:Number(r.bo)||0,s,ag:a?meses.map(m=>a.has(m)?1:0):null};
+    if(parcial)k.par=Math.max(0,Number(ser[mesAct])||0);
     if(S.red.ventas&&(RV.has(c)||RI.has(c)))k.red=LAB.red.armar(RV.get(c),RI.get(c),S.red.ventas,meses);
     claves.push(k);
     S.info.set(c,{n:r.n||'',comp,rot,g:r.g||'',m:r.m||'',u:r.u||'',D:r.D,est:r.est});
   });
-  S.D={meses,claves};S.fecha=fecha;S.nRed=claves.filter(k=>k.red).length;S.nED=ED.size;S.nAG=AG.size;
-  $('corte').textContent='Cálculo del portal al '+String(fecha).slice(8,10)+'/'+String(fecha).slice(5,7)+'/'+String(fecha).slice(0,4)+' · '+nf(claves.length)+' claves · ventas '+meses[0]+' a '+fin;
+  S.D={meses,claves,parcial};S.fecha=fecha;S.nRed=claves.filter(k=>k.red).length;S.nED=ED.size;S.nAG=AG.size;
+  $('corte').textContent='Cálculo del portal al '+String(fecha).slice(8,10)+'/'+String(fecha).slice(5,7)+'/'+String(fecha).slice(0,4)+' · '+nf(claves.length)+' claves · ventas '+meses[0]+' a '+fin+(parcial?' · mes en curso al '+parcial.corte.slice(8,10)+'/'+parcial.corte.slice(5,7)+' ('+Math.round(parcial.p*100)+'% del mes)':'');
 }
 async function abrir(){
   $('lock').style.display='none';$('app').style.display='block';
@@ -228,7 +239,7 @@ async function abrir(){
 }
 
 // ── Cálculo en segundo plano ──
-const W=new Worker('lab_worker.js?v=20261113c');
+const W=new Worker('lab_worker.js?v=20261113d');
 W.onmessage=e=>{const m=e.data;
   if(m.tipo==='datos-ok'){recalcular();}
   else if(m.tipo==='progreso'){$('barra').style.display='block';$('barra').firstElementChild.style.width=(m.f*100).toFixed(0)+'%';$('avance').textContent=m.t;}
@@ -282,6 +293,7 @@ function pintarResumen(){
   else cr.innerHTML='<h2>Red: mayoreo y tiendas Mas Ferre</h2><p class="d"><b>Aún no está cargada.</b> El cálculo usa solo la venta total de SANVER. Carga la plantilla de ventas y el archivo de existencias MF en «Variables y escenarios».</p>';
   $('limites').innerHTML='<b>Qué usa este cálculo:</b> venta SANVER del portal'+(S.nED?', con las entregas directas restadas ('+nf(S.nED)+' claves)':'')+(S.nAG?', sin los meses agotados ('+nf(S.nAG)+' claves)':'')+'; existencia, BO, tiempo de entrega, meses objetivo y rotación del cálculo publicado. '+
     (S.fam?'Temporada por sub-subgrupo ('+nf(S.fam)+' claves con familia).':'<b>Sin familias cargadas:</b> la temporada se calcula solo por grupo; carga la hoja BASE DE NEGOCIO en «Variables y escenarios».')+
+    (S.D.parcial?' Venta del mes en curso al '+S.D.parcial.corte+' ('+Math.round(S.D.parcial.p*100)+'% del mes): ajusta el pronóstico de lo que falta; esta parte no entra en la prueba contra el historial.':(S.parNota?' '+esc(S.parNota):''))+
     ' <b>Todavía no incluye:</b> historial de claves sustituidas, consumo de producción de los insumos, variación real del tiempo de entrega'+(S.nRed?'':', ni la red de tiendas MF y mayoreo')+'.';
 }
 
@@ -326,6 +338,7 @@ function ficha(c){
     dato('Confiabilidad','<span class="chip c'+k.conf+'">'+k.conf+'</span> error '+pc(k.errRel,0)+' en '+k.pruebas+' pruebas')+
     dato('Venta mensual esperada',nf(k.Dm,1)+(k.Dportal!=null?' · portal hoy '+nf(k.Dportal,1):''))+
     dato('Crecimiento del grupo aplicado',pc(k.crec-1))+
+    fichaPar(k)+
     '<h3>Alarma y compra</h3>'+
     dato('Periodo que protege la alarma',nf(k.H,2)+' meses (T. entrega '+nf(d.lt,2)+' + '+R.param.DIAS_REACCION+' días para levantar el pedido)')+
     dato('Venta en ese periodo: baja · esperada · alta',nf(k.bajo)+' · '+nf(k.esperado)+' · '+nf(k.alto))+
@@ -353,6 +366,18 @@ function ficha(c){
     options:{maintainAspectRatio:false,animation:false,plugins:{legend:{labels:{boxWidth:12,filter:x=>x.text!=='Rango bajo'}}},scales:{y:{beginAtZero:true}}}});
   pintarClaves();
 }
+function fichaPar(k){
+  const a=k.par,D_=S.D.parcial;const dato=(t,v)=>'<div class="dato"><span>'+t+'</span><b>'+v+'</b></div>';
+  if(!D_)return S.parNota?'<h3>Mes en curso</h3><p class="d">'+esc(S.parNota)+'</p>':'';
+  if(!a)return '<h3>Mes en curso</h3><p class="d">No se usa en esta clave'+(k.disp<=0?' porque está sin existencia (la venta del mes no refleja la demanda)':S.R.param.PARCIAL_ACTIVA?' (avance del mes menor al mínimo)':' (variable apagada)')+'.</p>';
+  const dif=a.cierre/(a.antes||1)-1;
+  return '<h3>Mes en curso ('+esc(D_.mes)+')</h3>'+
+    dato('Lleva vendido al '+D_.corte.slice(8,10)+'/'+D_.corte.slice(5,7),nf(a.v)+' · '+pc(a.p,0)+' del mes')+
+    dato('A ese ritmo cerraría el mes en',nf(a.ritmo))+
+    dato('El pronóstico del mes era',nf(a.antes))+
+    dato('Cierre estimado que se usa','<span class="'+(dif>0.1?'med':dif<-0.1?'ok':'')+'">'+nf(a.cierre)+'</span> ('+(dif>=0?'+':'')+pc(dif,0)+' contra el pronóstico)')+
+    dato('Mes siguiente: antes · ahora',nf(a.sigAntes)+' · '+nf(a.sig));
+}
 function fichaRed(k){
   const r=k.red;if(!r)return S.nRed?'':'<h3>Red: mayoreo y tiendas</h3><p class="d">Aún no está cargada la red (Variables y escenarios).</p>';
   const dato=(t,v)=>'<div class="dato"><span>'+t+'</span><b>'+v+'</b></div>';
@@ -370,7 +395,7 @@ function fichaRed(k){
   return h;
 }
 function exportar(){
-  const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Venta mensual portal':k.Dportal,
+  const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,'Venta mensual portal':k.Dportal,
     'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,'Punto de alarma':k.punto,'Alarma actual':k.puntoPortal,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Propuesta actual':k.propPortal}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Laboratorio');XLSX.writeFile(wb,'Laboratorio_'+S.fecha+'.xlsx');
 }
@@ -381,7 +406,8 @@ const VARS=[
   ['SERVICIO.SAGRADOS','Nivel de servicio · Sagrados (%)',50,99.9,.5,100],['SERVICIO.ALTA ROTACION','Nivel de servicio · Alta (%)',50,99.9,.5,100],['SERVICIO.MEDIA ROTACION','Nivel de servicio · Media (%)',50,99.9,.5,100],
   ['SERVICIO.LENTA ROTACION','Nivel de servicio · Lenta (%)',50,99.9,.5,100],['SERVICIO.NUEVOS','Nivel de servicio · Nuevos (%)',50,99.9,.5,100],
   ['DIAS_REACCION','Días entre la alarma y levantar el pedido',0,60,1],['COBERTURA_MESES','Meses de venta que cubre cada pedido (0 = meses objetivo de la clave)',0,12,.25],
-  ['SEG_MAX','Tope del inventario de seguridad, en meses de venta (0 = sin tope)',0,24,.5],['CON_BO','Contar el BO como disponible (1 = sí, 0 = no)',0,1,1],['RED_ACTIVA','Ajustar la compra con el inventario de las tiendas (1 = sí, 0 = no)',0,1,1],['FACT_ALARMA','Regla actual: alarma con T. entrega × este factor',1,2,.05]]],
+  ['SEG_MAX','Tope del inventario de seguridad, en meses de venta (0 = sin tope)',0,24,.5],['CON_BO','Contar el BO como disponible (1 = sí, 0 = no)',0,1,1],['RED_ACTIVA','Ajustar la compra con el inventario de las tiendas (1 = sí, 0 = no)',0,1,1],
+  ['PARCIAL_ACTIVA','Usar la venta del mes en curso (1 = sí, 0 = no)',0,1,1],['PARCIAL_MIN_AVANCE','Mes en curso: avance mínimo del mes para usarlo (%)',5,90,5,100],['PARCIAL_TOPE','Mes en curso: tope del ritmo, en veces el pronóstico',1.2,5,0.1],['FACT_ALARMA','Regla actual: alarma con T. entrega × este factor',1,2,.05]]],
  ['Nivel de venta',[
   ['HIST','Meses de historia',6,36,1],['MEDIA_VIDA','Peso de lo reciente: un mes de hace N meses pesa la mitad',1,36,1],['TOPE_PICO','Tope de picos: veces la mediana',2,20,.5],
   ['REGULAR','Agotado sospechoso: meses con venta de los 12 previos',6,12,1],['RACHA','Agotado sospechoso: meses seguidos en cero',1,6,1]]],

@@ -8,7 +8,7 @@
 //   v  = arreglo 0/1 del mismo largo: 1 = el mes cuenta, 0 = no cuenta (agotado, antes de la primera venta…).
 (function(root){
 'use strict';
-const L={VERSION:'0.3.0'};
+const L={VERSION:'0.4.0'};
 
 // ── Variables del cálculo (todas modificables; estos son los valores sugeridos) ──
 L.PARAM={
@@ -43,6 +43,10 @@ L.PARAM={
   RED_ACTIVA:1,       // 1 = ajustar «pedir hasta» con el inventario y el número base de las tiendas
   RED_MESES:24,       // meses para medir qué parte de la venta de tiendas surte el CEDI
   RED_MESES_MALOS:['2026-03','2026-08'],   // meses con venta MF incompleta: no se usan
+  // Mes en curso: usar la venta que ya lleva el mes para ajustar el pronóstico
+  PARCIAL_ACTIVA:1,   // 1 = usar la venta del mes en curso
+  PARCIAL_MIN_AVANCE:0.2,   // no se usa antes de que haya transcurrido esta parte del mes (pocos días dicen poco)
+  PARCIAL_TOPE:2,     // el ritmo del mes no puede proyectar más de TOPE veces (ni menos de 1/TOPE) lo pronosticado
   CON_BO:0,           // 1 = el BO del CEDI cuenta como disponible
   FACT_ALARMA:1.2,    // regla actual del portal: alarma con menos de T. entrega × este factor
   H_MAX:9,            // horizonte máximo que se puede probar con el historial
@@ -192,6 +196,18 @@ L.pronosticar=(c,H,P)=>{
   if(c.portal!=null)F.PORTAL=plano(c.portal);
   return F;
 };
+
+// ── Mes en curso ──
+// par = venta que lleva el mes, p = parte del mes transcurrida (0 a 1), f0 = pronóstico del mes completo, ref = venta mensual de referencia.
+// El ritmo del mes (par ÷ p) se mezcla con el pronóstico; pesa más conforme avanza el mes (peso = p). Devuelve el cierre estimado del mes.
+L.mesEnCurso=(par,p,f0,ref,P)=>{
+  const base=f0>0?f0:(ref||0);let ritmo=par/p;
+  if(base>0)ritmo=clip(ritmo,base/P.PARCIAL_TOPE,base*P.PARCIAL_TOPE);
+  const mes=(1-p)*f0+p*ritmo;                 // venta mensual que se usa para lo que falta del mes
+  return{ritmo:par/p,mes,cierre:par+(1-p)*mes,resto:(1-p)*mes};
+};
+// Venta acumulada de los próximos H meses contados desde hoy: primero lo que falta del mes en curso (q = 1 − p del mes), luego los meses siguientes
+L.acumHoy=(resto,q,fSig,H)=>!(q>0)?L.acum(fSig,H):H<=q?resto*H/q:resto+L.acum(fSig,H-q);
 
 // ── Tipo de venta (para el método por omisión y para agrupar errores) ──
 // REGULAR: vende casi todos los meses y varía poco · ERRATICA: vende casi todos los meses pero varía mucho
@@ -456,10 +472,21 @@ L.correr=(D,Pin,hooks)=>{
   // 4. Niveles vigentes por clave
   const E=elegirEn(T),er=erroresEn(T,E);const claves=new Array(n);
   for(let i=0;i<n;i++){
-    const k=K[i],u=ultimo[i],b=i*nO+oi(T),m=MET[E.sel[i]],f=u.F[m],H=Hp[i];
+    const k=K[i],u=ultimo[i],b=i*nO+oi(T),m=MET[E.sel[i]],H=Hp[i];let f=u.F[m],par=null;
     const p=P.SERVICIO[k.rot]||P.SERVICIO_DEF,cob=P.COBERTURA_MESES>0?P.COBERTURA_MESES:(k.pm||1);
-    const Fh=L.acum(f,H),esc=L.escala(Fh,PR[b],H,P),Dm=Fh/H;
-    const Fcic=Math.max(0,L.acum(f,Math.min(12,H+cob))-Fh);
+    let Fh=L.acum(f,H),Fhc=L.acum(f,Math.min(12,H+cob));
+    // Mes en curso: con la venta que lleva el mes se estima su cierre, se actualiza el nivel y el horizonte se cuenta desde hoy
+    const pc_=D.parcial;
+    if(pc_&&P.PARCIAL_ACTIVA&&pc_.p>=P.PARCIAL_MIN_AVANCE&&pc_.p<1&&k.par!=null&&(k.ex||0)>0){
+      const z=L.mesEnCurso(Math.max(0,k.par),pc_.p,f[0],PR[b],P);
+      const s2=k.s.concat([z.cierre]),e2=noAg[i]?(()=>{const e=new Uint8Array(T+1).fill(1);e.set(noAg[i]);return e;})():null;
+      const f2=L.pronosticar({s:s2,v:L.validos(s2,T+1,P,e2),o:T+1,m0,I:u.I,g:u.g},12,P)[m],q=Math.max(0,1-(pc_.pHoy!=null?pc_.pHoy:pc_.p)),resto=q*z.mes;
+      par={v:k.par,p:pc_.p,ritmo:z.ritmo,antes:f[0],cierre:z.cierre,resto,sigAntes:f[1],sig:f2[0]};
+      Fh=L.acumHoy(resto,q,f2,H);Fhc=L.acumHoy(resto,q,f2,Math.min(12,H+cob));
+      f=Float64Array.from([z.cierre].concat(Array.from(f2).slice(0,11)));
+    }
+    const esc=L.escala(Fh,PR[b],H,P),Dm=Fh/H;
+    const Fcic=Math.max(0,Fhc-Fh);
     const pozo=er.pozo[TP[b]][hb(H)][E.gr[i]],pr=er.propios[i],q=x=>L.cuantilMezcla(pr,pozo,x,P);
     let inv=L.inventario({Fh,Dm,esc,qServ:q(p),Fcic,ex:k.ex,bo:k.bo,conBO:!!P.CON_BO},P),red=null;
     if(k.red){red=L.red.calcular(k.red,{s:k.s,f,I:u.I,mo0:(m0+T)%12,meses:MES,H,cob,hasta:inv.hasta,punto:inv.punto},P);
@@ -474,7 +501,7 @@ L.correr=(D,Pin,hooks)=>{
       bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
       punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,
       Dportal:pd,puntoPortal:pd!=null?pd*(k.lt||0)*P.FACT_ALARMA:null,hastaPortal:pd!=null?pd*((k.lt||0)+(k.pm||0)):null,
-      val:Array.from(u.v),red};
+      val:Array.from(u.v),red,par};
   }
   av('Listo',1);
   return{version:L.VERSION,param:P,meses:MES,pruebas:pruebas.map(t=>MES[t]),resumen,calibracion,
