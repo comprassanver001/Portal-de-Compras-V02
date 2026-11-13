@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<script src="pruebas_guard.js?v=20261113b" charset="utf-8"></script>
+<script src="pruebas_guard.js?v=20261113c" charset="utf-8"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Calendario de pedidos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js?v=20261105a" charset="utf-8"></script>
+<script src="lab_aplicar.js?v=20261113a" charset="utf-8"></script>
 <script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#a16207;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea;--gray:#64748b;--graybg:#eef1f6;--blue:#1c4587;--bluebg:#e8eefc;--teal:#0f766e;--tealbg:#e3f4f1}
@@ -191,7 +192,7 @@ async function recargar(){
     if(error)throw error;if(!pub)throw new Error('Todavía no hay un cálculo diario publicado.');
     const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw e2;
     const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
-    const js=JSON.parse(txt);S.est=js;S.fecha=js.fecha;S.raw=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));aplicarBO();
+    const js=await LABAPL.aplicar(sb,JSON.parse(txt));S.est=js;S.fecha=js.fecha;S.raw=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));aplicarBO();
     S.F=await P.calFuentes(sb,sbc());S.F.prov=P.provPorClave(S.raw,S.F);
     S.abiertas=new Map();
     try{const fol=(await todo(()=>sb.from('plan_propuestas').select('folio,estado').order('folio'))).filter(f=>ABIERTOS.includes(f.estado)).map(f=>f.folio);

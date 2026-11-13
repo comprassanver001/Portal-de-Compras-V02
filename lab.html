@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<script src="pruebas_guard.js?v=20261113b" charset="utf-8"></script>
+<script src="pruebas_guard.js?v=20261113c" charset="utf-8"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Laboratorio de pronóstico y compra</title>
@@ -129,6 +129,11 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
       <div class="scroll" style="max-height:none;margin-top:10px"><table id="tb-esc"></table></div>
     </div>
     <div class="card">
+      <h2>Aplicar al portal de pruebas</h2>
+      <p class="d">Pasa el cálculo que está en pantalla (con las variables actuales) al portal de pruebas: Propuestas de compra, Planeación, Calendario de pedidos y Mi Resumen usarán la venta esperada, el punto de alarma y el «pedir hasta» del motor. En la franja naranja se puede regresar a «Cálculo: Portal actual» para comparar. No toca el portal de producción. <span id="pub-est"></span></p>
+      <div class="row"><input id="pub-quien" placeholder="Tu nombre" style="width:160px"><button onclick="publicar()">Aplicar este cálculo al portal de pruebas</button><span class="d" id="pub-msg"></span></div>
+    </div>
+    <div class="card">
       <h2>Familias para la temporada</h2>
       <p class="d" id="fam-est"></p>
       <div class="row"><input type="file" id="fam-file" accept=".xlsx,.xls"><button class="sec" onclick="cargarFamilias()">Cargar hoja BASE DE NEGOCIO</button><span class="d" id="fam-msg"></span></div>
@@ -200,7 +205,7 @@ async function cargarDatos(){
 async function abrir(){
   $('lock').style.display='none';$('app').style.display='block';
   try{
-    await cargarDatos();pintarVars();await cargarEsc();
+    await cargarDatos();pintarVars();await cargarEsc();estadoPub();
     W.postMessage({tipo:'datos',datos:S.D});
   }catch(e){$('carga-err').textContent='No se pudieron cargar los datos: '+(e.message||e);}
 }
@@ -391,6 +396,30 @@ function pintarEsc(){
   $('tb-esc').innerHTML=h;
 }
 function usarEsc(i){S.param=JSON.parse(JSON.stringify(S.esc[i].parametros||{}));pintarVars();recalcular();toast('Recalculando con «'+S.esc[i].nombre+'»…');}
+
+// ── Aplicar al portal de pruebas (tabla lab_publicacion, renglón 'vigente') ──
+async function estadoPub(){
+  try{const{data,error}=await sb.from('lab_publicacion').select('fecha_calculo,creado_por,creado_en').eq('id','vigente').maybeSingle();if(error)throw error;
+    $('pub-est').innerHTML=data?'<b>Aplicado hoy:</b> cálculo del '+esc(String(data.fecha_calculo||''))+', publicado el '+esc(String(data.creado_en||'').slice(0,10))+' por '+esc(data.creado_por||'')+'.':'<b>Aún no se ha aplicado ningún cálculo.</b>';S.pubOk=true;}
+  catch(e){$('pub-est').innerHTML='<b>Falta la tabla lab_publicacion:</b> corre lab_tablas_02.sql en Supabase.';S.pubOk=false;}
+}
+async function publicar(){
+  const quien=$('pub-quien').value.trim(),msg=$('pub-msg');if(!quien){toast('Escribe tu nombre.');return;}
+  if(!S.R){toast('Primero termina un cálculo.');return;}if(!S.pubOk){toast('Primero corre lab_tablas_02.sql en Supabase.');return;}
+  msg.textContent='Leyendo empaques…';
+  try{
+    const E=new Map();try{(await todo(()=>sb.from('plan_empaques').select('*').order('clave'))).forEach(e=>E.set(Number(e.clave),e));}catch(e){}
+    const r1=x=>Math.round(x*1000)/1000;
+    const datos=S.R.claves.map(k=>{const e=E.get(k.c),i=S.info.get(k.c);let inn=0,mas=0;
+      if(e&&e.validacion==='VALIDO'){let f=1;if(P.norm(e.uni_compra)!==P.norm(i.u))f=e.factor_conv||0;inn=(e.inner_cant||0)*f;mas=(e.master_cant||0)*f;}
+      return[k.c,r1(k.Dm),r1(k.punto),r1(k.hasta),k.conf,r1(inn),r1(mas)];});
+    msg.textContent='Guardando…';
+    const{error}=await sb.from('lab_publicacion').upsert({id:'vigente',fecha_calculo:S.fecha,parametros:S.param,resumen:resumenAct(),datos,creado_por:quien,creado_en:new Date().toISOString()},{onConflict:'id'});
+    if(error)throw error;
+    await sb.from('lab_bitacora').insert({usuario:quien,accion:'APLICAR_AL_PORTAL_DE_PRUEBAS',detalle:{parametros:S.param,claves:datos.length,fecha:S.fecha}});
+    msg.textContent=nf(datos.length)+' claves aplicadas. Abre o recarga el portal de pruebas.';estadoPub();
+  }catch(e){msg.textContent='No se pudo aplicar: '+(e.message||e);}
+}
 
 // ── Familias (BASE DE NEGOCIO de la plantilla de ventas) ──
 async function cargarFamilias(){

@@ -8,6 +8,8 @@
   'use strict';
   var RPC_LECTURA=['cmp_verificar_pin','cmp_usuarios_con_pin'];
   var G=window.PRUEBAS={activo:true,bloqueados:[]};
+  // Texto de la franja con el cálculo en uso (lo llama lab_aplicar.js)
+  G.modo=function(t){G._modo=t;var s=document.getElementById('pruebas-modo');if(s)s.textContent='· '+t;};
   // ¿Se permite esta petición? Devuelve '' si sí, o el motivo si no.
   G.revisar=function(url,metodo){
     var m=String(metodo||'GET').toUpperCase(),u;
@@ -51,8 +53,13 @@
     var d=document.createElement('div');d.id='pruebas-franja';
     d.style.cssText='position:sticky;top:0;z-index:2147483646;background:#b45309;color:#fff;font:bold 13px Arial,sans-serif;text-align:center;padding:5px 8px;letter-spacing:.3px';
     d.textContent='AMBIENTE DE PRUEBAS · datos reales en solo lectura · aquí nada se guarda en el portal de producción';
+    var sel=document.createElement('select'),on=true;try{on=localStorage.getItem('lab_calc')!=='0';}catch(e){}
+    sel.innerHTML='<option value="1">Cálculo: Motor del laboratorio</option><option value="0">Cálculo: Portal actual</option>';sel.value=on?'1':'0';
+    sel.style.cssText='margin-left:14px;font:12px Arial,sans-serif;padding:2px 4px;border-radius:4px;border:0';
+    sel.onchange=function(){try{localStorage.setItem('lab_calc',sel.value);}catch(e){}location.reload();};d.appendChild(sel);
+    var st=document.createElement('span');st.id='pruebas-modo';st.style.cssText='margin-left:10px;font-weight:normal;font-size:12px';d.appendChild(st);
     if(!/lab\.html$/.test(location.pathname)){var a=document.createElement('a');a.href='lab.html';a.target='_blank';a.textContent='Abrir el Laboratorio de pronóstico →';a.style.cssText='color:#fff;margin-left:14px;text-decoration:underline';d.appendChild(a);}
-    document.body.insertBefore(d,document.body.firstChild);
+    document.body.insertBefore(d,document.body.firstChild);if(G._modo)G.modo(G._modo);
   };
   if(document.body)franja();else document.addEventListener('DOMContentLoaded',franja);
 })();

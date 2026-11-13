@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<script src="pruebas_guard.js?v=20261113b" charset="utf-8"></script>
+<script src="pruebas_guard.js?v=20261113c" charset="utf-8"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Planeación e indicadores</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js?v=20261112d" charset="utf-8"></script>
+<script src="lab_aplicar.js?v=20261113a" charset="utf-8"></script>
 <script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
 <script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
 <style>
@@ -364,7 +365,7 @@ async function recargar(){
     if(error)throw error;if(!pub)throw new Error('Todavía no hay un cálculo diario publicado (Planeación → 6. Cálculo diario).');
     const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw e2;
     const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
-    const js=JSON.parse(txt);
+    const js=await LABAPL.aplicar(sb,JSON.parse(txt));
     S.byClave=new Map((js.claves||[]).map(r=>[Number(r.c),r]));
     // Claves restringidas vigentes (activas, menos de 30 días): no cuentan al comprador en Mi Resumen ni en Histórico de Inventarios
     S.restr=new Map();try{const{data}=await sb.from('claves_restringidas').select('clave,comprador,motivo,autorizado_en,activa').eq('activa',true);
