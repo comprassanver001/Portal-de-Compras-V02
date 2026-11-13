@@ -51,6 +51,7 @@
     var d=document.createElement('div');d.id='pruebas-franja';
     d.style.cssText='position:sticky;top:0;z-index:2147483646;background:#b45309;color:#fff;font:bold 13px Arial,sans-serif;text-align:center;padding:5px 8px;letter-spacing:.3px';
     d.textContent='AMBIENTE DE PRUEBAS · datos reales en solo lectura · aquí nada se guarda en el portal de producción';
+    if(!/lab\.html$/.test(location.pathname)){var a=document.createElement('a');a.href='lab.html';a.target='_blank';a.textContent='Abrir el Laboratorio de pronóstico →';a.style.cssText='color:#fff;margin-left:14px;text-decoration:underline';d.appendChild(a);}
     document.body.insertBefore(d,document.body.firstChild);
   };
   if(document.body)franja();else document.addEventListener('DOMContentLoaded',franja);

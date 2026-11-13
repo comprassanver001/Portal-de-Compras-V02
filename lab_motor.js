@@ -8,7 +8,7 @@
 //   v  = arreglo 0/1 del mismo largo: 1 = el mes cuenta, 0 = no cuenta (agotado, antes de la primera venta…).
 (function(root){
 'use strict';
-const L={VERSION:'0.1.0'};
+const L={VERSION:'0.2.0'};
 
 // ── Variables del cálculo (todas modificables; estos son los valores sugeridos) ──
 L.PARAM={
@@ -37,7 +37,10 @@ L.PARAM={
   // Rango e inventario
   SERVICIO:{'SAGRADOS':0.98,'ALTA ROTACION':0.95,'MEDIA ROTACION':0.90,'LENTA ROTACION':0.85,'NUEVOS':0.90},
   SERVICIO_DEF:0.90,
-  CICLO:1,            // meses entre un pedido y el siguiente
+  DIAS_REACCION:7,    // días entre que suena la alarma y se levanta el pedido (se suman al T. entrega)
+  COBERTURA_MESES:0,  // meses de venta que debe cubrir cada pedido; 0 = los meses objetivo de cada clave
+  CON_BO:0,           // 1 = el BO del CEDI cuenta como disponible
+  FACT_ALARMA:1.2,    // regla actual del portal: alarma con menos de T. entrega × este factor
   H_MAX:9,            // horizonte máximo que se puede probar con el historial
   K_MEZCLA:8,         // con K_MEZCLA pruebas pesa la mitad el error propio y la mitad el del tipo
   SEG_MAX:6,          // el inventario de seguridad no pasa de SEG_MAX meses de venta esperada (0 = sin tope)
@@ -218,21 +221,171 @@ L.cuantilMezcla=(propiosOrd,tipoOrd,p,P)=>{
 L.escala=(F,prom12,H,P)=>Math.max(F,P.PISO_ESCALA*prom12*H,0);   // 0 = sin venta ni pronóstico: no hay con qué medir
 
 // ── Niveles de inventario ──
-// Política de revisión periódica: cada CICLO meses se pide lo necesario para llegar a «pedir hasta».
-//   pedir hasta = venta que no se rebasa con probabilidad = nivel de servicio durante (T. entrega + ciclo)
-//   punto de pedido = lo mismo durante el T. entrega
+// Los pedidos se disparan con la alarma (revisión diaria), no en fechas fijas:
+//   punto de pedido = venta que no se rebasa, con la probabilidad del nivel de servicio, durante T. entrega + días de reacción
+//   pedir hasta     = punto de pedido + venta esperada de los meses de cobertura del pedido
 L.inventario=(x,P)=>{
-  // x = {Fh (pronóstico en T. entrega + ciclo), Flt (pronóstico en T. entrega), Dm (venta mensual esperada), esc, escLt, qServ, qServLt, ex, bo, conBO}
+  // x = {Fh (pronóstico en el periodo de protección), Dm (venta mensual esperada), esc, qServ, Fcic (venta esperada de la cobertura), ex, bo, conBO}
   const tope=P.SEG_MAX>0&&x.Dm>0?P.SEG_MAX*x.Dm:Infinity;
-  const hasta=Math.max(0,x.Fh+Math.min(tope,Math.max(0,x.qServ)*x.esc));
-  const punto=Math.max(0,x.Flt+Math.min(tope,Math.max(0,x.qServLt!=null?x.qServLt:x.qServ)*x.escLt));
+  const punto=Math.max(0,x.Fh+Math.min(tope,Math.max(0,x.qServ)*x.esc));
+  const hasta=punto+Math.max(0,x.Fcic||0);
   const disp=(x.ex||0)+(x.conBO?(x.bo||0):0);
-  return{hasta,punto,seguridad:hasta-x.Fh,propuesta:Math.max(0,hasta-disp),pedir:disp<=punto};
+  return{punto,hasta,seguridad:punto-x.Fh,disp,propuesta:Math.max(0,hasta-disp),pedir:disp<=punto,
+    dias:x.Dm>0?Math.max(0,(disp-punto)/(x.Dm/30)):null};
 };
 
 // ── Confiabilidad ──
 // error = Σ|pronóstico − real| ÷ Σ real en las pruebas de la clave (venta de H_SEL meses)
 L.calificar=(errRel,n,P)=>n<P.CONF_MIN_PRUEBAS||errRel==null||isNaN(errRel)?'C':errRel<=P.CONF_A?'A':errRel<=P.CONF_B?'B':'C';
+
+// ── Cálculo completo: prueba histórica + niveles vigentes ──
+// D = {meses:['AAAA-MM',…], claves:[{c,rot,g,sg,ssg,lt,pm,ex,bo,s:[venta por mes], ag:[1 = mes agotado] (opcional)}],
+//      portal:(i,o)=>venta mensual del método actual con información anterior a la posición o (opcional)}
+// En cada mes de prueba solo se usa información anterior a ese mes.
+L.TIPOS=['REGULAR','ERRATICA','INTERMITENTE','IRREGULAR','SIN HISTORIA'];
+L.ROT_PRUEBA=['SAGRADOS','ALTA ROTACION','MEDIA ROTACION'];
+L.correr=(D,Pin,hooks)=>{
+  const P=L.params(Pin),av=(hooks&&hooks.progreso)||(()=>{});
+  const MES=D.meses,T=MES.length,m0=Number(MES[0].slice(5))-1,K=D.claves,n=K.length;
+  const MET=['EST','REC','P12','SBA','TSB','TEND','ANIO','MEZ','CMB','CM3'],nM=MET.length,iM={};MET.forEach((m,i)=>iM[m]=i);
+  const O_MIN=12,nO=T-O_MIN+1,oi=o=>o-O_MIN,TIPOS=L.TIPOS;
+  const hb=H=>H<=2?0:H<=4?1:2;
+  const F3=new Float32Array(n*nO*nM),FH=new Float32Array(n*nO*nM);
+  const A3=new Float32Array(n*nO).fill(NaN),AH=new Float32Array(n*nO).fill(NaN),PR=new Float32Array(n*nO),TP=new Uint8Array(n*nO);
+  const Hp=K.map(k=>clip((k.lt||0)+P.DIAS_REACCION/30,0.25,P.H_MAX));
+  const noAg=K.map(k=>{if(!k.ag)return null;const e=new Uint8Array(T).fill(1);for(let t=0;t<T;t++)if(k.ag[t])e[t]=0;return e;});
+  const vFin=K.map((k,i)=>L.validos(k.s,T,P,noAg[i]));
+  const ll=K.map(k=>[k.g+'|'+(k.sg||'')+'|'+(k.ssg||''),k.g+'|'+(k.sg||''),k.g]);
+  const ultimo=new Array(n);
+  // 1. Pronósticos de todos los métodos en todos los meses de origen
+  for(let o=O_MIN;o<=T;o++){
+    const items=K.map((k,i)=>({s:k.s,v:L.validos(k.s,o,P,noAg[i]),llaves:ll[i]}));
+    const idx=L.indices(items,o,m0,P),cre=L.crecimiento(items,o,P);
+    for(let i=0;i<n;i++){
+      const k=K[i],it=items[i],I=idx(it.llaves),g=cre(k.g);
+      const F=L.pronosticar({s:k.s,v:it.v,o,m0,I,g},12,P);const b=i*nO+oi(o);
+      for(let m=0;m<nM;m++){const f=F[MET[m]];F3[b*nM+m]=L.acum(f,P.H_SEL);FH[b*nM+m]=L.acum(f,Hp[i]);}
+      let t=0,c=0;for(let x=Math.max(0,o-12);x<o;x++)if(it.v[x]){t+=k.s[x];c++;}PR[b]=c?t/c:0;
+      TP[b]=TIPOS.indexOf(L.tipo(k.s,it.v,o));
+      // venta real posterior: no se usa si en esos meses la clave estuvo agotada
+      const libre=(a,z)=>{for(let x=a;x<z;x++)if(!vFin[i][x]&&(k.s[x]===0||(noAg[i]&&!noAg[i][x])))return false;return true;};
+      if(o+P.H_SEL<=T&&libre(o,o+P.H_SEL)){let a=0;for(let h=0;h<P.H_SEL;h++)a+=k.s[o+h];A3[b]=a;}
+      const hc=Math.ceil(Hp[i]);if(o+hc<=T&&libre(o,o+hc))AH[b]=L.acum(k.s,Hp[i],o);
+      if(o===T)ultimo[i]={F,I,g,v:it.v};
+    }
+    av('Pronósticos de prueba · '+(MES[o]||'vigente'),0.5*(o-O_MIN+1)/nO);
+  }
+  // 2. Método con lo conocido antes de t
+  const elegirEn=t=>{
+    const a=Math.max(O_MIN,t-P.H_SEL-P.ORIGENES+1),bf=t-P.H_SEL;
+    const err=new Float64Array(n*nM),cnt=new Uint16Array(n),sumA=new Float64Array(n);
+    for(let i=0;i<n;i++)for(let o=a;o<=bf;o++){const b=i*nO+oi(o);const A=A3[b];if(isNaN(A))continue;cnt[i]++;sumA[i]+=A;for(let m=0;m<nM;m++)err[i*nM+m]+=Math.abs(F3[b*nM+m]-A);}
+    const tot=TIPOS.map(()=>new Float64Array(nM));const tt=oi(Math.min(t,T));
+    for(let i=0;i<n;i++){if(cnt[i]<3||!(sumA[i]>0))continue;const tp=TP[i*nO+tt];for(let m=0;m<nM;m++)tot[tp][m]+=err[i*nM+m]/(sumA[i]/cnt[i]);}
+    const omi=tot.map(x=>{let b=iM.CMB;if(x[b]===0&&x[0]===0)return b;for(let m=0;m<nM;m++)if(x[m]<x[b])b=m;return b;});
+    const sel=new Uint8Array(n),propio=new Uint8Array(n),gr=new Uint8Array(n),GR={A:0,B:1,C:2};
+    for(let i=0;i<n;i++){
+      const e={};for(let m=0;m<nM;m++)e[MET[m]]=err[i*nM+m];
+      const r=L.elegir(e,cnt[i],MET[omi[TP[i*nO+tt]]],P);sel[i]=iM[r.m];propio[i]=r.propio?1:0;
+      gr[i]=GR[L.calificar(sumA[i]>0?err[i*nM+sel[i]]/sumA[i]:NaN,cnt[i],P)];
+    }
+    return{sel,propio,omi,cnt,err,sumA,gr};
+  };
+  // Errores pasados del método elegido, al periodo de protección; se juntan entre claves parecidas (tipo, horizonte, confiabilidad)
+  const erroresEn=(t,E)=>{
+    const propios=new Array(n),pozo=TIPOS.map(()=>[0,1,2].map(()=>[[],[],[]]));const tt=oi(Math.min(t,T));
+    for(let i=0;i<n;i++){
+      const hc=Math.ceil(Hp[i]),a=Math.max(O_MIN,t-hc-P.ORIGENES-6),bf=t-hc;const u=[];
+      for(let o=a;o<=bf;o++){const b=i*nO+oi(o);const A=AH[b];if(isNaN(A))continue;const F=FH[b*nM+E.sel[i]];const e=L.escala(F,PR[b],Hp[i],P);if(e>1e-6)u.push(Math.min(20,(A-F)/e));}
+      u.sort((x,y)=>x-y);propios[i]=u;
+      if(L.ROT_PRUEBA.indexOf(K[i].rot)>=0){const z=pozo[TP[i*nO+tt]][hb(Hp[i])][E.gr[i]];for(const x of u)z.push(x);}
+    }
+    pozo.forEach(a=>a.forEach(b=>b.forEach(z=>z.sort((x,y)=>x-y))));
+    return{propios,pozo};
+  };
+  // 3. Prueba
+  const enU=i=>L.ROT_PRUEBA.indexOf(K[i].rot)>=0;
+  const nueva=()=>({n:0,ae:0,se:0,sa:0,at:0,corto:0,pasa:0,nr:0});
+  const sumar=(M,F,A,esc)=>{M.n++;M.ae+=Math.abs(F-A)/esc;M.se+=(F-A)/esc;M.sa+=A/esc;if(A>0){M.nr++;const r=F/A;if(Math.abs(r-1)<=0.3)M.at++;if(r<0.7)M.corto++;if(r>1.5)M.pasa++;}};
+  const cerrar=M=>M.n?{n:M.n,error:M.ae/M.sa,sesgo:M.se/M.sa,atina30:M.at/M.nr,muyCorto:M.corto/M.nr,sePasa:M.pasa/M.nr}:null;
+  const pruebas=[];for(let t=O_MIN+P.H_SEL+P.MIN_ORIGENES;t+P.H_SEL<=T;t++)pruebas.push(t);
+  const escC=new Float64Array(n);for(let i=0;i<n;i++){let s=0,c=0;for(const t of pruebas){const A=A3[i*nO+oi(t)];if(!isNaN(A)){s+=A;c++;}}escC[i]=c&&s>0?s/c:0;}
+  const res={},acc=(m,g)=>((res[m]=res[m]||{})[g]=res[m][g]||nueva());
+  const cal={},accC=g=>cal[g]=cal[g]||{n:0,cN:0,cA:0,mN:0,mA:0,obj:0,dem:0,fN:0,fA:0,aN:[],aA:[]};
+  const porG={A:nueva(),B:nueva(),C:nueva()};const GN=['A','B','C'];
+  const MOTOR='Motor',ACT='Método actual del portal';
+  pruebas.forEach((t,ip)=>{
+    const E=elegirEn(t),er=erroresEn(t,E);
+    for(let i=0;i<n;i++){
+      if(!enU(i)||!(escC[i]>0))continue;
+      const b=i*nO+oi(t),A=A3[b];const pd=D.portal?D.portal(i,t):null;
+      if(!isNaN(A)){
+        for(const g of ['Todas',K[i].rot,TIPOS[TP[b]]]){
+          sumar(acc(MOTOR,g),F3[b*nM+E.sel[i]],A,escC[i]);
+          if(pd!=null)sumar(acc(ACT,g),pd*P.H_SEL,A,escC[i]);
+          if(g==='Todas')for(let m=0;m<nM;m++)sumar(acc(L.METODOS[MET[m]],g),F3[b*nM+m],A,escC[i]);
+        }
+        sumar(porG[GN[E.gr[i]]],F3[b*nM+E.sel[i]],A,escC[i]);
+      }
+      const AHt=AH[b];
+      if(!isNaN(AHt)){
+        const p=P.SERVICIO[K[i].rot]||P.SERVICIO_DEF,F=FH[b*nM+E.sel[i]],esc=L.escala(F,PR[b],Hp[i],P);
+        const q=L.cuantilMezcla(er.propios[i],er.pozo[TP[b]][hb(Hp[i])][E.gr[i]],p,P);
+        const punto=L.inventario({Fh:F,Dm:F/Hp[i],esc,qServ:q},P).punto;
+        const pA=pd!=null?pd*(K[i].lt||0)*P.FACT_ALARMA:null,em=escC[i]/P.H_SEL;
+        for(const g of ['Todas',K[i].rot]){const c=accC(g);c.n++;c.obj+=p;if(AHt<=punto+1e-9)c.cN++;c.mN+=punto/em;c.aN.push(punto/em);c.dem+=AHt/em;c.fN+=Math.max(0,AHt-punto)/em;
+          if(pA!=null){if(AHt<=pA+1e-9)c.cA++;c.mA+=pA/em;c.aA.push(pA/em);c.fA+=Math.max(0,AHt-pA)/em;}}
+      }
+    }
+    av('Prueba · '+MES[t],0.5+0.45*(ip+1)/pruebas.length);
+  });
+  const resumen={};for(const m in res){resumen[m]={};for(const g in res[m])resumen[m][g]=cerrar(res[m][g]);}
+  const calibracion={};for(const g in cal){const c=cal[g],hp=!!D.portal;calibracion[g]={n:c.n,objetivo:c.obj/c.n,cubreMotor:c.cN/c.n,mesesMotor:c.mN/c.n,medMotor:mediana(c.aN),surtidoMotor:1-c.fN/c.dem,
+    cubreActual:hp?c.cA/c.n:null,mesesActual:hp?c.mA/c.n:null,medActual:hp?mediana(c.aA):null,surtidoActual:hp?1-c.fA/c.dem:null};}
+  // 4. Niveles vigentes por clave
+  const E=elegirEn(T),er=erroresEn(T,E);const claves=new Array(n);
+  for(let i=0;i<n;i++){
+    const k=K[i],u=ultimo[i],b=i*nO+oi(T),m=MET[E.sel[i]],f=u.F[m],H=Hp[i];
+    const p=P.SERVICIO[k.rot]||P.SERVICIO_DEF,cob=P.COBERTURA_MESES>0?P.COBERTURA_MESES:(k.pm||1);
+    const Fh=L.acum(f,H),esc=L.escala(Fh,PR[b],H,P),Dm=Fh/H;
+    const Fcic=Math.max(0,L.acum(f,Math.min(12,H+cob))-Fh);
+    const pozo=er.pozo[TP[b]][hb(H)][E.gr[i]],pr=er.propios[i],q=x=>L.cuantilMezcla(pr,pozo,x,P);
+    const inv=L.inventario({Fh,Dm,esc,qServ:q(p),Fcic,ex:k.ex,bo:k.bo,conBO:!!P.CON_BO},P);
+    // probabilidad de agotarse antes de que llegue un pedido levantado hoy (según los errores pasados de claves parecidas)
+    let pa=null;const base=pozo.length>=20?pozo:null;
+    if(base&&esc>0){const lim=(inv.disp-Fh)/esc;let lo=0,hi=base.length;while(lo<hi){const md=(lo+hi)>>1;if(base[md]<=lim)lo=md+1;else hi=md;}pa=1-lo/base.length;}
+    const eRel=E.sumA[i]>0?E.err[i*nM+E.sel[i]]/E.sumA[i]:null,pd=D.portal?D.portal(i,T):null;
+    const r3=x=>Math.round(x*1000)/1000;
+    claves[i]={c:k.c,tipo:TIPOS[TP[b]],metodo:m,propio:!!E.propio[i],pruebas:E.cnt[i],errRel:eRel,conf:GN[E.gr[i]],servicio:p,H,cob,Dm,
+      f:Array.from(f,r3),idx:Array.from(u.I,r3),crec:u.g,q10:q(0.10)*(Fh>0?esc/Fh:0),q90:q(0.90)*(Fh>0?esc/Fh:0),
+      bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
+      punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,
+      Dportal:pd,puntoPortal:pd!=null?pd*(k.lt||0)*P.FACT_ALARMA:null,hastaPortal:pd!=null?pd*((k.lt||0)+(k.pm||0)):null,
+      val:Array.from(u.v)};
+  }
+  av('Listo',1);
+  return{version:L.VERSION,param:P,meses:MES,pruebas:pruebas.map(t=>MES[t]),resumen,calibracion,
+    porConfiabilidad:{A:cerrar(porG.A),B:cerrar(porG.B),C:cerrar(porG.C)},omision:Object.fromEntries(TIPOS.map((t,j)=>[t,MET[E.omi[j]]])),claves};
+};
+
+// ── Método actual del portal, con la misma serie y los mismos meses agotados ──
+// PL = objeto P de plan_logica.js. Devuelve función (i, o) → venta mensual; guarda lo ya calculado.
+L.portalDe=(PL,D)=>{
+  const MES=D.meses,T=MES.length,memo=new Map();
+  const obj=D.claves.map(k=>{const o={};k.s.forEach((x,t)=>{if(x)o[MES[t]]=x;});return o;});
+  const ags=D.claves.map(k=>{if(!k.ag)return null;const z=new Set();k.ag.forEach((x,t)=>{if(x)z.add(MES[t]);});return z;});
+  return(i,o)=>{
+    const key=i*64+o;let r=memo.get(key);if(r!==undefined)return r;
+    const k=D.claves[i],ref=MES[o]||PL.ym(MES[T-1],1);const s={};for(const m in obj[i])if(m<ref)s[m]=obj[i][m];
+    const N=Math.max(1,Math.ceil(k.pm||1)),ag=ags[i]?m=>ags[i].has(m):()=>false;
+    const ap=PL.antPron(s,ref,N,ag,PL.ym(ref,-1),MES[0]);
+    const Dp=ap.I!=null?ap.I:(ap.A!=null&&ap.P!=null?(ap.A+ap.P)/2:(ap.A!=null?ap.A:(ap.P!=null?ap.P:0)));
+    const ly=PL.R.TEMP_MODO==='INDICE'?PL.antPron(s,PL.ym(ref,-12),N,ag,PL.ym(ref,-13),MES[0]):null;
+    const br=PL.baseRec({A:ap.A,P:ap.P,N,pm:k.pm,nA:ap.nA,nP:ap.nP,bD:ap.I!=null?'INTERMITENTE 12 MESES':'',D:Dp,Aly:ly?ly.A:undefined,nAly:ly?ly.nA:undefined});
+    let c0=br.c;if(br.b!=='INTER'&&ap.W>0&&ap.nW>=6&&(!(c0>0)||c0<ap.W/PL.R.IRREG||c0>ap.W*PL.R.IRREG))c0=ap.W;
+    r=c0>PL.R.D_MIN*1.0001?c0:0;memo.set(key,r);return r;
+  };
+};
 
 if(typeof module!=='undefined'&&module.exports)module.exports=L;else root.LAB=L;
 })(typeof window!=='undefined'?window:globalThis);
