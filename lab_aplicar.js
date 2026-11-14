@@ -12,7 +12,7 @@
   A.cargar=async function(sb){
     if(A.pub!==undefined)return A.pub;
     try{var r=await sb.from('lab_publicacion').select('*').eq('id','vigente').maybeSingle();A.pub=r.error||!r.data?null:r.data;}catch(e){A.pub=null;}
-    if(A.pub){var m=new Map();(A.pub.datos||[]).forEach(function(x){m.set(Number(x[0]),{d:x[1],p:x[2],h:x[3],cf:x[4],inn:x[5]||0,mas:x[6]||0});});A.pub.mapa=m;}
+    if(A.pub){var m=new Map();(A.pub.datos||[]).forEach(function(x){m.set(Number(x[0]),{d:x[1],p:x[2],h:x[3],cf:x[4],inn:x[5]||0,mas:x[6]||0,e:x.length>7?{seg:x[7],H:x[8],cob:x[9],serv:x[10],aj:x[11],tipo:x[12],err:x[13],pa:x[14],parV:x[15],parC:x[16],parA:x[17],hs:x[18]}:null});});A.pub.mapa=m;}
     return A.pub;
   };
   // Redondeo a empaque con la misma regla del portal (P.empaque); inn y mas ya vienen en la unidad de la clave
@@ -20,7 +20,7 @@
   A.prop=function(r,conBO){var l=r.lab;return Math.max(0,P.ceil3(l.h-((Number(r.ex)||0)+(conBO?Math.max(0,Number(r.bo)||0):0)+(Number(r.xd)||0))));};
   A.fila=function(r,x,fecha){
     var ex=Number(r.ex)||0,bo=Math.max(0,Number(r.bo)||0),lt=Number(r.lt)||0,pm=Number(r.pm)||0,r2=function(v){return Math.round(v*100)/100;};
-    r.lab={D:r.D,s:r.s,s0:r.s0,est:r.est,h:x.h,p:x.p,cf:x.cf};
+    r.lab={D:r.D,s:r.s,s0:r.s0,est:r.est,h:x.h,p:x.p,cf:x.cf,d:x.d,e:x.e};
     r.D=Math.round(x.d*10000)/10000;r.bD='MOTOR DEL LABORATORIO · confiabilidad '+x.cf;
     if(x.d>0){r.mi=r2(ex/x.d);r.miB=r2((ex+bo)/x.d);}
     if(x.d>0&&['RIESGO','OPTIMO','SOBRE INVENTARIO'].indexOf(r.est)>=0){
@@ -46,6 +46,80 @@
     var f=String(pub.creado_en||'').slice(0,10).split('-').reverse().join('/');
     avisar('Motor del laboratorio aplicado a '+n.toLocaleString('es-MX')+' claves · publicado '+f+(pub.creado_por?' por '+pub.creado_por:''),true);
     return est;
+  };
+  // ── Detalle de la clave en Planeación: cálculo del laboratorio, tiendas y destino de las entregas directas ──
+  var esc=function(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+  var nf=function(v,d){return v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('es-MX',{minimumFractionDigits:d||0,maximumFractionDigits:d||0});};
+  var celda=function(el,rot){var bs=el.querySelectorAll('.kv > b');for(var i=0;i<bs.length;i++)if(bs[i].textContent.trim()===rot)return bs[i].nextElementSibling;return null;};
+  var TIPO={'REGULAR':'venta regular','ERRATICA':'venta errática','INTERMITENTE':'venta intermitente','IRREGULAR':'venta irregular','SIN HISTORIA':'sin historia'};
+  A.txtPropuesta=function(r,conBO){
+    var l=r.lab,e=l.e,ex=Number(r.ex)||0,bo=Math.max(0,Number(r.bo)||0),s=conBO?r.s:(r.s0!=null?r.s0:r.s),sE=conBO?r.sE:(r.sE0!==undefined?r.sE0:r.sE);
+    return 'pedir hasta '+nf(l.h)+' − ('+nf(ex)+' existencia'+(conBO?' + '+nf(bo)+' BO CEDI':'')+') = <b>'+nf(s)+'</b>'+(sE!=null?' → con empaque <b>'+nf(sE)+'</b>':'')+
+      ' <span class="mut">· el portal actual propondría '+nf(conBO?l.s:(l.s0!=null?l.s0:l.s))+'</span>';
+  };
+  A.txtLab=function(r){
+    var l=r.lab,e=l.e;if(!e)return 'Punto de alarma '+nf(l.p)+' · pedir hasta '+nf(l.h)+' · confiabilidad '+esc(l.cf)+' <span class="mut">(vuelve a dar «Aplicar al portal de pruebas» en el laboratorio para ver el desglose completo)</span>';
+    var H=e.H||0,esp=l.d*H,cic=(e.hs!=null?e.hs:l.h)-l.p,t=[];
+    t.push('Venta esperada <b>'+nf(l.d,1)+'</b> / mes'+(l.D!=null?' (portal actual '+nf(l.D,1)+')':'')+' · '+(TIPO[e.tipo]||'')+' · confiabilidad <b>'+esc(l.cf)+'</b>'+(e.err!=null?' (error '+Math.round(e.err*100)+'%)':''));
+    if(e.parV!=null)t.push('Mes en curso: lleva '+nf(e.parV)+' · cierre estimado '+nf(e.parC)+' (el pronóstico era '+nf(e.parA)+')');
+    t.push('Punto de alarma <b>'+nf(l.p)+'</b> = venta de '+nf(H,2)+' meses ('+nf(esp)+') + seguridad '+nf(e.seg)+' · servicio '+Math.round((e.serv||0)*100)+'%');
+    t.push('Pedir hasta <b>'+nf(l.h)+'</b> = alarma '+nf(l.p)+' + '+nf(e.cob,1)+' meses de venta ('+nf(cic)+')'+(e.aj?(e.aj<0?' − '+nf(-e.aj)+' porque las tiendas tienen de sobra':' + '+nf(e.aj)+' porque las tiendas están debajo de su base'):''));
+    if(e.pa!=null)t.push('Riesgo de agotarse antes de que llegue un pedido de hoy: <b>'+Math.round(e.pa*100)+'%</b>');
+    return t.join('<br>');
+  };
+  // Destino de las OCs de entrega directa (se lee solo al abrir el detalle)
+  A.txtDestino=function(d){
+    if(!d)return 'entrega directa';var n=P.norm(d);
+    if((P.R.ED_FRASES||[]).indexOf(n)>=0||/DIRECT/.test(n))return 'entrega directa';
+    if(P.esLugarExtra(n))return 'entrega directa a cliente · '+esc(n);
+    return 'entrega directa a sucursal '+esc(n);
+  };
+  var metaRed=null;
+  A.tiendas=async function(sb,c,det){
+    var caja=det.querySelector('div');if(det.dataset.listo)return;det.dataset.listo='1';caja.textContent='Leyendo…';
+    try{
+      if(!metaRed){var m=await sb.from('lab_red_meta').select('*');if(m.error)throw m.error;metaRed={};(m.data||[]).forEach(function(x){metaRed[x.id]=x;});}
+      var q=await Promise.all([sb.from('lab_red').select('datos').eq('clave',c).maybeSingle(),sb.from('lab_red_inv').select('datos').eq('clave',c).maybeSingle()]);
+      var v=(q[0].data&&q[0].data.datos)||null,i=(q[1].data&&q[1].data.datos)||null;
+      if(!v&&!i){caja.innerHTML='<span class="mut">Sin información de tiendas para esta clave'+(metaRed.ventas?'':' (aún no se carga la red en el laboratorio)')+'.</span>';return;}
+      var mv=(metaRed.ventas&&metaRed.ventas.datos)||{},cerr=mv.cerradas||[],uOk=!v||!i||!v.uv||!i.u||v.uv===i.u,nom={};
+      Object.keys((v&&v.t)||{}).concat(Object.keys((i&&i.t)||{})).forEach(function(s){nom[s]=1;});
+      var filas=Object.keys(nom).filter(function(s){return cerr.indexOf(s)<0;}).map(function(s){var a=(v&&v.t[s])||[0,null],b=(i&&i.t[s])||[0,0],base=typeof a[1]==='number'?a[1]:null,inv=(b[0]||0)+(b[1]||0);
+        return{s:s,v:a[0]||0,b:a[1],ex:b[0]||0,pe:b[1]||0,m:a[0]>0?inv/a[0]:null,dif:base!=null&&uOk?inv-base:null};});
+      filas.sort(function(x,y){return(x.dif==null?1e15:x.dif)-(y.dif==null?1e15:y.dif)||y.v-x.v;});
+      var T={v:0,b:0,ex:0,pe:0,f:0,sb:0};filas.forEach(function(f){T.v+=f.v;T.ex+=f.ex;T.pe+=f.pe;if(typeof f.b==='number')T.b+=f.b;if(f.dif<0)T.f-=f.dif;if(f.dif>0)T.sb+=f.dif;});
+      var h='<div style="overflow:auto;max-height:300px;margin-top:4px"><table style="width:100%;font-size:11.5px;border-collapse:collapse"><tr style="background:#eef1f7"><th style="text-align:left;padding:3px 6px">Tienda</th><th>Venta mensual</th><th>Número base</th><th>Existencia</th><th>Por llegar</th><th>Meses de inventario</th><th>Contra su base</th></tr>';
+      var td=function(x,c2){return '<td style="text-align:right;padding:2px 6px;'+(c2||'')+'">'+x+'</td>';};
+      filas.forEach(function(f){h+='<tr style="border-bottom:1px solid #eef1f7"><td style="padding:2px 6px">'+esc(f.s)+'</td>'+td(nf(f.v,1))+td(typeof f.b==='number'?nf(f.b):(f.b?esc(f.b):'—'))+td(nf(f.ex))+td(f.pe?nf(f.pe):'—')+td(f.m!=null?nf(f.m,1):'—')+
+        td(f.dif==null?'—':f.dif<0?'le faltan '+nf(-f.dif):f.dif>0?'le sobran '+nf(f.dif):'en su base',f.dif<0?'color:#b91c1c;font-weight:600':f.dif>0?'color:#15803d':'')+'</tr>';});
+      h+='<tr style="font-weight:700;background:#f6f8fc"><td style="padding:3px 6px">Total '+filas.length+' tiendas</td>'+td(nf(T.v,1))+td(nf(T.b))+td(nf(T.ex))+td(T.pe?nf(T.pe):'—')+td(T.v>0?nf((T.ex+T.pe)/T.v,1):'—')+td((T.f?'faltan '+nf(T.f):'')+(T.f&&T.sb?' · ':'')+(T.sb?'sobran '+nf(T.sb):''))+'</tr></table></div>';
+      var fi=metaRed.inv&&metaRed.inv.datos&&metaRed.inv.datos.fecha;
+      h+='<div class="mut" style="font-size:11px;margin-top:3px">Venta mensual = promedio de los últimos 12 meses de cada tienda'+(fi?' · existencias al '+esc(String(fi).split('-').reverse().join('/')):'')+'. Letras en número base: B y BX bloqueada, P pendiente.'+(uOk?'':' <b style="color:#b45309">La existencia viene en '+esc(i.u)+' y la venta en '+esc(v.uv)+': no se comparan contra la base.</b>')+'</div>';
+      caja.innerHTML=h;
+    }catch(e){det.dataset.listo='';caja.innerHTML='<span class="mut">No se pudo leer el detalle de tiendas'+(/lab_red/.test(String(e.message||e))||e.code==='42P01'?' (faltan las tablas de la red: lab_tablas_03.sql)':'')+'.</span>';}
+  };
+  A.detalle=function(sb,el,r,ocs,conBO){
+    try{
+      var kv=el.querySelector('.kv');if(!kv||!r)return;
+      if(r.lab){
+        var cD=celda(el,'Demanda portal');if(cD)cD.innerHTML=nf(r.D,1)+' / mes · <b>motor del laboratorio</b> · confiabilidad '+esc(r.lab.cf);
+        var cL=celda(el,'Límites');if(cL)cL.innerHTML='riesgo al llegar al punto de alarma del motor ('+nf(r.lab.p)+') · sobre inventario con más de '+nf(r.pm*P.R.FACT_MAX,1)+' meses · hoy '+nf(r.mi,1)+' meses ('+nf(r.miB,1)+' con BO)';
+        var cP=celda(el,'Propuesta');if(cP){cP.innerHTML=A.txtPropuesta(r,!!conBO);cP.insertAdjacentHTML('afterend','<b style="color:#b45309">Cálculo del laboratorio</b><span>'+A.txtLab(r)+'</span>');}
+      }
+      // tiendas: se lee hasta que se despliega
+      var ancla=celda(el,'Mas Ferre')||celda(el,'Propuesta');
+      if(ancla){var p=ancla.parentNode,b=document.createElement('b'),sp=document.createElement('span');b.textContent='Tiendas';
+        sp.innerHTML='<details><summary class="lk" style="cursor:pointer;color:#1d4ed8">Ver venta, número base y existencia por sucursal</summary><div></div></details>';
+        var sig=r.lab&&ancla===celda(el,'Propuesta')?ancla.nextElementSibling.nextElementSibling.nextElementSibling:ancla.nextElementSibling;p.insertBefore(b,sig);p.insertBefore(sp,sig);
+        var det=sp.querySelector('details');det.addEventListener('toggle',function(){if(det.open)A.tiendas(sb,Number(r.c),det);});}
+      // destino de las entregas directas
+      var cO=celda(el,'OCs abiertas'),hayED=(ocs||[]).some(function(o){return o[4];});
+      if(cO&&hayED)sb.from('plan_oc_lineas').select('folio,destino').eq('clave',Number(r.c)).eq('entrega_directa',true).then(function(q){
+        if(q.error||!q.data)return;var m={};q.data.forEach(function(x){if(x.destino&&!m[x.folio])m[x.folio]=x.destino;});
+        var fF=function(f){return f?String(f).slice(0,10).split('-').reverse().join('/').replace(/\/20(\d\d)$/,'/$1'):'—';};
+        cO.innerHTML=ocs.slice(0,6).map(function(o){return 'OC '+o[0]+' · '+nf(o[1])+' pend. · '+fF(o[2])+' · '+esc(o[3])+(o[4]?' · <b style="color:#7c3aed">'+A.txtDestino(m[o[0]])+'</b>':'');}).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':'');
+      });
+    }catch(e){}
   };
   // Las funciones del portal que recalculan la propuesta desde la demanda usan «pedir hasta» del motor en las filas sustituidas
   if(window.P){

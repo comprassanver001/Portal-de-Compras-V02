@@ -478,7 +478,8 @@ async function publicar(){
     const r1=x=>Math.round(x*1000)/1000;
     const datos=S.R.claves.map(k=>{const e=E.get(k.c),i=S.info.get(k.c);let inn=0,mas=0;
       if(e&&e.validacion==='VALIDO'){let f=1;if(P.norm(e.uni_compra)!==P.norm(i.u))f=e.factor_conv||0;inn=(e.inner_cant||0)*f;mas=(e.master_cant||0)*f;}
-      return[k.c,r1(k.Dm),r1(k.punto),r1(k.hasta),k.conf,r1(inn),r1(mas)];});
+      const n3=x=>x==null||isNaN(x)?null:r1(x);
+      return[k.c,r1(k.Dm),r1(k.punto),r1(k.hasta),k.conf,r1(inn),r1(mas),n3(k.seguridad),n3(k.H),n3(k.cob),k.servicio,k.red?n3(k.red.aj):null,k.tipo,n3(k.errRel),n3(k.pAgotar),k.par?n3(k.par.v):null,k.par?n3(k.par.cierre):null,k.par?n3(k.par.antes):null,k.red?n3(k.red.hastaSin):null];});
     msg.textContent='Guardando…';
     const{error}=await sb.from('lab_publicacion').upsert({id:'vigente',fecha_calculo:S.fecha,parametros:S.param,resumen:resumenAct(),datos,creado_por:quien,creado_en:new Date().toISOString()},{onConflict:'id'});
     if(error)throw error;

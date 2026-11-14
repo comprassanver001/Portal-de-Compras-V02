@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js?v=20261112d" charset="utf-8"></script>
-<script src="lab_aplicar.js?v=20261113a" charset="utf-8"></script>
+<script src="lab_aplicar.js?v=20261113b" charset="utf-8"></script>
 <script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
 <script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
 <style>
@@ -597,6 +597,7 @@ async function pintarExplicacion(c){
       +(r.mfI!=null?'<b>Mas Ferre</b><span>existencia '+fmtN(r.mfI)+' · '+fmtN(r.mfM,1)+' meses'+(r.mfB!=null?' · número base '+fmtN(r.mfB):' · sin número base')+(r.mfF?' · <b style="color:#b45309">revisar con gerencia (devolución estratégica): excedente '+fmtN(r.mfX)+'</b>':'')+(r.mfFalta?' · <b style="color:#2563eb">faltan '+fmtN(r.mfFalta)+' por distribuir a tiendas</b>':'')+'</span>':'')
       +'<b>OCs abiertas</b><span>'+(ocs.length?ocs.map(o=>'OC '+o[0]+' · '+fmtN(o[1])+' pend. · '+fmtF(o[2])+' · '+esc(o[3])+(o[4]?' · entrega directa':'')).slice(0,6).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':''):'ninguna')+'</span>'
       +'<b>Alarmas</b><span>'+(d.alarmas.length?d.alarmas.slice(0,5).map(a=>fmtF(P.d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fmtF(P.d10(a.fecha_fin)):'')).join('<br>'):'ninguna')+'</span></div></div></div></div>';
+    if(window.LABAPL)LABAPL.detalle(sb,el,r,ocs,S.conBO);   // ambiente de pruebas: cálculo del laboratorio, tiendas y destino de entregas directas
     // Producción: productos donde se usa este insumo (solo informativo)
     if(r.bp&&r.bp.length){const vp=await P.ventasProductos(sb,r.bp);const bx=el.querySelector('.detbox');if(bx)bx.insertAdjacentHTML('beforeend',P.produccionHTML(r,k=>S.byClave.get(Number(k)),vp,ref));}
   }catch(e){el.innerHTML='<div class="err">No se pudo leer el historial de la clave: '+esc(e.message||e)+'</div>';}
