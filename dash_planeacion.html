@@ -7,8 +7,8 @@
 <title>Planeación e indicadores</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261113s" charset="utf-8"></script>
-<script src="lab_aplicar.js?v=20261113c" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261113t" charset="utf-8"></script>
+<script src="lab_aplicar.js?v=20261113d" charset="utf-8"></script>
 <script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
 <script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
 <style>
@@ -273,7 +273,9 @@ function serieTendencia(hist,base,comp,desde){
 }
 // ── Pedidos: OC nueva vs sugerencia del portal (cantidad de la OC convertida a unidad de inventario) ──
 function cantInventario(l,emp,unidad){
-  const q=Number(l.cantidad_ped)||0;if(!emp||!emp.uni_compra||!unidad)return{q,conv:false};
+  const q=Number(l.cantidad_ped)||0;
+  const u=P.UNI&&P.UNI.get(Number(l.clave));if(u)return{q:Math.round(q*u.f*100)/100,conv:true,f:u.f,uc:u.uc,rp:true};   // factor exacto del RP03-08
+  if(!emp||!emp.uni_compra||!unidad)return{q,conv:false};
   if(P.norm(emp.uni_compra)===P.norm(unidad))return{q,conv:false};
   const f=Number(emp.factor_conv);return f>0?{q:q*f,conv:true,f}:{q,conv:false,sinFactor:true};
 }
@@ -283,7 +285,7 @@ function filasPrecision(lineas,claves,emps,motivos){
     const sug=l.sug_empaque!=null?Number(l.sug_empaque):l.sug_portal!=null?Number(l.sug_portal):null;
     const p=P.precisionOC(ci.q,sug);const m=motivos.get(Number(l.folio)+'|'+Number(l.clave))||{};
     return{folio:Number(l.folio),clave:Number(l.clave),n:r.n||'',comp:l.comprador||r.comp||'',prov:l.proveedor||'',fecha_oc:P.d10(l.fecha_oc),sug_fecha:P.d10(l.sug_fecha),
-      pedido:Number(l.cantidad_ped)||0,pedidoInv:ci.q,conv:ci.conv,sinFactor:!!ci.sinFactor,sug,sugPortal:l.sug_portal==null?null:Number(l.sug_portal),sugAnt:l.sug_ant==null?null:Number(l.sug_ant),sugPron:l.sug_pron==null?null:Number(l.sug_pron),
+      pedido:Number(l.cantidad_ped)||0,pedidoInv:ci.q,conv:ci.conv,sinFactor:!!ci.sinFactor,factor:ci.f||null,uniOC:ci.uc||(e&&e.uni_compra)||'',origenF:ci.conv?(ci.rp?'RP03-08':'EMPAQUES'):'',sug,sugPortal:l.sug_portal==null?null:Number(l.sug_portal),sugAnt:l.sug_ant==null?null:Number(l.sug_ant),sugPron:l.sug_pron==null?null:Number(l.sug_pron),
       est:l.sug_estatus||'',dem:l.sug_demanda==null?null:Number(l.sug_demanda),res:p.res,desv:p.desv,motivo:m.motivo||'',comentario:m.comentario||'',usuario:m.usuario||''};
   });
 }
@@ -584,7 +586,7 @@ async function pintarExplicacion(c){
     const d=await datosClave(c);const ref=S.fecha.slice(0,7);
     const ex=emp=>P.explicar(d.ventas[emp],emp==='SANVER'?d.ed:null,ref,r.N,m=>(d.agot[emp]||{})[m]>=P.R.DIAS_AGOTADO,S.ventasHasta[emp],S.ventasDesde[emp]);
     const sv=ex('SANVER'),mf=d.ventas.MF?ex('MF'):[];
-    const ocs=S.ocs[c]||[];
+    const ocs=S.ocs[c]||[];await P.uniCargar(sb);const UO=P.ocUni(r,ocs);
     const w=Math.max(320,($('d-tw').clientWidth||900)-30);
     el.innerHTML='<div class="detbox" style="width:'+w+'px"><div class="dgrid"><div><div class="row" style="justify-content:space-between"><b>Ventas SANVER mes a mes</b><div class="legend" style="margin:0"><span><i style="background:#3b82f6"></i>Antecedente</span><span><i style="background:#8b5cf6"></i>Pronóstico</span><span><i style="background:#cbd5e1"></i>No usado</span><span><i style="background:repeating-linear-gradient(45deg,#fda4af,#fda4af 2px,#fff 2px,#fff 4px)"></i>Descartado</span>'+(d.sust?'<span><i style="background:#f97316"></i>Clave sustituida (franja: mes usado)</span>':'')+(d.prod?'<span><i style="background:#db2777"></i>Consumo por producción</span>':'')+(sv.some(x=>x.actual)?'<span><i style="background:repeating-linear-gradient(45deg,#14b8a6,#14b8a6 2px,#ccfbf1 2px,#ccfbf1 4px)"></i>Mes actual (no cuenta)</span>':'')+'</div></div>'+graficaMeses(sv,d.agot.SANVER,d.sust&&d.sust.parte.SANVER,d.prod&&d.prod.parte)
       +(mf.length?'<details style="margin-top:6px"><summary class="sm lk">Ventas MF (antecedente '+fmtN(r.mfA,1)+' · pronóstico '+fmtN(r.mfP,1)+' · existencia '+fmtN(r.mfI)+')</summary>'+graficaMeses(mf,d.agot.MF,d.sust&&d.sust.parte.MF)+'</details>':'')+'</div>'
@@ -596,7 +598,7 @@ async function pintarExplicacion(c){
       +(r.rs>0?'<b>Resguardo</b><span>CEDI '+fmtN(r.exC)+' + resguardo '+fmtN(r.rs)+' = '+fmtN(r.ex)+' · '+esc(rgDet(r))+'</span>':'')
       +((r.boT||0)>(r.bo||0)?'<b>BO</b><span>total '+fmtN(r.boT)+((r.boT-r.bo-(r.rsBo||0))>0.0001?' · entrega directa '+fmtN(r.boT-r.bo-(r.rsBo||0))+' (no cuenta)':'')+(r.rsBo?' · en resguardo '+fmtN(r.rsBo)+' (ya contado en existencia)':'')+' · CEDI '+fmtN(r.bo)+'</span>':'')+(r.nt?'<b>Notas</b><span>'+esc(r.nt)+'</span>':'')
       +(r.mfI!=null?'<b>Mas Ferre</b><span>existencia '+fmtN(r.mfI)+' · '+fmtN(r.mfM,1)+' meses'+(r.mfB!=null?' · número base '+fmtN(r.mfB):' · sin número base')+(r.mfF?' · <b style="color:#b45309">revisar con gerencia (devolución estratégica): excedente '+fmtN(r.mfX)+'</b>':'')+(r.mfFalta?' · <b style="color:#2563eb">faltan '+fmtN(r.mfFalta)+' por distribuir a tiendas</b>':'')+'</span>':'')
-      +'<b>OCs abiertas</b><span>'+(ocs.length?ocs.map(o=>'OC '+o[0]+' · '+fmtN(o[1])+' pend. · '+fmtF(o[2])+' · '+esc(o[3])+(o[4]?' · entrega directa':'')).slice(0,6).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':''):'ninguna')+'</span>'
+      +'<b>OCs abiertas</b><span>'+(ocs.length?P.ocAviso(UO,r,fmtN)+ocs.map(o=>P.ocRenglon(o,UO,fmtN,fmtF,esc)).slice(0,6).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':''):'ninguna')+'</span>'
       +'<b>Alarmas</b><span>'+(d.alarmas.length?d.alarmas.slice(0,5).map(a=>fmtF(P.d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fmtF(P.d10(a.fecha_fin)):'')).join('<br>'):'ninguna')+'</span></div></div></div></div>';
     if(window.LABAPL)LABAPL.detalle(sb,el,r,ocs,S.conBO);   // ambiente de pruebas: cálculo del laboratorio, tiendas y destino de entregas directas
     // Producción: productos donde se usa este insumo (solo informativo)
@@ -629,16 +631,19 @@ function graficaMeses(arr,agot,parte,pprod){
   });
   return s+'</svg><div class="mut sm">Pasa el cursor por cada barra para ver el detalle. ⛔ = mes agotado · ED = se restó entrega directa · rayado = mes descartado'+(parte&&Object.keys(parte).length?' · <span style="color:#f97316">■</span> venta de la clave sustituida':'')+'.</div>';
 }
-function excelDetalle(){
+async function excelDetalle(){await P.uniCargar(sb);
   const lq=listaClaves(S.f.q),DFx=lq?DF.filter(([id])=>!esComp(id)):DF;
   const rows=filtrarClaves(S.claves,{...S.f,comp:null,base:S.base}).filter(r=>MS.pasa(r,DFx));
-  const out=rows.map(r=>({'BO':S.conBO?'con BO':'sin BO','Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'Existencia CEDI':r.exC!=null?r.exC:r.ex,'Resguardo':r.rs||0,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).length,
+  const out=rows.map(r=>({'BO':S.conBO?'con BO':'sin BO','Clave':r.c,'Descripción':r.n,'Marca':r.m,'Grupo':r.g,'Comprador':r.comp,'Rotación':r.rot,'Unidad':r.u,'Existencia':r.ex,'Existencia CEDI':r.exC!=null?r.exC:r.ex,'Resguardo':r.rs||0,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).length,...ocXls(r),
     'Consumo antecedente':r.A,'Meses antecedente':mesesDe(r,'A'),'Estatus antecedente':estDe(r,'A'),'Consumo pronóstico':r.P,'Meses pronóstico':mesesDe(r,'P'),'Estatus pronóstico':estDe(r,'P'),
     'Variación pronóstico vs antecedente':tempDe(r).v,'Temporada':P.TEMP_L[tempDe(r).t],'Cambia estatus':cambia(r)?'SÍ':'','Empeora con pronóstico':empeora(r)?'SÍ':'','Demanda portal':r.D,'Base demanda':r.bD,'Meses portal':r.mi,'Estatus portal':r.est,
     'Costo unitario':costoDe(r),'Afectación $ por mes (demanda portal)':impDe(r,'D'),'Objetivo (meses)':r.pm,'T. entrega (meses)':r.lt,'N meses':r.N,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,
     'Existencia MF':r.mfI,'Número base MF':r.mfB??'','Falta por distribuir':r.mfFalta??'','Demanda MF':r.mfD,'Meses MF':r.mfM,'Revisar con gerencia':r.mfF?'SÍ':'','Excedente MF':r.mfX,'Notas':r.nt}));
   descargarXLSX([[out,'Detalle por clave']],'Detalle_claves_'+S.fecha);
 }
+// Pendiente de las OCs abiertas ya en la unidad de la clave (RP03-08), para los Excel
+function ocXls(r){const ocs=S.ocs[r.c]||[],U=P.ocUni(r,ocs);const sum=k=>{let t=0;ocs.forEach(o=>{if(k==null||!!o[4]===k)t+=P.ocCant(o[1],U);});return Math.round(t*100)/100;};
+  return{'Pendiente OCs al CEDI (unidad de la clave)':ocs.length?sum(false):'','Pendiente OCs entrega directa (unidad de la clave)':ocs.some(o=>o[4])?sum(true):'','Unidad de compra de la OC':U.conv?(U.uc||'distinta'):(ocs.length?r.u||'':''),'Factor a unidad de la clave':U.conv?Math.round(U.f*1e6)/1e6:(ocs.length?1:''),'Origen del factor':U.conv?(U.src==='rp'?'RP03-08':'APROXIMADO (BO ÷ OCs)'):''};}
 function descargarXLSX(hojas,nombre){const wb=XLSX.utils.book_new();hojas.forEach(([rows,n])=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),n.slice(0,31)));XLSX.writeFile(wb,nombre+'.xlsx');}
 
 // ══════════ PEDIDOS ══════════
@@ -657,13 +662,13 @@ function pintarPedir(){
     +'<td class="num gD">'+fmtN(r.D,1)+'</td><td class="num gD">'+fmtN(r.mi,1)+'</td><td class="gD">'+tag(r.est)+nivTag(r)+'</td><td class="num gPr">'+cp(r.sA)+'</td><td class="num gPr">'+cp(r.sP)+'</td><td class="num gPr act">'+cp(r.s)+'</td><td class="num gPr">'+(r.sE!=null?cp(r.sE)+' <span class="mut sm">'+esc(r.eT)+'</span>':'—')+'</td>'
     +'<td class="sm">'+(r.mfF?'<span class="pill p-warn" title="Excedente MF '+fmtN(r.mfX)+'">'+fmtN(r.mfM,1)+' m'+(r.mfX>=r.s?' · cubre':'')+'</span>':r.mfM!=null?fmtN(r.mfM,1)+' m':'—')+'</td><td class="sm mut" title="'+esc(r.nt||'')+'">'+esc((r.nt||'').slice(0,50))+'</td></tr>';}).join('')||'<tr><td colspan="16" class="empty">Nada por pedir con este filtro. ✅</td></tr>';
 }
-function excelPedir(){descargarXLSX([[filasPedir().map(r=>({'BO':S.conBO?'con BO':'sin BO','Clave':r.c,'Descripción':r.n,'Comprador':r.comp,'Marca':r.m,'Existencia':r.ex,'Existencia CEDI':r.exC!=null?r.exC:r.ex,'Resguardo':r.rs||0,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).map(o=>o[0]).join(', '),'T. entrega':r.lt,'Objetivo':r.pm,'Antecedente':r.A,'Pronóstico':r.P,'Demanda portal':r.D,'Meses inv':r.mi,'Estatus portal':r.est,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,'Meses MF':r.mfM,'Excedente MF':r.mfX,'Notas':r.nt})),'Por pedir']],'Por_pedir_'+S.fecha);}
+async function excelPedir(){await P.uniCargar(sb);descargarXLSX([[filasPedir().map(r=>({'BO':S.conBO?'con BO':'sin BO','Clave':r.c,'Descripción':r.n,'Comprador':r.comp,'Marca':r.m,'Existencia':r.ex,'Existencia CEDI':r.exC!=null?r.exC:r.ex,'Resguardo':r.rs||0,'BO CEDI':r.bo,'BO total':r.boT,'OCs abiertas':(S.ocs[r.c]||[]).map(o=>o[0]).join(', '),...ocXls(r),'T. entrega':r.lt,'Objetivo':r.pm,'Antecedente':r.A,'Pronóstico':r.P,'Demanda portal':r.D,'Meses inv':r.mi,'Estatus portal':r.est,'Propuesta antecedente':r.sA,'Propuesta pronóstico':r.sP,'Propuesta portal':r.s,'Propuesta con empaque':r.sE,'Empaque':r.eT,'Meses MF':r.mfM,'Excedente MF':r.mfX,'Notas':r.nt})),'Por pedir']],'Por_pedir_'+S.fecha);}
 async function cargarPrecision(){
   if(S.lineasSug)return;
-  const [lin,emp,mot,cat]=await Promise.all([
+  const [lin,emp,mot,,cat]=await Promise.all([
     todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,proveedor,comprador,cantidad_ped,entrega_directa,sug_fecha,sug_portal,sug_empaque,sug_ant,sug_pron,sug_estatus,sug_demanda').not('sug_fecha','is',null).order('folio').order('clave')),
     todo(()=>sb.from('plan_empaques').select('clave,uni_compra,factor_conv').order('clave')),
-    todo(()=>sb.from('plan_oc_motivo').select('*').order('folio').order('clave')),
+    todo(()=>sb.from('plan_oc_motivo').select('*').order('folio').order('clave')),P.uniCargar(sb),
     sb.from('motivos_precision2').select('motivo,etiqueta,orden').order('orden',{ascending:true})]);
   S.lineasSug=lin;S.emps=new Map(emp.map(e=>[Number(e.clave),e]));S.motivos=new Map(mot.map(m=>[Number(m.folio)+'|'+Number(m.clave),m]));S.catMot=(cat.data||[]).map(m=>({k:m.motivo,l:m.etiqueta||m.motivo}));
 }
@@ -692,7 +697,7 @@ async function guardarMotivo(folio,clave,motivo,comentario){
   if(error){alert('No se guardó el motivo: '+error.message);return;}
   S.motivos.set(k,fila);
 }
-function excelPrecision(){descargarXLSX([[(S.precFilas||[]).map(x=>({'OC':x.folio,'Fecha OC':x.fecha_oc,'Clave':x.clave,'Descripción':x.n,'Proveedor':x.prov,'Comprador':x.comp,'Pedido (unidad compra)':x.pedido,'Pedido (unidad inventario)':x.pedidoInv,'Propuesta portal':x.sug,'Propuesta antecedente':x.sugAnt,'Propuesta pronóstico':x.sugPron,'Cálculo del':x.sug_fecha,'Estatus ese día':x.est,'Demanda ese día':x.dem,'Desviación %':x.desv,'Resultado':x.res,'Motivo':x.motivo,'Comentario':x.comentario,'Capturó':x.usuario})),'OCs vs propuesta']],'Pedidos_vs_propuesta');}
+function excelPrecision(){descargarXLSX([[(S.precFilas||[]).map(x=>({'OC':x.folio,'Fecha OC':x.fecha_oc,'Clave':x.clave,'Descripción':x.n,'Proveedor':x.prov,'Comprador':x.comp,'Pedido (unidad compra)':x.pedido,'Pedido (unidad inventario)':x.pedidoInv,'Unidad de compra':x.uniOC,'Factor a unidad de inventario':x.conv?x.factor:'','Origen del factor':x.origenF,'Propuesta portal':x.sug,'Propuesta antecedente':x.sugAnt,'Propuesta pronóstico':x.sugPron,'Cálculo del':x.sug_fecha,'Estatus ese día':x.est,'Demanda ese día':x.dem,'Desviación %':x.desv,'Resultado':x.res,'Motivo':x.motivo,'Comentario':x.comentario,'Capturó':x.usuario})),'OCs vs propuesta']],'Pedidos_vs_propuesta');}
 
 // ══════════ TARGET ══════════
 async function cargarAlarmas(){if(S.alarmas)return;

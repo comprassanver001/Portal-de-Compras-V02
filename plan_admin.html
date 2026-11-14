@@ -7,7 +7,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261113s" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261113t" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -82,6 +82,13 @@ td:first-child,th:first-child{text-align:left}
     <p class="d">Archivo <b>Informacion_de_empaques.xlsx</b> (hoja BD). Solo las claves VALIDO se usarán para redondear.</p>
     <div class="row"><input type="file" id="f-emp" accept=".xlsx"><button onclick="run('emp')">Cargar empaques</button></div>
     <div class="log" id="log-emp"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">📐</span>Unidades de medida (RP03-08) <small style="color:var(--tx2);font-weight:400">· cuando cambie una unidad o se den de alta claves</small></h2>
+    <p class="d">Reporte <b>RP03-08 Existencias con Todas las Unidades</b> tal como sale del sistema (CSV o Excel). Las OCs se capturan en la <b>unidad de compra</b> y el portal trabaja en la <b>unidad mínima</b> (la del inventario). Con este reporte el portal muestra y exporta las cantidades de las OCs <b>en la unidad de la clave</b> con el factor exacto (ej. 1 METRO2 = 0.568 CAJA). Solo se guardan las claves donde las dos unidades son distintas; cada carga reemplaza la anterior. No cambia el cálculo diario.</p>
+    <div class="row"><input type="file" id="f-uni" accept=".csv,.xlsx,.xls"><button onclick="run('uni')">Cargar unidades</button></div>
+    <div class="log" id="log-uni"></div>
   </div>
 
   <div class="card">
@@ -276,6 +283,7 @@ async function run(tipo){
     if(tipo==='ventas')await cargaVentas(log);
     if(tipo==='mf')await cargaMF(log);
     if(tipo==='emp')await cargaEmp(log);
+    if(tipo==='uni')await cargaUni(log);
     if(tipo==='hist')await cargaHist(log);
     if(tipo==='ed')await cargaED(log);
     if(tipo==='calc')await cargaCalc(log);
@@ -335,6 +343,29 @@ async function cargaMF(log){
   ({error}=await sb.from('plan_agotados_dia').delete().eq('empresa','MF').eq('fecha',r.fecha));if(error)throw new Error('borrando agotados del corte: '+error.message);
   await enLotes('plan_agotados_dia',ag,log);
   log.msg('🎉 Listo. Existencias MF al '+r.fecha+'.');
+}
+
+// ── Unidades de medida del RP03-08 (plan_tablas_27.sql) ──
+async function cargaUni(log){
+  const f=document.getElementById('f-uni').files[0];
+  if(!f)throw new Error('Primero selecciona el archivo.');
+  log.msg('📖 Leyendo '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)…');await pausa();
+  // el CSV se lee como texto para respetar acentos y los números con coma de miles
+  let aoa;
+  if(/\.csv$/i.test(f.name))aoa=P.csv(await f.text());
+  else{const wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'});aoa=P.aoa(wb.Sheets[wb.SheetNames[0]]);}
+  const r=P.unidadesRP(aoa);
+  if(r.total<1000)throw new Error('El archivo solo trae '+fmt(r.total)+' claves; parece incompleto. No se cambió nada.');
+  if(!r.rows.length)throw new Error('No encontré claves con unidad de compra distinta a la unidad mínima. No se cambió nada.');
+  log.msg('⚙️ '+fmt(r.total)+' claves en el reporte · '+fmt(r.rows.length)+' con unidad de compra distinta a la mínima'+(r.sinDato?' · '+fmt(r.sinDato)+' sin piezas por unidad (se tratan como misma unidad)':''));
+  const ej=r.rows.find(x=>x.clave===44518)||r.rows[0];
+  log.msg('   Ejemplo: clave '+ej.clave+' → 1 '+(ej.uni_compra||'unidad de compra')+' = '+ej.factor+' '+(ej.uni_min||''));
+  const ahora=new Date().toISOString();
+  await enLotes('plan_unidades',r.rows.map(x=>({...x,actualizado_en:ahora})),log,{onConflict:'clave'}).catch(e=>{throw new Error(e.message+' (¿ya corriste plan_tablas_27.sql?)');});
+  // quita las claves de cargas anteriores que ya no tienen conversión
+  const{error}=await sb.from('plan_unidades').delete().lt('actualizado_en',ahora);
+  if(error)throw new Error('plan_unidades: '+error.message);
+  log.msg('🎉 Listo. Las OCs abiertas (detalle de clave, ficha y Excel de Planeación) ya se muestran en la unidad de la clave.');
 }
 
 async function cargaEmp(log){

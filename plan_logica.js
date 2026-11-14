@@ -602,6 +602,62 @@ P.explicar=(meses,ed,ref,N,agot,ultimo,primero)=>{
   if(meses&&meses[ref]!=null)out.set(ref,{m:ref,venta:meses[ref],limpia:sAll[ref]!=null?sAll[ref]:meses[ref],ed:sv.ed.includes(ref),usa:[],actual:true});
   return[...out.values()].sort((a,b)=>a.m<b.m?-1:1);
 };
+// ── Unidades de medida (reporte RP03-08 «Existencias con todas las unidades», plan_tablas_27.sql) ──
+// Las OCs se capturan en unidad de compra; el portal trabaja en unidad mínima.
+// Factor exacto = PZASXUNI_COMPRA ÷ PZASXUNIDAD_MINIMA (unidades mínimas por 1 unidad de compra). Solo se guardan las claves con factor ≠ 1.
+// CSV → matriz de textos (comillas dobles, comas dentro de comillas y saltos de línea dentro de un campo)
+P.csv=t=>{
+  const out=[];let f=[],c='',q=false;t=String(t||'').replace(/^\uFEFF/,'');
+  for(let i=0;i<t.length;i++){const ch=t[i];
+    if(q){if(ch==='"'){if(t[i+1]==='"'){c+='"';i++;}else q=false;}else c+=ch;}
+    else if(ch==='"')q=true;
+    else if(ch===','){f.push(c);c='';}
+    else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&t[i+1]==='\n')i++;f.push(c);c='';out.push(f);f=[];}
+    else c+=ch;}
+  if(c!==''||f.length){f.push(c);out.push(f);}
+  return out;
+};
+P.unidadesRP=aoa=>{
+  const h=P.header(aoa,['IDARTICULO','UNIDAD_COMPRA','PZASXUNI_COMPRA','UNIDAD_MINIMA','PZASXUNIDAD_MINIMA']);
+  if(!h)throw new Error('No encontré los encabezados del RP03-08 (IDARTICULO, UNIDAD_COMPRA, PZASXUNI_COMPRA, UNIDAD_MINIMA, PZASXUNIDAD_MINIMA).');
+  const m=new Map();let total=0,sinDato=0;
+  for(let i=h.fila+1;i<aoa.length;i++){
+    const r=aoa[i];const k=P.clave(r[h.idx.IDARTICULO]);if(k==null)continue;total++;
+    const pc=P.num(r[h.idx.PZASXUNI_COMPRA]),pm=P.num(r[h.idx.PZASXUNIDAD_MINIMA]);
+    if(!(pc>0)||!(pm>0)){sinDato++;continue;}
+    const f=Math.round(pc/pm*1e6)/1e6;if(!(f>0)||Math.abs(f-1)<1e-6)continue;
+    m.set(k,{clave:k,uni_compra:String(r[h.idx.UNIDAD_COMPRA]||'').trim()||null,uni_min:String(r[h.idx.UNIDAD_MINIMA]||'').trim()||null,factor:f});
+  }
+  return{rows:[...m.values()],total,sinDato};
+};
+P.UNI=null;let _uniP=null;   // Map clave → {uc,um,f}; se lee una vez por página
+P.uniCargar=sb=>_uniP||(_uniP=(async()=>{
+  const m=new Map();
+  try{for(let i=0;i<20000;i+=1000){
+    const{data,error}=await sb.from('plan_unidades').select('clave,uni_compra,uni_min,factor').order('clave').range(i,i+999);
+    if(error)throw error;(data||[]).forEach(x=>{const f=Number(x.factor);if(f>0)m.set(Number(x.clave),{uc:x.uni_compra||'',um:x.uni_min||'',f});});
+    if(!data||data.length<1000)break;}
+  }catch(e){console.warn('Unidades RP03-08:',e.message||e);}
+  P.UNI=m;return m;})());
+// Conversión de las cantidades de OC de una clave a su unidad.
+//  · con RP03-08 cargado: factor exacto (src 'rp'); las claves que no vienen ahí se compran en su misma unidad (f=1)
+//  · sin RP03-08: aproximación BO total ÷ suma de pendientes de las OCs (src 'bo'), solo si difieren más de 3 %
+// r: fila del cálculo (c,u,boT,bo) · ocs: [[folio,pend,…]] o null
+P.ocUni=(r,ocs)=>{
+  const U=P.UNI,u=U&&r?U.get(Number(r.c)):null;
+  if(u)return{f:u.f,uc:u.uc,um:(r&&r.u)||u.um,src:'rp',conv:true};
+  if(U&&U.size)return{f:1,conv:false};
+  let s=0;(ocs||[]).forEach(o=>s+=Number(o[1])||0);const bo=r?Number(r.boT!=null?r.boT:r.bo)||0:0;
+  if(s>0&&bo>0&&Math.abs(bo/s-1)>0.03)return{f:bo/s,uc:'',um:(r&&r.u)||'',src:'bo',conv:true};
+  return{f:1,conv:false};
+};
+P.ocCant=(q,U)=>{const v=(Number(q)||0)*(U&&U.conv?U.f:1);return Math.round(v*100)/100;};
+// Aviso y renglones de «OCs abiertas» ya en la unidad de la clave (HTML). fN: formato de número, fF: de fecha, esc: escape
+P.ocAviso=(U,r,fN)=>!U||!U.conv?'':'<span style="color:#b45309">'+(U.src==='rp'
+  ?'Las OCs de esta clave se capturan en '+(U.uc||'otra unidad')+'; aquí se muestran en '+(U.um||'la unidad de la clave')+' (1 '+(U.uc||'unidad de compra')+' = '+fN(U.f,3)+' '+(U.um||'')+', RP03-08).'
+  :'Las OCs de esta clave se capturan en otra unidad: 1 unidad de compra ≈ '+fN(U.f,3)+' '+(U.um||'')+' (aproximado con el BO; carga el RP03-08 en Admin para el factor exacto).')+'</span><br>';
+P.ocRenglon=(o,U,fN,fF,esc,extra)=>'OC '+o[0]+' · '+(U&&U.conv?(U.src==='bo'?'≈ ':'')+'<b>'+fN(P.ocCant(o[1],U))+' '+esc(U.um||'')+'</b> pend. <span style="opacity:.7">('+fN(o[1])+' '+esc(U.uc||'en unidad de compra')+')</span>':fN(o[1])+' pend.')+' · '+fF(o[2])+' · '+esc(o[3])+(extra!=null?extra:(o[4]?' · entrega directa':''));
+
 // Fracción del BO que llega al CEDI por clave = pendiente de OCs al CEDI ÷ pendiente total (CEDI + entrega directa).
 // Se usa proporción porque la cantidad de la OC puede venir en unidad de compra y el BO en unidad de inventario.
 P.fracBoCEDI=(cur,enc,sinED)=>{

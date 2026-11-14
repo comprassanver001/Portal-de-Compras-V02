@@ -117,13 +117,12 @@
         var sig=r.lab&&ancla===celda(el,'Propuesta')?ancla.nextElementSibling.nextElementSibling.nextElementSibling:ancla.nextElementSibling;p.insertBefore(b,sig);p.insertBefore(sp,sig);
         var det=sp.querySelector('details');det.addEventListener('toggle',function(){if(det.open)A.tiendas(sb,Number(r.c),det);});}
       // OCs abiertas: cantidad en la unidad de la clave y destino de las entregas directas
-      var cO=celda(el,'OCs abiertas'),U=A.unidadOC(r,ocs),hayED=(ocs||[]).some(function(o){return o[4];});
+      var cO=celda(el,'OCs abiertas'),U=P.ocUni(r,ocs),hayED=(ocs||[]).some(function(o){return o[4];});
       var fF=function(f){return f?String(f).slice(0,10).split('-').reverse().join('/').replace(/\/20(\d\d)$/,'/$1'):'—';};
+      // mismas cantidades que el portal de producción (factor exacto del RP03-08); aquí solo se agrega el destino de las entregas directas
       var pinta=function(m){
-        cO.innerHTML=(U.distinta?'<span style="color:#b45309">Las OCs de esta clave se capturan en otra unidad: 1 unidad de compra ≈ '+nf(U.f,3)+' '+esc(r.u||'')+'. El BO ('+nf(r.boT)+') y el cálculo ya están en '+esc(r.u||'la unidad del portal')+'.</span><br>':'')+
-          ocs.slice(0,6).map(function(o){return 'OC '+o[0]+' · '+(U.distinta?nf(o[1])+' en unidad de compra ≈ <b>'+nf(o[1]*U.f)+' '+esc(r.u||'')+'</b>':nf(o[1])+' pend.')+' · '+fF(o[2])+' · '+esc(o[3])+(o[4]?' · <b style="color:#7c3aed">'+A.txtDestino(m&&m[o[0]])+'</b>':'');}).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':'');};
+        cO.innerHTML=P.ocAviso(U,r,nf)+ocs.slice(0,6).map(function(o){return P.ocRenglon(o,U,nf,fF,esc,o[4]?' · <b style="color:#7c3aed">'+A.txtDestino(m&&m[o[0]])+'</b>':'');}).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':'');};
       if(cO&&ocs&&ocs.length){
-        if(U.distinta)pinta(null);
         if(hayED)sb.from('plan_oc_lineas').select('folio,destino').eq('clave',Number(r.c)).eq('entrega_directa',true).then(function(q){
           if(q.error||!q.data)return;var m={};q.data.forEach(function(x){if(x.destino&&!m[x.folio])m[x.folio]=x.destino;});pinta(m);});
       }

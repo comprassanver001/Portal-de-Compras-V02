@@ -19,6 +19,7 @@
       sb.from('plan_alarmas').select('fecha_alarma,fecha_fin,tipo,resultado_target,oc_folio,dias_dif').eq('clave',c).order('fecha_alarma',{ascending:false})];
     // Historial día por día con el cálculo del portal (fotos diarias; últimos 30 días calculados)
     if(conHist)q.push(window.FOTOS?FOTOS.fechas(sb).then(fs=>FOTOS.clave(sb,c,fs.slice(-30))).then(h=>({data:h})).catch(e=>({error:e})):Promise.resolve({data:[]}));
+    if(P.uniCargar)q.push(P.uniCargar(sb).then(()=>({data:null})));   // unidades de compra (RP03-08), siempre al final
     const r=await Promise.all(q);
     const o={ventas:{},agot:{SANVER:{},MF:{}},ed:{},alarmas:[],hist:[]};
     if(!r[0].error)(r[0].data||[]).forEach(x=>o.ventas[x.empresa]=x.meses||{});
@@ -76,7 +77,7 @@
       const ex=emp=>P.explicar(d.ventas[emp],emp==='SANVER'?d.ed:null,ref,r.N,m=>(d.agot[emp]||{})[m]>=P.R.DIAS_AGOTADO,(ctx.ventasHasta||{})[emp],(ctx.ventasDesde||{})[emp]);
       sv=ex('SANVER');mf=d.ventas.MF?ex('MF'):[];
     }
-    const ocs=ctx.ocs||[];
+    const ocs=ctx.ocs||[];const UO=r?P.ocUni(r,ocs):null;
     const usados=w=>sv.filter(x=>x.usa.includes(w)).map(x=>fM(x.m)).join(', ')||'sin meses válidos';
     const izq=(ctx.conHist?'<div style="margin-bottom:12px"><b style="font-size:12.5px">Estatus día por día</b> <span style="font-size:11px;color:#64748b">(estatus del portal de cada día; pasa el cursor para ver meses con antecedente, pronóstico y portal)</span>'+tira(d.hist,60)+'</div>':'')
       +'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:12.5px">Ventas SANVER mes a mes</b><span style="font-size:11px;color:#64748b"><span style="color:#3b82f6">■</span> antecedente · <span style="color:#8b5cf6">■</span> pronóstico · <span style="color:#cbd5e1">■</span> no usado · <span style="color:#fb7185">▨</span> descartado · ⛔ agotado · ED entrega directa restada · <span style="color:#14b8a6">▨</span> mes actual (no cuenta)'+(d.prod?' · <span style="color:#db2777">■</span> consumo por producción':'')+(d.sust?' · <span style="color:#f97316">■</span> venta de clave sustituida':'')+'</span></div>'
@@ -95,7 +96,7 @@
       +kv('Estatus','portal <b>'+esc(r.est)+'</b>'+(r.eA?' · antecedente '+esc(r.eA.toLowerCase()):'')+(r.eP?' · pronóstico '+esc(r.eP.toLowerCase()):''))
       +(r.mfI!=null?kv('MF','existencia '+n(r.mfI)+' · '+n(r.mfM,1)+' meses'+(r.mfB!=null?' · número base '+n(r.mfB):'')+(r.mfF?' · <b style="color:#b45309">revisar con gerencia</b> (excedente '+n(r.mfX)+(r.mfB!=null?' sobre su base':'')+')':'')+(r.mfFalta?' · <b style="color:#2563eb">faltan '+n(r.mfFalta)+' por distribuir a tiendas</b>':'')):'')
       +(r.nt?kv('Notas',esc(r.nt)):'')
-      +kv('OCs abiertas',ocs.length?ocs.slice(0,6).map(o=>'OC '+o[0]+' · '+n(o[1])+' pend. · '+fF(o[2])+' · '+esc(o[3])+(o[4]?' · entrega directa':'')).join('<br>')+(ocs.length>6?'<br>… y '+(ocs.length-6)+' más':''):'ninguna')
+      +kv('OCs abiertas',ocs.length?P.ocAviso(UO,r,n)+ocs.slice(0,6).map(o=>P.ocRenglon(o,UO,n,fF,esc)).join('<br>')+(ocs.length>6?'<br>… y '+(ocs.length-6)+' más':''):'ninguna')
       +kv('Alarmas',d.alarmas.length?d.alarmas.slice(0,5).map(a=>fF(d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fF(d10(a.fecha_fin)):'')).join('<br>'):'ninguna')
       +'</div>':'';
     return '<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:16px">'+'<div>'+izq+'</div><div>'+der+'</div></div>';
