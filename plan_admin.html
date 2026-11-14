@@ -7,7 +7,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261112d" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261113s" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -172,7 +172,7 @@ td:first-child,th:first-child{text-align:left}
   </div>
   <div class="card">
     <h2><span class="n">🔁</span>Claves sustituidas <small style="color:var(--tx2);font-weight:400">· cuando cambie la lista</small></h2>
-    <p class="d">Archivo <b>Claves vigentes y sustituidas</b>: a la izquierda la clave vigente (IDART en azul) y a la derecha la o las claves originales que sustituyó (IDART en naranja). En el Cálculo diario la clave vigente <b>suma la venta de sus claves originales</b> (ventas SANVER y MF y compras de entrega directa) para tener su historial completo. Si una original tiene varias sustitutas, a cada una le toca la venta dividida en partes iguales. Cada carga <b>reemplaza la lista completa</b>.</p>
+    <p class="d">Archivo <b>Claves vigentes y sustituidas</b>: a la izquierda la clave vigente (IDART en azul) y a la derecha la o las claves originales que sustituyó (IDART en naranja). Columna <b>ESTATUS</b>: <b>SUSTITUTO</b> = se suma su venta; <b>EQUIVALENTE</b> y <b>REVISAR</b> = solo se muestran en la ficha, su venta no se suma; <b>BAJA</b> = no se considera. En el Cálculo diario la clave vigente <b>suma la venta de sus claves originales sustitutas</b> (ventas SANVER y MF y compras de entrega directa) para tener su historial completo. Si una original tiene varias sustitutas, a cada una le toca la venta dividida en partes iguales. Cada carga <b>reemplaza la lista completa</b>.</p>
     <p class="d"><b>Unidad distinta:</b> si la clave vigente y la original venden en escalas muy diferentes (más de 10 veces, p. ej. una en mililitros y otra en piezas), la venta de la original <b>no se suma</b> hasta capturar su factor de conversión. Baja la lista, llena la columna FACTOR (1 unidad de la original = FACTOR unidades de la vigente) y súbela aquí mismo; solo actualiza los factores.</p>
     <div class="row"><input type="file" id="f-sust" accept=".xlsx,.xls"><button onclick="run('sust')">Cargar sustituciones o factores</button><button class="sec" onclick="run('sustx')">⬇ Pares con unidad distinta</button></div>
     <div class="log" id="log-sust"></div>
@@ -409,9 +409,11 @@ async function contexto(log){
   try{const mb=await todo(()=>sb.from('plan_mf_base').select('clave,base').order('clave'));ctx.mfBase=new Map(mb.map(r=>[Number(r.clave),Number(r.base)]));if(mb.length)log.msg('🏬 Número base MF: '+fmt(mb.length)+' claves.');}
   catch(e){ctx.mfBase=new Map();}
   // Claves sustituidas: la vigente suma la venta de sus claves originales
-  try{let su;try{su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,conv').order('clave_vigente').order('clave_original'));}
-    catch(e){su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));}
-    if(su.length){const n=P.aplicarSust(ctx,su);log.msg('🔁 Claves sustituidas: '+fmt(n)+' claves vigentes suman la venta de sus claves originales'+(ctx.sustOmit.length?' · ⚠️ '+ctx.sustOmit.length+' pares NO se suman por unidad distinta (captura su factor en la tarjeta de sustituciones)':'')+'.');}}
+  try{let su;try{su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,conv,estatus').order('clave_vigente').order('clave_original'));}
+    catch(e){try{su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,conv').order('clave_vigente').order('clave_original'));}
+      catch(e2){su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));}}
+    const nEq=su.filter(x=>!P.sustSuma(x)).length;
+    if(su.length){const n=P.aplicarSust(ctx,su);log.msg('🔁 Claves sustituidas: '+fmt(n)+' claves vigentes suman la venta de sus claves originales (estatus SUSTITUTO)'+(nEq?' · '+fmt(nEq)+' equivalentes o por revisar solo se muestran (no se suma su venta)':'')+(ctx.sustOmit.length?' · ⚠️ '+ctx.sustOmit.length+' pares NO se suman por unidad distinta (captura su factor en la tarjeta de sustituciones)':'')+'.');}}
   catch(e){ctx.sust=new Map();log.msg('ℹ️ Sin claves sustituidas ('+(e.message||e)+'). Si aún no existe la tabla, corre plan_tablas_13.sql.','w');}
   // Inventario en resguardo con proveedores (se suma a la existencia; vigencia por día dentro del cálculo)
   try{ctx.resgRows=await todo(()=>sb.from('plan_resguardo').select('clave,proveedor,cantidad,fecha_corte,desc_bo').order('clave').order('proveedor'));
@@ -777,7 +779,7 @@ async function pintarProv(){
 // ── Claves sustituidas ──
 // Pares de sustitución con escala de venta muy distinta: lista para capturar el factor de conversión
 async function paresConEscala(log){
-  const su=await todo(()=>sb.from('plan_sustituciones').select('*').order('clave_vigente').order('clave_original'));
+  const su=(await todo(()=>sb.from('plan_sustituciones').select('*').order('clave_vigente').order('clave_original'))).filter(P.sustSuma);
   const ks=[...new Set(su.flatMap(x=>[Number(x.clave_vigente),Number(x.clave_original)]))];const V=new Map();
   for(let i=0;i<ks.length;i+=200){const d=await todo(()=>sb.from('plan_ventas').select('clave,meses').eq('empresa','SANVER').in('clave',ks.slice(i,i+200)).order('clave'));d.forEach(r=>V.set(Number(r.clave),r.meses||{}));}
   const av=m=>{const x=Object.values(m||{}).filter(q=>q>0);return x.length?x.reduce((a,b)=>a+b,0)/x.length:null;};
@@ -810,26 +812,33 @@ async function cargaSust(log){
   }
   const ws=wb.Sheets[wb.SheetNames[0]];
   const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
-  const hi=aoa.findIndex(r=>P.norm(r[0])==='IDART');if(hi<0)throw new Error('No encontré el encabezado IDART en la columna A.');
+  // Encabezado: la fila que trae IDART (la primera IDART es la clave vigente). Columna ESTATUS (SUSTITUTO, EQUIVALENTE, BAJA, REVISAR) opcional.
+  const hi=aoa.findIndex(r=>(r||[]).some(c=>P.norm(c)==='IDART'));if(hi<0)throw new Error('No encontré el encabezado IDART.');
   const H=aoa[hi].map(P.norm);const cols=H.map((h,j)=>h==='IDART'?j:-1).filter(j=>j>=0);
   if(cols.length<2)throw new Error('Se necesita al menos una columna IDART de clave original (naranja) además de la vigente.');
-  const iCaso=H.findIndex(h=>h.startsWith('OBSERV'));
-  const pares=[],err=[];
+  const iCaso=H.findIndex(h=>h.startsWith('OBSERV')),iEst=H.findIndex(h=>h==='ESTATUS');
+  const pares=[],err=[],cuenta={};let bajas=0;
   for(let i=hi+1;i<aoa.length;i++){const r=aoa[i];const v=P.clave(r[cols[0]]);if(v==null){if(String(r[cols[0]]).trim()!=='')err.push('fila '+(i+1)+': clave vigente no válida');continue;}
-    cols.slice(1).forEach(j=>{const o=P.clave(r[j]);if(o==null||o===v)return;pares.push({clave_vigente:v,clave_original:o,desc_vigente:String(r[cols[0]+1]||'').trim()||null,desc_original:String(r[j+1]||'').trim()||null,caso:iCaso>=0?String(r[iCaso]||'').trim()||null:null});});}
-  err.slice(0,10).forEach(t=>log.msg('⚠️ '+t,'w'));
+    let est=iEst>=0?P.norm(r[iEst]):'';if(!est)est='SUSTITUTO';
+    if(!P.SUST_EST.includes(est)){err.push('fila '+(i+1)+' (clave '+v+'): estatus «'+r[iEst]+'» no reconocido; se toma como REVISAR (no se suma)');est='REVISAR';}
+    cuenta[est]=(cuenta[est]||0)+1;if(est==='BAJA'){bajas++;continue;}
+    cols.slice(1).forEach(j=>{const o=P.clave(r[j]);if(o==null||o===v)return;pares.push({clave_vigente:v,clave_original:o,estatus:est,desc_vigente:String(r[cols[0]+1]||'').trim()||null,desc_original:String(r[j+1]||'').trim()||null,caso:iCaso>=0?String(r[iCaso]||'').trim()||null:null});});}
+  err.slice(0,10).forEach(t=>log.msg('⚠️ '+t,'w'));if(err.length>10)log.msg('⚠️ … y '+(err.length-10)+' avisos más','w');
+  if(iEst>=0)log.msg('   Estatus del archivo: '+P.SUST_EST.filter(e=>cuenta[e]).map(e=>e+' '+fmt(cuenta[e])).join(' · ')+' (BAJA no se guarda; EQUIVALENTE y REVISAR solo se muestran, no se suma su venta)');
   if(!pares.length)throw new Error('El archivo no trae pares de claves válidos.');
-  // únicos y factor = 1 / número de sustitutas de cada original
-  const u=new Map();pares.forEach(p=>u.set(p.clave_vigente+'|'+p.clave_original,p));const lista=[...u.values()];
-  const nSus=new Map();lista.forEach(p=>nSus.set(p.clave_original,(nSus.get(p.clave_original)||0)+1));
-  lista.forEach(p=>{p.factor=Math.round(1/nSus.get(p.clave_original)*1e6)/1e6;p.cargado_en=new Date().toISOString();});
+  // únicos (si un par viene repetido con estatus distinto, gana SUSTITUTO) y factor = 1 / número de sustitutas de cada original (solo SUSTITUTO)
+  const u=new Map();pares.forEach(p=>{const k=p.clave_vigente+'|'+p.clave_original,a=u.get(k);if(!a||p.estatus==='SUSTITUTO')u.set(k,p);});const lista=[...u.values()];
+  const nSus=new Map();lista.filter(P.sustSuma).forEach(p=>nSus.set(p.clave_original,(nSus.get(p.clave_original)||0)+1));
+  lista.forEach(p=>{p.factor=P.sustSuma(p)?Math.round(1/nSus.get(p.clave_original)*1e6)/1e6:1;p.cargado_en=new Date().toISOString();});
   // cadenas: una original que también es vigente de otra (A←B←C) — se avisa, no se encadena
-  const vig=new Set(lista.map(p=>p.clave_vigente));const cad=[...new Set(lista.filter(p=>vig.has(p.clave_original)).map(p=>p.clave_original))];
+  const vig=new Set(lista.filter(P.sustSuma).map(p=>p.clave_vigente));const cad=[...new Set(lista.filter(p=>P.sustSuma(p)&&vig.has(p.clave_original)).map(p=>p.clave_original))];
   if(cad.length)log.msg('⚠️ '+cad.length+' clave(s) son original de una y vigente de otra (cadena): '+cad.slice(0,10).join(', ')+'. Solo se suma un nivel.','w');
   const rep=[...nSus].filter(([o,n])=>n>1);
-  log.msg('⚙️ '+fmt(vig.size)+' claves vigentes · '+fmt(nSus.size)+' claves originales · '+fmt(lista.length)+' pares'+(rep.length?' · '+rep.length+' originales con varias sustitutas (se reparte en partes iguales)':''));
+  log.msg('⚙️ '+fmt(vig.size)+' claves vigentes suman venta de '+fmt(nSus.size)+' claves originales · '+fmt(lista.length)+' pares guardados ('+fmt(lista.filter(p=>!P.sustSuma(p)).length)+' equivalentes o por revisar)'+(rep.length?' · '+rep.length+' originales con varias sustitutas (se reparte en partes iguales)':''));
   // conserva los factores ya capturados
   try{const ant=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,conv').order('clave_vigente'));const cm=new Map(ant.filter(x=>x.conv!=null).map(x=>[x.clave_vigente+'|'+x.clave_original,x.conv]));lista.forEach(p=>{const c=cm.get(p.clave_vigente+'|'+p.clave_original);if(c!=null)p.conv=c;});}catch(e){}
+  // la columna estatus es de plan_tablas_26.sql: se revisa antes de borrar la lista anterior
+  {const{error:eC}=await sb.from('plan_sustituciones').select('estatus').limit(1);if(eC)throw new Error('Falta la columna estatus en plan_sustituciones: corre plan_tablas_26.sql en Supabase (SANVER_Forte) y vuelve a cargar. No se cambió nada.');}
   const{error}=await sb.from('plan_sustituciones').delete().gte('clave_vigente',0);if(error)throw new Error('plan_sustituciones: '+error.message+' (¿ya corriste plan_tablas_13.sql?)');
   await enLotes('plan_sustituciones',lista,log,{onConflict:'clave_vigente,clave_original'});
   log.msg('🎉 Sustituciones guardadas. Se aplican en el siguiente Cálculo diario.');
@@ -838,8 +847,10 @@ async function cargaSust(log){
 }
 async function pintarSust(){
   const el=document.getElementById('sust-res');if(!el)return;
-  try{const r=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));
-    el.innerHTML=r.length?'Cargadas: <b>'+fmt(new Set(r.map(x=>x.clave_vigente)).size)+'</b> claves vigentes con <b>'+fmt(new Set(r.map(x=>x.clave_original)).size)+'</b> claves originales'+(r.some(x=>x.factor<1)?' · '+new Set(r.filter(x=>x.factor<1).map(x=>x.clave_original)).size+' originales repartidas en partes iguales':'')+'.':'No hay sustituciones cargadas.';}
+  try{let r;try{r=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,estatus').order('clave_vigente').order('clave_original'));}
+    catch(e){r=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor').order('clave_vigente').order('clave_original'));}
+    const eq=r.filter(x=>!P.sustSuma(x));r=r.filter(P.sustSuma);
+    el.innerHTML=(r.length||eq.length)?'Suman venta: <b>'+fmt(new Set(r.map(x=>x.clave_vigente)).size)+'</b> claves vigentes con <b>'+fmt(new Set(r.map(x=>x.clave_original)).size)+'</b> claves originales'+(eq.length?' · solo se muestran: <b>'+fmt(eq.filter(x=>P.norm(x.estatus)==='EQUIVALENTE').length)+'</b> equivalentes'+(eq.some(x=>P.norm(x.estatus)==='REVISAR')?' y <b>'+fmt(eq.filter(x=>P.norm(x.estatus)==='REVISAR').length)+'</b> por revisar':''):'')+(r.some(x=>x.factor<1)?' · '+new Set(r.filter(x=>x.factor<1).map(x=>x.clave_original)).size+' originales repartidas en partes iguales':'')+'.':'No hay sustituciones cargadas.';}
   catch(e){el.innerHTML='Aún no existe la tabla de sustituciones: corre <b>plan_tablas_13.sql</b> en Supabase.';}
 }
 // ── Inventario en resguardo con proveedores ──

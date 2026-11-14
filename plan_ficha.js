@@ -86,6 +86,7 @@
     const der=r?'<div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px">'
       +kv('Antecedente',n(r.A,1)+' / mes · '+usados('ANT'))+kv('Pronóstico',n(r.P,1)+' / mes · '+usados('PRON'))
       +(d.sust?kv('Claves sustituidas','<span style="color:#c2410c">suma la venta de '+d.sust.lst.map(x=>'<b>'+x.o+'</b>'+(x.f<1?' ('+Math.round(x.f*100)+'%)':'')+(x.d?' '+esc(x.d.slice(0,40)):'')).join(' · ')+'</span>'):'')
+      +(d.equiv&&d.equiv.length?kv('Equivalentes','<span style="color:#475569">'+d.equiv.map(x=>'<b>'+x.o+'</b>'+(x.d?' '+esc(x.d.slice(0,40)):'')+(x.e==='REVISAR'?' (por revisar)':'')).join(' · ')+' · <i>no se suma su venta</i></span>'):'')
       +kv('Demanda portal',n(r.D,1)+' / mes · '+esc(r.bD)+(r.bDx?' ('+esc(r.bDx)+')':''))+kv('Meses objetivo (N)',r.N+' · objetivo '+n(r.pm,1)+' · entrega '+n(r.lt,1))
       +kv('Límites','riesgo entra con menos de '+n(r.lt*P.R.FACT_ENTRA_RIESGO,1)+' y sale con '+n(r.lt*P.R.FACT_ENTREGA,1)+' meses · sobre inventario con más de '+n(r.pm*P.R.FACT_MAX,1)+' · hoy '+n(r.mi,1)+' meses'+(r.miB!=null?' ('+n(r.miB,1)+' con BO)':''))
       +kv('Propuesta',n(r.D,1)+' × ('+n(r.lt,1)+' + '+n(r.pm,1)+') − ('+n(r.ex)+' + '+n(r.bo)+' BO CEDI) = <b>'+n(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+n(r.sE)+'</b>':''))

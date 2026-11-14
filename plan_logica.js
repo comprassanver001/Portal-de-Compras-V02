@@ -352,7 +352,11 @@ P.resgMapa=(rows,fecha)=>{
 };
 // ── Claves sustituidas (oct-2026) ──
 // La clave vigente toma el historial de venta de la(s) clave(s) que sustituyó; si una original tiene n sustitutas, a cada una le toca 1/n.
-P.sustMapa=rows=>{const m=new Map();(rows||[]).forEach(r=>{const v=Number(r.clave_vigente);if(!v)return;(m.get(v)||m.set(v,[]).get(v)).push({o:Number(r.clave_original),f:Number(r.factor)||1,cv:r.conv!=null&&+r.conv>0?+r.conv:null,d:r.desc_original||''});});return m;};
+// Estatus del archivo (nov-2026): SUSTITUTO = se suma su venta (antecedente, pronóstico y propuesta); EQUIVALENTE y REVISAR = solo se
+// muestran, no se suma su venta; BAJA = no se guarda. Sin estatus (cargas anteriores) = SUSTITUTO.
+P.SUST_EST=['SUSTITUTO','EQUIVALENTE','REVISAR','BAJA'];
+P.sustSuma=r=>{const e=P.norm(r&&r.estatus);return!e||e==='SUSTITUTO';};
+P.sustMapa=rows=>{const m=new Map();(rows||[]).filter(P.sustSuma).forEach(r=>{const v=Number(r.clave_vigente);if(!v)return;(m.get(v)||m.set(v,[]).get(v)).push({o:Number(r.clave_original),f:Number(r.factor)||1,cv:r.conv!=null&&+r.conv>0?+r.conv:null,d:r.desc_original||''});});return m;};
 // Unidad distinta: si la venta mensual promedio de la vigente y la de la original difieren más de SUST_RATIO veces (p. ej. mililitros vs piezas),
 // sin factor de conversión capturado NO se suma la original. Regresa el multiplicador a usar (conv) o null si no se suma.
 P.R.SUST_RATIO=10;
@@ -371,10 +375,14 @@ P.mezclarSust=(own,origs)=>{
 };
 // Para las fichas (gráfica de ventas de una clave): o = {ventas:{SANVER,MF}, ed} ya leídos de la clave vigente.
 // Suma la venta de sus claves originales y deja o.sust = {lst:[{o,f,d}], parte:{SANVER:{mes:[[clave,cant]]}, MF:{…}}}
+// Las equivalentes (y las de estatus REVISAR) solo se listan en o.equiv = [{o,d,e}]; su venta no se suma.
 P.ventasConSust=async(sb,c,o)=>{
   try{
-    const{data:su,error}=await sb.from('plan_sustituciones').select('clave_original,factor,desc_original').eq('clave_vigente',Number(c));
-    if(error||!su||!su.length)return o;
+    let{data:su0,error}=await sb.from('plan_sustituciones').select('clave_original,factor,conv,desc_original,estatus').eq('clave_vigente',Number(c));
+    if(error){const r=await sb.from('plan_sustituciones').select('clave_original,factor,desc_original').eq('clave_vigente',Number(c));su0=r.data;error=r.error;}
+    if(error||!su0||!su0.length)return o;
+    const eq=su0.filter(x=>!P.sustSuma(x));if(eq.length)o.equiv=eq.map(x=>({o:Number(x.clave_original),d:x.desc_original||'',e:P.norm(x.estatus)}));
+    const su=su0.filter(P.sustSuma);if(!su.length)return o;
     const ks=su.map(x=>Number(x.clave_original));
     const[v,e]=await Promise.all([sb.from('plan_ventas').select('empresa,clave,meses').in('clave',ks),sb.from('plan_compras_ed').select('clave,mes,cantidad').in('clave',ks)]);
     const lst0=su.map(x=>({o:Number(x.clave_original),f:Number(x.factor)||1,cv:x.conv!=null&&+x.conv>0?+x.conv:null,d:x.desc_original||''}));const parte={};

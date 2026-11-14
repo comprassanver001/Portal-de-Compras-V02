@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="plan_logica.js?v=20261113a" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261113s" charset="utf-8"></script>
 <script src="lab_motor.js?v=20261113d" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
@@ -204,6 +204,14 @@ async function cargarDatos(){
   }catch(e){S.red.ok=false;}
   const V=new Map(ven.map(r=>[Number(r.clave),r.meses||{}]));
   const ED=new Map();ed.forEach(r=>{const k=Number(r.clave);if(!ED.has(k))ED.set(k,{});ED.get(k)[String(r.mes).slice(0,7)]=Number(r.cantidad)||0;});
+  // Claves sustituidas (estatus SUSTITUTO): la vigente suma la venta y las entregas directas de sus claves originales, igual que el
+  // Cálculo diario del portal. EQUIVALENTE y REVISAR no se suman; BAJA no se guarda.
+  S.nSust=0;S.sustOmit=0;
+  try{paso('Leyendo claves sustituidas…');let su;
+    try{su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,conv,estatus').order('clave_vigente').order('clave_original'));}
+    catch(e){su=await todo(()=>sb.from('plan_sustituciones').select('clave_vigente,clave_original,factor,conv').order('clave_vigente').order('clave_original'));}
+    if(su.length){const cx={ventas:{SANVER:V},ed:ED};S.nSust=P.aplicarSust(cx,su);S.sustOmit=(cx.sustOmit||[]).length;}}
+  catch(e){}
   const AG=new Map();ag.forEach(r=>{const k=Number(r.clave);if(!AG.has(k))AG.set(k,new Set());AG.get(k).add(String(r.mes).slice(0,7));});
   const FM=new Map(fam.map(r=>[Number(r.clave),r]));
   // Meses: del primero con venta al último mes completo antes de la fecha del cálculo
@@ -301,7 +309,7 @@ function pintarResumen(){
   $('limites').innerHTML='<b>Qué usa este cálculo:</b> venta SANVER del portal'+(S.nED?', con las entregas directas restadas ('+nf(S.nED)+' claves)':'')+(S.nAG?', sin los meses agotados ('+nf(S.nAG)+' claves)':'')+'; existencia, BO, tiempo de entrega, meses objetivo y rotación del cálculo publicado. '+
     (S.fam?'Temporada por sub-subgrupo ('+nf(S.fam)+' claves con familia).':'<b>Sin familias cargadas:</b> la temporada se calcula solo por grupo; carga la hoja BASE DE NEGOCIO en «Variables y escenarios».')+
     (S.D.parcial?' Venta del mes en curso al '+S.D.parcial.corte+' ('+Math.round(S.D.parcial.p*100)+'% del mes): ajusta el pronóstico de lo que falta; esta parte no entra en la prueba contra el historial.':(S.parNota?' '+esc(S.parNota):''))+
-    ' <b>Todavía no incluye:</b> historial de claves sustituidas, consumo de producción de los insumos, variación real del tiempo de entrega'+(S.nRed?'':', ni la red de tiendas MF y mayoreo')+'.';
+    (S.nSust?' Incluye el historial de '+nf(S.nSust)+' claves sustituidas (estatus SUSTITUTO).':'')+' <b>Todavía no incluye:</b> consumo de producción de los insumos, variación real del tiempo de entrega'+(S.nRed?'':', ni la red de tiendas MF y mayoreo')+'.';
 }
 
 // ── Claves ──
