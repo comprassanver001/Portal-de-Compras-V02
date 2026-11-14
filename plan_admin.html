@@ -7,7 +7,7 @@
 <title>Planeación · Carga de datos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261113t" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
 <style>
 :root{--navy:#1e3a5f;--navy2:#1c4587;--bg:#f5f6fa;--sf:#fff;--brd:#e2e6ed;--tx:#1a2035;--tx2:#6b7a99;--ok:#2e7d32;--okbg:#e6f2e8;--warn:#b8860b;--warnbg:#fdf3d8;--err:#c0392b;--errbg:#fdeaea}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -361,7 +361,7 @@ async function cargaUni(log){
   const ej=r.rows.find(x=>x.clave===44518)||r.rows[0];
   log.msg('   Ejemplo: clave '+ej.clave+' → 1 '+(ej.uni_compra||'unidad de compra')+' = '+ej.factor+' '+(ej.uni_min||''));
   const ahora=new Date().toISOString();
-  await enLotes('plan_unidades',r.rows.map(x=>({...x,actualizado_en:ahora})),log,{onConflict:'clave'}).catch(e=>{throw new Error(e.message+' (¿ya corriste plan_tablas_27.sql?)');});
+  await enLotes('plan_unidades',r.rows.map(x=>({clave:x.clave,uni_compra:x.uni_compra,uni_min:x.uni_min,f_compra:x.factor,actualizado_en:ahora})),log,{onConflict:'clave'}).catch(e=>{throw new Error(e.message+' (¿ya corriste plan_tablas_22.sql?)');});
   // quita las claves de cargas anteriores que ya no tienen conversión
   const{error}=await sb.from('plan_unidades').delete().lt('actualizado_en',ahora);
   if(error)throw new Error('plan_unidades: '+error.message);

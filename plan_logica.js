@@ -634,8 +634,8 @@ P.UNI=null;let _uniP=null;   // Map clave → {uc,um,f}; se lee una vez por pág
 P.uniCargar=sb=>_uniP||(_uniP=(async()=>{
   const m=new Map();
   try{for(let i=0;i<20000;i+=1000){
-    const{data,error}=await sb.from('plan_unidades').select('clave,uni_compra,uni_min,factor').order('clave').range(i,i+999);
-    if(error)throw error;(data||[]).forEach(x=>{const f=Number(x.factor);if(f>0)m.set(Number(x.clave),{uc:x.uni_compra||'',um:x.uni_min||'',f});});
+    const{data,error}=await sb.from('plan_unidades').select('clave,uni_compra,uni_min,f_compra').order('clave').range(i,i+999);
+    if(error)throw error;(data||[]).forEach(x=>{const f=Number(x.f_compra);if(f>0)m.set(Number(x.clave),{uc:x.uni_compra||'',um:x.uni_min||'',f});});
     if(!data||data.length<1000)break;}
   }catch(e){console.warn('Unidades RP03-08:',e.message||e);}
   P.UNI=m;return m;})());

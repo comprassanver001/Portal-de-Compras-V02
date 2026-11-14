@@ -9,11 +9,16 @@
 -- El portal lo usa para MOSTRAR y EXPORTAR las cantidades de las OCs en la unidad de la clave.
 -- No cambia el cálculo diario (el BO ya viene en la unidad de la clave).
 -- Se carga en Admin → «📐 Unidades de medida (RP03-08)».
+-- La tabla es la misma del complemento 22 (ya existe en SANVER_Forte); si ya la tienes NO hace falta correr este archivo.
 create table if not exists plan_unidades (
-  clave          integer primary key,
+  clave          bigint primary key,
   uni_compra     text,                      -- UNIDAD_COMPRA
+  f_compra       numeric not null,          -- unidades mínimas por 1 unidad de compra (PZASXUNI_COMPRA ÷ PZASXUNIDAD_MINIMA)
   uni_min        text,                      -- UNIDAD_MINIMA
-  factor         numeric not null,          -- unidades mínimas por 1 unidad de compra
+  uni_emp        text,
+  f_emp          numeric,
+  uni_master     text,
+  f_master       numeric,
   actualizado_en timestamptz not null default now()
 );
 alter table plan_unidades enable row level security;
