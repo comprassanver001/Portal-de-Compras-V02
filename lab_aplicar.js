@@ -74,6 +74,10 @@
     if(P.esLugarExtra(n))return 'entrega directa a cliente · '+esc(n);
     return 'entrega directa a sucursal '+esc(n);
   };
+  // Unidad de las OCs: el BO viene del Excel maestro en la unidad de la clave; el pendiente de cada OC viene en la unidad de compra.
+  // Si la suma de las OCs no coincide con el BO, están en otra unidad: factor = BO ÷ suma de OCs.
+  A.unidadOC=function(r,ocs){var s=0;(ocs||[]).forEach(function(o){s+=Number(o[1])||0;});var bo=Number(r.boT!=null?r.boT:r.bo)||0;
+    if(!(s>0)||!(bo>0))return{suma:s,f:1,distinta:false};var f=bo/s;return{suma:s,f:f,distinta:Math.abs(f-1)>0.03};};
   var metaRed=null;
   A.tiendas=async function(sb,c,det){
     var caja=det.querySelector('div');if(det.dataset.listo)return;det.dataset.listo='1';caja.textContent='Leyendo…';
@@ -112,13 +116,17 @@
         sp.innerHTML='<details><summary class="lk" style="cursor:pointer;color:#1d4ed8">Ver venta, número base y existencia por sucursal</summary><div></div></details>';
         var sig=r.lab&&ancla===celda(el,'Propuesta')?ancla.nextElementSibling.nextElementSibling.nextElementSibling:ancla.nextElementSibling;p.insertBefore(b,sig);p.insertBefore(sp,sig);
         var det=sp.querySelector('details');det.addEventListener('toggle',function(){if(det.open)A.tiendas(sb,Number(r.c),det);});}
-      // destino de las entregas directas
-      var cO=celda(el,'OCs abiertas'),hayED=(ocs||[]).some(function(o){return o[4];});
-      if(cO&&hayED)sb.from('plan_oc_lineas').select('folio,destino').eq('clave',Number(r.c)).eq('entrega_directa',true).then(function(q){
-        if(q.error||!q.data)return;var m={};q.data.forEach(function(x){if(x.destino&&!m[x.folio])m[x.folio]=x.destino;});
-        var fF=function(f){return f?String(f).slice(0,10).split('-').reverse().join('/').replace(/\/20(\d\d)$/,'/$1'):'—';};
-        cO.innerHTML=ocs.slice(0,6).map(function(o){return 'OC '+o[0]+' · '+nf(o[1])+' pend. · '+fF(o[2])+' · '+esc(o[3])+(o[4]?' · <b style="color:#7c3aed">'+A.txtDestino(m[o[0]])+'</b>':'');}).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':'');
-      });
+      // OCs abiertas: cantidad en la unidad de la clave y destino de las entregas directas
+      var cO=celda(el,'OCs abiertas'),U=A.unidadOC(r,ocs),hayED=(ocs||[]).some(function(o){return o[4];});
+      var fF=function(f){return f?String(f).slice(0,10).split('-').reverse().join('/').replace(/\/20(\d\d)$/,'/$1'):'—';};
+      var pinta=function(m){
+        cO.innerHTML=(U.distinta?'<span style="color:#b45309">Las OCs de esta clave se capturan en otra unidad: 1 unidad de compra ≈ '+nf(U.f,3)+' '+esc(r.u||'')+'. El BO ('+nf(r.boT)+') y el cálculo ya están en '+esc(r.u||'la unidad del portal')+'.</span><br>':'')+
+          ocs.slice(0,6).map(function(o){return 'OC '+o[0]+' · '+(U.distinta?nf(o[1])+' en unidad de compra ≈ <b>'+nf(o[1]*U.f)+' '+esc(r.u||'')+'</b>':nf(o[1])+' pend.')+' · '+fF(o[2])+' · '+esc(o[3])+(o[4]?' · <b style="color:#7c3aed">'+A.txtDestino(m&&m[o[0]])+'</b>':'');}).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':'');};
+      if(cO&&ocs&&ocs.length){
+        if(U.distinta)pinta(null);
+        if(hayED)sb.from('plan_oc_lineas').select('folio,destino').eq('clave',Number(r.c)).eq('entrega_directa',true).then(function(q){
+          if(q.error||!q.data)return;var m={};q.data.forEach(function(x){if(x.destino&&!m[x.folio])m[x.folio]=x.destino;});pinta(m);});
+      }
     }catch(e){}
   };
   // Las funciones del portal que recalculan la propuesta desde la demanda usan «pedir hasta» del motor en las filas sustituidas

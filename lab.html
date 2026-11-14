@@ -92,6 +92,12 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
       <div class="scroll" style="max-height:none"><table id="tb-conf"></table></div>
     </div>
     <div class="card" id="red-res" style="display:none"></div>
+    <div class="card">
+      <h2>Revisión de unidades de medida</h2>
+      <p class="d">Compara, clave por clave, el BO del cálculo del portal contra la suma de lo pendiente en sus OCs abiertas. Si no coinciden, las OCs se capturan en otra unidad (por ejemplo metros contra cajas). Sirve para confirmar que el BO que entra al cálculo está en la unidad de la clave.</p>
+      <div class="row"><button class="sec" onclick="revisarUnidades()">Revisar unidades</button><button class="sec" id="uni-xl" style="display:none" onclick="excelUnidades()">Descargar Excel</button><span class="d" id="uni-msg"></span></div>
+      <div class="scroll" id="uni-tabla" style="max-height:340px;margin-top:8px;display:none"><table id="tb-uni"></table></div>
+    </div>
     <div class="card d" id="limites"></div>
   </section>
 
@@ -227,6 +233,7 @@ async function cargarDatos(){
     claves.push(k);
     S.info.set(c,{n:r.n||'',comp,rot,g:r.g||'',m:r.m||'',u:r.u||'',D:r.D,est:r.est});
   });
+  S.estOCs=est.ocs||{};S.estFila=new Map((est.claves||[]).map(r=>[Number(r.c),r]));
   S.D={meses,claves,parcial};S.fecha=fecha;S.nRed=claves.filter(k=>k.red).length;S.nED=ED.size;S.nAG=AG.size;
   $('corte').textContent='Cálculo del portal al '+String(fecha).slice(8,10)+'/'+String(fecha).slice(5,7)+'/'+String(fecha).slice(0,4)+' · '+nf(claves.length)+' claves · ventas '+meses[0]+' a '+fin+(parcial?' · mes en curso al '+parcial.corte.slice(8,10)+'/'+parcial.corte.slice(5,7)+' ('+Math.round(parcial.p*100)+'% del mes)':'');
 }
@@ -487,6 +494,29 @@ async function publicar(){
     msg.textContent=nf(datos.length)+' claves aplicadas. Abre o recarga el portal de pruebas.';estadoPub();
   }catch(e){msg.textContent='No se pudo aplicar: '+(e.message||e);}
 }
+
+// ── Revisión de unidades: BO del cálculo contra la suma de las OCs abiertas ──
+async function revisarUnidades(){
+  const msg=$('uni-msg');msg.textContent='Revisando…';
+  const E=new Map();try{(await todo(()=>sb.from('plan_empaques').select('clave,uni_compra,factor_conv').order('clave'))).forEach(e=>E.set(Number(e.clave),e));}catch(e){}
+  const out=[];
+  S.estFila.forEach((r,c)=>{const ocs=S.estOCs[c]||S.estOCs[String(c)]||[];const bo=Number(r.boT!=null?r.boT:r.bo)||0;let s=0;ocs.forEach(o=>s+=Number(o[1])||0);
+    if(!(bo>0)&&!(s>0))return;const e=E.get(c),uc=e&&e.uni_compra?P.norm(e.uni_compra):'',u=P.norm(r.u||''),fc=e&&Number(e.factor_conv)||null,f=s>0&&bo>0?bo/s:null;
+    let dx,niv;
+    if(f==null){dx=bo>0?'Tiene BO pero ninguna OC abierta en el archivo':'Tiene OCs abiertas pero BO en cero';niv=2;}
+    else if(Math.abs(f-1)<=0.03){if(uc&&u&&uc!==u&&fc&&Math.abs(fc-1)>0.03){dx='REVISAR: se compra en '+uc+' y el BO es igual a la suma de las OCs; puede estar sin convertir a '+u;niv=3;}else{dx='Misma unidad';niv=0;}}
+    else if(fc&&Math.abs(f/fc-1)<=0.05){dx='OCs en '+(uc||'otra unidad')+'; BO ya convertido a '+u+' (factor '+(+fc.toFixed(4))+')';niv=1;}
+    else{const cerca=[2,3,4,5,6,8,10,12,20,24,25,50,100,1000].some(k=>Math.abs(f*k-1)<0.03||Math.abs(f/k-1)<0.03);
+      dx=(f<0.5||f>2||cerca?'OCs en otra unidad; el BO parece ya convertido':'No coinciden: las OCs están en otra unidad (sin factor en el catálogo de empaques) o hubo una OC recibida o cancelada entre archivos')+' · 1 unidad de la OC ≈ '+(+f.toFixed(4))+' '+u;niv=f<0.5||f>2||cerca?1:2;}
+    out.push({c,n:r.n,comp:r.comp,u:r.u,uc,bo,s,f,fc,dx,niv,ocs:ocs.length});});
+  out.sort((a,b)=>b.niv-a.niv||a.c-b.c);S.uni=out;
+  const n=k=>out.filter(x=>x.niv===k).length;
+  msg.innerHTML=nf(out.length)+' claves con BO u OCs · <b class="mal">'+nf(n(3))+' para revisar (posible BO sin convertir)</b> · <span class="med">'+nf(n(2))+' que no coinciden (otra unidad sin factor en catálogo, o desfase entre archivos)</span> · '+nf(n(1))+' con OCs en otra unidad y BO convertido · '+nf(n(0))+' en la misma unidad';
+  let h='<tr><th class="l">Clave</th><th class="l">Descripción</th><th class="l">Comprador</th><th class="l">Unidad</th><th class="l">Unidad de compra</th><th>BO del cálculo</th><th>Suma de OCs</th><th>BO ÷ OCs</th><th>Factor del catálogo</th><th class="l">Resultado</th></tr>';
+  out.filter(x=>x.niv>0).slice(0,400).forEach(x=>h+='<tr><td class="l">'+x.c+'</td><td class="l w">'+esc(x.n)+'</td><td class="l">'+esc(x.comp)+'</td><td class="l">'+esc(x.u)+'</td><td class="l">'+esc(x.uc||'—')+'</td><td>'+nf(x.bo,1)+'</td><td>'+nf(x.s,1)+'</td><td>'+(x.f!=null?nf(x.f,3):'—')+'</td><td>'+(x.fc?nf(x.fc,3):'—')+'</td><td class="l w '+(x.niv===3?'mal':x.niv===2?'med':'')+'">'+esc(x.dx)+'</td></tr>');
+  $('tb-uni').innerHTML=h;$('uni-tabla').style.display='block';$('uni-xl').style.display='';
+}
+function excelUnidades(){const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((S.uni||[]).map(x=>({Clave:x.c,'Descripción':x.n,Comprador:x.comp,Unidad:x.u,'Unidad de compra':x.uc,'BO del cálculo':x.bo,'Suma de OCs abiertas':x.s,'OCs abiertas':x.ocs,'BO ÷ OCs':x.f,'Factor del catálogo de empaques':x.fc,Resultado:x.dx}))),'Unidades');XLSX.writeFile(wb,'Revision_unidades_'+S.fecha+'.xlsx');}
 
 // ── Red: mayoreo y tiendas (tablas lab_red, lab_red_inv, lab_red_meta) ──
 function estadoRed(){
