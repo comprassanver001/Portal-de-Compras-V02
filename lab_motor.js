@@ -8,7 +8,7 @@
 //   v  = arreglo 0/1 del mismo largo: 1 = el mes cuenta, 0 = no cuenta (agotado, antes de la primera venta…).
 (function(root){
 'use strict';
-const L={VERSION:'0.4.0'};
+const L={VERSION:'0.5.0'};
 
 // ── Variables del cálculo (todas modificables; estos son los valores sugeridos) ──
 L.PARAM={
@@ -37,6 +37,8 @@ L.PARAM={
   // Rango e inventario
   SERVICIO:{'SAGRADOS':0.98,'ALTA ROTACION':0.95,'MEDIA ROTACION':0.90,'LENTA ROTACION':0.85,'NUEVOS':0.90},
   SERVICIO_DEF:0.90,
+  TE_FUENTE:0,        // 0 = T. entrega del portal; 1 = el real medido con las recepciones (si la clave o su proveedor tienen dato)
+  TE_CUANTIL:0.8,     // tiempo de entrega real: el que cubre esta parte de las OCs (incluye su variación)
   DIAS_REACCION:7,    // días entre que suena la alarma y se levanta el pedido (se suman al T. entrega)
   COBERTURA_MESES:0,  // meses de venta que debe cubrir cada pedido; 0 = los meses objetivo de cada clave
   // Red: mayoreo y tiendas Mas Ferre
@@ -55,6 +57,15 @@ L.PARAM={
   PISO_ESCALA:0.25,   // el error se mide contra al menos 25% de la venta promedio
   // Calificación de confiabilidad
   CONF_A:0.25, CONF_B:0.50, CONF_MIN_PRUEBAS:10
+};
+// Tiempo de entrega real (días) de una clave: cuantil TE_CUANTIL de sus OCs completas, mezclado con el de su proveedor.
+// Peso de la clave = n ÷ (n + 3): con 3 OCs propias pesa la mitad. Sin proveedor con 5 OCs, la clave necesita 3 propias. Si no, null.
+L.teReal=(k,prov,P)=>{
+  const qd=(a,p)=>{const b=a.slice().sort((x,y)=>x-y);const i=(b.length-1)*p,lo=Math.floor(i),hi=Math.ceil(i);return b[lo]+(b[hi]-b[lo])*(i-lo);};
+  const p=P.TE_CUANTIL||0.8,a=k.teA||[],b=(prov&&k.tePv&&prov[k.tePv])||[],n=a.length,nP=b.length;
+  if(nP<5&&n<3)return null;
+  const qc=n?qd(a,p):null,qp=nP>=5?qd(b,p):null,w=qp==null?1:n/(n+3);
+  return{q:Math.round(Math.max(1,w*(qc||0)+(1-w)*(qp||0))*10)/10,n,nP,prov:k.tePv||'',med:n?Math.round(qd(a,0.5)*10)/10:null,fuente:qp==null?'clave':n?'clave y proveedor':'proveedor'};
 };
 L.METODOS={
   EST:'Nivel con temporada y crecimiento',
@@ -379,7 +390,8 @@ L.correr=(D,Pin,hooks)=>{
   const hb=H=>H<=2?0:H<=4?1:2;
   const F3=new Float32Array(n*nO*nM),FH=new Float32Array(n*nO*nM);
   const A3=new Float32Array(n*nO).fill(NaN),AH=new Float32Array(n*nO).fill(NaN),PR=new Float32Array(n*nO),TP=new Uint8Array(n*nO);
-  const Hp=K.map(k=>clip((k.lt||0)+P.DIAS_REACCION/30,0.25,P.H_MAX));
+  const TE=K.map(k=>L.teReal(k,D.teProv,P));
+  const Hp=K.map((k,i)=>clip((P.TE_FUENTE&&TE[i]?TE[i].q/30.4:(k.lt||0))+P.DIAS_REACCION/30,0.25,P.H_MAX));
   const noAg=K.map(k=>{if(!k.ag)return null;const e=new Uint8Array(T).fill(1);for(let t=0;t<T;t++)if(k.ag[t])e[t]=0;return e;});
   const vFin=K.map((k,i)=>L.validos(k.s,T,P,noAg[i]));
   const ll=K.map(k=>[k.g+'|'+(k.sg||'')+'|'+(k.ssg||''),k.g+'|'+(k.sg||''),k.g]);
@@ -501,7 +513,7 @@ L.correr=(D,Pin,hooks)=>{
       bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
       punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,
       Dportal:pd,puntoPortal:pd!=null?pd*(k.lt||0)*P.FACT_ALARMA:null,hastaPortal:pd!=null?pd*((k.lt||0)+(k.pm||0)):null,
-      val:Array.from(u.v),red,par};
+      val:Array.from(u.v),red,par,te:TE[i]};
   }
   av('Listo',1);
   return{version:L.VERSION,param:P,meses:MES,pruebas:pruebas.map(t=>MES[t]),resumen,calibracion,
