@@ -12,12 +12,14 @@
   A.cargar=async function(sb){
     if(A.pub!==undefined)return A.pub;
     try{var r=await sb.from('lab_publicacion').select('*').eq('id','vigente').maybeSingle();A.pub=r.error||!r.data?null:r.data;}catch(e){A.pub=null;}
-    if(A.pub){var m=new Map();(A.pub.datos||[]).forEach(function(x){m.set(Number(x[0]),{d:x[1],p:x[2],h:x[3],cf:x[4],inn:x[5]||0,mas:x[6]||0,e:x.length>7?{seg:x[7],H:x[8],cob:x[9],serv:x[10],aj:x[11],tipo:x[12],err:x[13],pa:x[14],parV:x[15],parC:x[16],parA:x[17],hs:x[18]}:null});});A.pub.mapa=m;}
+    if(A.pub){var m=new Map();(A.pub.datos||[]).forEach(function(x){m.set(Number(x[0]),{d:x[1],p:x[2],h:x[3],cf:x[4],inn:x[5]||0,mas:x[6]||0,e:x.length>7?{seg:x[7],H:x[8],cob:x[9],serv:x[10],aj:x[11],tipo:x[12],err:x[13],pa:x[14],parV:x[15],parC:x[16],parA:x[17],hs:x[18],pN:x[19],hN:x[20],pI:x[21],hI:x[22],ofC:x[23],apC:x[24],ofH:x[25],apH:x[26]}:null});});A.pub.mapa=m;}
     return A.pub;
   };
   // Redondeo a empaque con la misma regla del portal (P.empaque); inn y mas ya vienen en la unidad de la clave
   var emp=function(q,x){if(!q||!(x.inn>0||x.mas>0))return null;if(x.mas>0&&q>=x.mas)return Math.max(x.mas,Math.round(q/x.mas)*x.mas);if(x.inn>0)return Math.ceil(q/x.inn)*x.inn;return x.mas;};
-  A.prop=function(r,conBO){var l=r.lab;return Math.max(0,P.ceil3(l.h-((Number(r.ex)||0)+(conBO?Math.max(0,Number(r.bo)||0):0)+(Number(r.xd)||0))));};
+  // con tipo de compra elegido en Propuestas (nacional o importación) se usa el «pedir hasta» del motor con su tiempo de entrega y sus meses objetivo
+  A.hasta=function(r){var l=r.lab,e=l.e||{};if(r.tipo==='NACIONAL'&&e.hN!=null)return e.hN;if(r.tipo==='IMPORTACION'&&e.hI!=null)return e.hI;return l.h;};
+  A.prop=function(r,conBO){var l=r.lab;return Math.max(0,P.ceil3(A.hasta(r)-((Number(r.ex)||0)+(conBO?Math.max(0,Number(r.bo)||0):0)+(Number(r.xd)||0))));};
   A.fila=function(r,x,fecha){
     var ex=Number(r.ex)||0,bo=Math.max(0,Number(r.bo)||0),lt=Number(r.lt)||0,pm=Number(r.pm)||0,r2=function(v){return Math.round(v*100)/100;};
     r.lab={D:r.D,s:r.s,s0:r.s0,est:r.est,h:x.h,p:x.p,cf:x.cf,d:x.d,e:x.e};
@@ -54,7 +56,7 @@
   var TIPO={'REGULAR':'venta regular','ERRATICA':'venta errática','INTERMITENTE':'venta intermitente','IRREGULAR':'venta irregular','SIN HISTORIA':'sin historia'};
   A.txtPropuesta=function(r,conBO){
     var l=r.lab,e=l.e,ex=Number(r.ex)||0,bo=Math.max(0,Number(r.bo)||0),s=conBO?r.s:(r.s0!=null?r.s0:r.s),sE=conBO?r.sE:(r.sE0!==undefined?r.sE0:r.sE);
-    return 'pedir hasta '+nf(l.h)+' − ('+nf(ex)+' existencia'+(conBO?' + '+nf(bo)+' BO CEDI':'')+') = <b>'+nf(s)+'</b>'+(sE!=null?' → con empaque <b>'+nf(sE)+'</b>':'')+
+    return 'pedir hasta '+nf(A.hasta(r))+(r.tipo&&A.hasta(r)!==l.h?' ('+(r.tipo==='NACIONAL'?'compra nacional':'importación')+')':'')+' − ('+nf(ex)+' existencia'+(conBO?' + '+nf(bo)+' BO CEDI':'')+(Number(r.xd)>0?' + '+nf(r.xd)+' stock del proveedor nacional':'')+') = <b>'+nf(s)+'</b>'+(sE!=null?' → con empaque <b>'+nf(sE)+'</b>':'')+
       ' <span class="mut">· el portal actual propondría '+nf(conBO?l.s:(l.s0!=null?l.s0:l.s))+'</span>';
   };
   A.txtLab=function(r){
@@ -62,7 +64,11 @@
     var H=e.H||0,esp=l.d*H,cic=(e.hs!=null?e.hs:l.h)-l.p,t=[];
     t.push('Venta esperada <b>'+nf(l.d,1)+'</b> / mes'+(l.D!=null?' (portal actual '+nf(l.D,1)+')':'')+' · '+(TIPO[e.tipo]||'')+' · confiabilidad <b>'+esc(l.cf)+'</b>'+(e.err!=null?' (error '+Math.round(e.err*100)+'%)':''));
     if(e.parV!=null)t.push('Mes en curso: lleva '+nf(e.parV)+' · cierre estimado '+nf(e.parC)+' (el pronóstico era '+nf(e.parA)+')');
-    t.push('Punto de alarma <b>'+nf(l.p)+'</b> = venta de '+nf(H,2)+' meses ('+nf(esp)+') + seguridad '+nf(e.seg)+' · servicio '+Math.round((e.serv||0)*100)+'%');
+    var exH=(e.ofH||0)+(e.apH||0);
+    t.push('Punto de alarma <b>'+nf(l.p)+'</b> = venta de '+nf(H,2)+' meses ('+nf(esp)+') + seguridad '+nf(e.seg)+(exH?' + '+nf(exH)+' planeado (ofertas y aperturas)':'')+' · servicio '+Math.round((e.serv||0)*100)+'%');
+    if(e.ofC)t.push('Ofertas: <b>'+nf(e.ofC)+'</b> pzs de distribución adicional dentro de la compra');
+    if(e.apC)t.push('Aperturas de tiendas: <b>'+nf(e.apC)+'</b> pzs (inventario inicial y venta) dentro de la compra');
+    if(e.hN!=null||e.hI!=null)t.push('Pedir hasta por tipo de compra: '+(e.hN!=null?'nacional <b>'+nf(e.hN)+'</b>':'')+(e.hN!=null&&e.hI!=null?' · ':'')+(e.hI!=null?'importación <b>'+nf(e.hI)+'</b>':''));
     t.push('Pedir hasta <b>'+nf(l.h)+'</b> = alarma '+nf(l.p)+' + '+nf(e.cob,1)+' meses de venta ('+nf(cic)+')'+(e.aj?(e.aj<0?' − '+nf(-e.aj)+' porque las tiendas tienen de sobra':' + '+nf(e.aj)+' porque las tiendas están debajo de su base'):''));
     if(e.pa!=null)t.push('Riesgo de agotarse antes de que llegue un pedido de hoy: <b>'+Math.round(e.pa*100)+'%</b>');
     return t.join('<br>');

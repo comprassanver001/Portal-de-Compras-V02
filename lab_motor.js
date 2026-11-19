@@ -8,7 +8,7 @@
 //   v  = arreglo 0/1 del mismo largo: 1 = el mes cuenta, 0 = no cuenta (agotado, antes de la primera venta…).
 (function(root){
 'use strict';
-const L={VERSION:'0.5.0'};
+const L={VERSION:'0.6.0'};
 
 // ── Variables del cálculo (todas modificables; estos son los valores sugeridos) ──
 L.PARAM={
@@ -39,6 +39,8 @@ L.PARAM={
   SERVICIO_DEF:0.90,
   TE_FUENTE:0,        // 0 = T. entrega del portal; 1 = el real medido con las recepciones (si la clave o su proveedor tienen dato)
   TE_CUANTIL:0.8,     // tiempo de entrega real: el que cubre esta parte de las OCs (incluye su variación)
+  OFERTAS_ACTIVA:1,   // sumar la distribución adicional de las ofertas cargadas
+  APERTURAS_ACTIVA:1, // sumar las aperturas de tiendas capturadas
   DIAS_REACCION:7,    // días entre que suena la alarma y se levanta el pedido (se suman al T. entrega)
   COBERTURA_MESES:0,  // meses de venta que debe cubrir cada pedido; 0 = los meses objetivo de cada clave
   // Red: mayoreo y tiendas Mas Ferre
@@ -66,6 +68,45 @@ L.teReal=(k,prov,P)=>{
   if(nP<5&&n<3)return null;
   const qc=n?qd(a,p):null,qp=nP>=5?qd(b,p):null,w=qp==null?1:n/(n+3);
   return{q:Math.round(Math.max(1,w*(qc||0)+(1-w)*(qp||0))*10)/10,n,nP,prov:k.tePv||'',med:n?Math.round(qd(a,0.5)*10)/10:null,fuente:qp==null?'clave':n?'clave y proveedor':'proveedor'};
+};
+// Demanda planeada por mes (posición 0 = mes en curso). Ofertas: la distribución adicional a tiendas y mayoreo, tal cual la planeó el
+// desarrollador (sale toda del CEDI). Aperturas: inventario inicial de la tienda nueva en su mes de apertura y su venta en los meses
+// siguientes (con temporada); se multiplica después por la parte de la venta de tiendas que surte el CEDI.
+L.extras=(k,f,I,mo0,P)=>{
+  const m=new Float64Array(14),apm=new Float64Array(14),of=[],ap=[];
+  if(P.OFERTAS_ACTIVA)(k.of||[]).forEach(o=>{if(o.j<0||o.j>13)return;const q=(o.t||0)+(o.my||0);if(q>0){m[o.j]+=q;of.push(o);}});
+  (k.ap||[]).forEach(a=>{if(a.j<0||a.j>13)return;let tot=0;apm[a.j]+=a.base||0;tot+=a.base||0;
+    for(let j=a.j;j<14;j++){const v=(a.v||0)*(I?I[(mo0+j)%12]:1)*(j===a.j?(a.fr!=null?a.fr:0.5):1);apm[j]+=v;tot+=v;}
+    if(tot>0)ap.push(a);});
+  return{m,apm,of,ap};
+};
+// Suma de la demanda planeada dentro de los próximos h meses contados desde hoy (p0 = parte del mes en curso que ya pasó)
+L.extraEn=(m,p0,h)=>{let s=0;for(let j=0;j<m.length;j++){const a=Math.max(0,j-p0),b=Math.min(h,j+1-p0);if(b>a)s+=m[j]*(b-a)/Math.max(1e-9,(j+1-p0)-Math.max(0,j-p0));}return s;};
+// ── Archivo de ofertas de SANVER ──
+// hojas = [{nombre, aoa}]. Busca en cada hoja el renglón de encabezados con «ID» y columnas «PLAN ó 30%» (una por tienda; el nombre de la
+// tienda va en el renglón de arriba). Regresa por hoja las claves con su distribución adicional por tienda.
+L.MESES_ES=['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+L.ofertasLeer=hojas=>{
+  const N=x=>String(x==null?'':x).normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+  const num=x=>{if(typeof x==='number')return x;const v=Number(String(x==null?'':x).replace(/,/g,''));return isFinite(v)?v:0;};
+  const out=[];
+  hojas.forEach(({nombre,aoa})=>{
+    let h=-1;for(let i=0;i<Math.min(12,aoa.length);i++){const r=(aoa[i]||[]).map(N);if(r.indexOf('ID')>=0&&r.some(c=>c.startsWith('PLAN')))if(h<0)h=i;}
+    if(h<0)return;
+    const H=(aoa[h]||[]).map(N),A=(h>0?aoa[h-1]:[])||[],iID=H.indexOf('ID'),iD=H.indexOf('DESCRIPCION'),iV=H.indexOf('VIGENCIA');
+    const cols=[];H.forEach((c,j)=>{if(c.startsWith('PLAN')){const t=N(A[j])||N(nombre).replace(/^OF\s+/,'');cols.push([j,t]);}});
+    const iMy=H.findIndex(c=>c.indexOf('MAYOREO')>=0&&(c.indexOf('DIST')>=0||c.indexOf('VOLUMEN')>=0||c.indexOf('PLAN')>=0));
+    const filas=new Map();let sec='';
+    for(let i=h+1;i<aoa.length;i++){const r=aoa[i]||[],c=Math.round(num(r[iID]));
+      if(!(c>0)){if(iD>=0&&r[iD])sec=String(r[iD]).trim();continue;}
+      let x=filas.get(c);if(!x){x={clave:c,desc:iD>=0?String(r[iD]||'').trim():'',vig:iV>=0&&r[iV]?String(r[iV]).trim():'',sec,t:{},vt:0,my:0};filas.set(c,x);}
+      cols.forEach(([j,t])=>{const q=num(r[j]);if(q>0){x.t[t]=(x.t[t]||0)+q;x.vt+=q;}});
+      if(iMy>=0){const q=num(r[iMy]);if(q>0)x.my+=q;}}
+    const f=[...filas.values()];
+    out.push({hoja:nombre,tiendas:cols.map(c=>c[1]),filas:f,conVol:f.filter(x=>x.vt>0||x.my>0).length,total:f.reduce((a,x)=>a+x.vt+x.my,0),mayoreo:iMy>=0,
+      mes:(()=>{const n=N(nombre);const m=L.MESES_ES.findIndex(z=>n.indexOf(z)>=0);return m>=0?m+1:null;})()});
+  });
+  return out;
 };
 L.METODOS={
   EST:'Nivel con temporada y crecimiento',
@@ -498,11 +539,34 @@ L.correr=(D,Pin,hooks)=>{
       f=Float64Array.from([z.cierre].concat(Array.from(f2).slice(0,11)));
     }
     const esc=L.escala(Fh,PR[b],H,P),Dm=Fh/H;
-    const Fcic=Math.max(0,Fhc-Fh);
     const pozo=er.pozo[TP[b]][hb(H)][E.gr[i]],pr=er.propios[i],q=x=>L.cuantilMezcla(pr,pozo,x,P);
-    let inv=L.inventario({Fh,Dm,esc,qServ:q(p),Fcic,ex:k.ex,bo:k.bo,conBO:!!P.CON_BO},P),red=null;
-    if(k.red){red=L.red.calcular(k.red,{s:k.s,f,I:u.I,mo0:(m0+T)%12,meses:MES,H,cob,hasta:inv.hasta,punto:inv.punto},P);
-      red.hastaSin=inv.hasta;inv=Object.assign({},inv,{hasta:red.hasta,propuesta:Math.max(0,red.hasta-inv.disp)});}
+    // Demanda adicional ya planeada (ofertas y aperturas de tiendas), por mes a partir del mes en curso
+    const p0=par?Math.max(0,Math.min(1,pc_.pHoy!=null?pc_.pHoy:pc_.p)):0;
+    const EX=L.extras(k,f,u.I,(m0+T)%12,P);
+    // Nivel de inventario para un periodo de protección Hx y una cobertura cx (se usa también para compra nacional e importación)
+    const nivel=(Hx,cx)=>{
+      let Fx=Fh,Fxc=Fhc;
+      if(Hx!==H||cx!==cob){if(par){const q_=Math.max(0,1-(pc_.pHoy!=null?pc_.pHoy:pc_.p));Fx=L.acumHoy(par.resto,q_,Float64Array.from(f.slice(1)),Hx);Fxc=L.acumHoy(par.resto,q_,Float64Array.from(f.slice(1)),Math.min(12,Hx+cx));}
+        else{Fx=L.acum(f,Hx);Fxc=L.acum(f,Math.min(12,Hx+cx));}}
+      const eh=L.extraEn(EX.m,p0,Hx),ec=L.extraEn(EX.m,p0,Math.min(12,Hx+cx));
+      const ex_=Hx===H?esc:L.escala(Fx,PR[b],Hx,P),pz=Hx===H?pozo:er.pozo[TP[b]][hb(Hx)][E.gr[i]],qq=x=>L.cuantilMezcla(pr,pz,x,P);
+      let iv=L.inventario({Fh:Fx+eh,Dm:Fx/Hx,esc:ex_,qServ:qq(p),Fcic:Math.max(0,(Fxc+ec)-(Fx+eh)),ex:k.ex,bo:k.bo,conBO:!!P.CON_BO},P),rd=null;
+      if(k.red){rd=L.red.calcular(k.red,{s:k.s,f,I:u.I,mo0:(m0+T)%12,meses:MES,H:Hx,cob:cx,hasta:iv.hasta,punto:iv.punto},P);
+        rd.hastaSin=iv.hasta;iv=Object.assign({},iv,{hasta:rd.hasta,propuesta:Math.max(0,rd.hasta-iv.disp)});}
+      // aperturas: lo que la tienda nueva necesita del CEDI (inventario inicial + venta), por la parte que surte el CEDI
+      const fa=rd?rd.alfa:1,ah=EX.ap.length?L.extraEn(EX.apm,p0,Hx)*fa:0,ahc=EX.ap.length?L.extraEn(EX.apm,p0,Math.min(12,Hx+cx))*fa:0;
+      if(ahc>0&&P.APERTURAS_ACTIVA){const punto=iv.punto+ah,hasta=Math.max(punto,iv.hasta+ahc);iv=Object.assign({},iv,{punto,hasta,propuesta:Math.max(0,hasta-iv.disp),pedir:iv.disp<=punto,
+        dias:Dm>0?Math.max(0,(iv.disp-punto)/(Dm/30)):null});}
+      return{iv,rd,eh,ec,ah,ahc,fa};
+    };
+    const NV=nivel(H,cob);let inv=NV.iv,red=NV.rd;
+    // Compra nacional e importación (plan_abasto_dual): mismo cálculo con su tiempo de entrega y sus meses objetivo
+    let dual=null;
+    if(k.dual){const d=k.dual,hx=lt=>clip((lt||0)+P.DIAS_REACCION/30,0.25,P.H_MAX),cv=pm=>P.COBERTURA_MESES>0?P.COBERTURA_MESES:(pm||1);dual={};
+      if(d.ltN!=null||d.pmN!=null){const Hn=hx(d.ltN!=null?d.ltN:k.lt),z=nivel(Hn,cv(d.pmN!=null?d.pmN:k.pm));dual.N={H:Hn,punto:z.iv.punto,hasta:z.iv.hasta};}
+      if(d.ltI!=null||d.pmI!=null){const Hi=hx(d.ltI!=null?d.ltI:k.lt),z=nivel(Hi,cv(d.pmI!=null?d.pmI:k.pm));dual.I={H:Hi,punto:z.iv.punto,hasta:z.iv.hasta};}
+      Object.assign(dual,{ltN:d.ltN,pmN:d.pmN,ltI:d.ltI,pmI:d.pmI,stk:d.stk,stkF:d.stkF,stkP:d.stkP,fI:d.fI});}
+    const extra={of:NV.eh>0||NV.ec>0?{h:NV.eh,c:NV.ec,lst:EX.of}:null,ap:NV.ahc>0&&P.APERTURAS_ACTIVA?{h:NV.ah,c:NV.ahc,fa:NV.fa,lst:EX.ap}:null};
     // probabilidad de agotarse antes de que llegue un pedido levantado hoy (según los errores pasados de claves parecidas)
     let pa=null;const base=pozo.length>=20?pozo:null;
     if(base&&esc>0){const lim=(inv.disp-Fh)/esc;let lo=0,hi=base.length;while(lo<hi){const md=(lo+hi)>>1;if(base[md]<=lim)lo=md+1;else hi=md;}pa=1-lo/base.length;}
@@ -513,7 +577,7 @@ L.correr=(D,Pin,hooks)=>{
       bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
       punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,
       Dportal:pd,puntoPortal:pd!=null?pd*(k.lt||0)*P.FACT_ALARMA:null,hastaPortal:pd!=null?pd*((k.lt||0)+(k.pm||0)):null,
-      val:Array.from(u.v),red,par,te:TE[i]};
+      val:Array.from(u.v),red,par,te:TE[i],dual,extra};
   }
   av('Listo',1);
   return{version:L.VERSION,param:P,meses:MES,pruebas:pruebas.map(t=>MES[t]),resumen,calibracion,

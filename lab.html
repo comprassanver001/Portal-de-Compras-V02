@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
-<script src="lab_motor.js?v=20261118a" charset="utf-8"></script>
+<script src="lab_motor.js?v=20261118b" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;font-size:13px;color:#1a2035;background:#f3f5f9}
@@ -74,7 +74,7 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
 <div id="app" style="display:none">
   <div class="card" id="estado-carga"><span id="msg">Cargando datos del portal…</span><div class="err" id="carga-err"></div></div>
   <div class="tabs" id="tabs" style="display:none">
-    <div class="on" data-t="res">Resumen y confiabilidad</div><div data-t="cla">Claves</div><div data-t="var">Variables y escenarios</div>
+    <div class="on" data-t="res">Resumen y confiabilidad</div><div data-t="cla">Claves</div><div data-t="var">Variables y escenarios</div><div data-t="ape">Aperturas de tiendas</div><div data-t="ofe">Ofertas</div>
   </div>
 
   <section id="t-res" style="display:none">
@@ -154,6 +154,36 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
       <div class="row"><input type="file" id="fam-file" accept=".xlsx,.xls"><button class="sec" onclick="cargarFamilias()">Cargar hoja BASE DE NEGOCIO</button><span class="d" id="fam-msg"></span></div>
     </div>
   </section>
+
+  <section id="t-ape" style="display:none">
+    <div class="card">
+      <h2>Aperturas de tiendas Mas Ferre</h2>
+      <p class="d">Captura las tiendas que se piensan abrir. Para cada clave, el laboratorio estima lo que la tienda nueva va a necesitar del CEDI: su <b>inventario inicial</b> (número base) en el mes de apertura y su <b>venta</b> en los meses siguientes, con la temporada. Se toma de una tienda parecida que ya existe (o del promedio de las tiendas abiertas) multiplicada por el peso. Solo cuenta lo que cae dentro del tiempo de entrega y los meses que cubre la compra, y se multiplica por la parte de la venta de tiendas que surte el CEDI. <span id="ape-est"></span></p>
+      <div class="row">
+        <input id="ape-nom" placeholder="Nombre de la tienda" style="width:200px">
+        <label class="row" style="gap:4px">Apertura estimada <input type="date" id="ape-fecha"></label>
+        <label class="row" style="gap:4px">Parecida a <select id="ape-ref"></select></label>
+        <label class="row" style="gap:4px">Venderá el <input type="number" id="ape-peso" value="100" min="5" max="300" step="5" style="width:70px">% de esa tienda</label>
+        <label class="row" style="gap:4px" title="Para las claves en que la tienda parecida no tiene número base">Inventario inicial si no hay base <input type="number" id="ape-bm" value="0" min="0" max="6" step="0.5" style="width:60px"> meses de venta</label>
+      </div>
+      <div class="row" style="margin-top:6px"><input id="ape-nota" placeholder="Nota (opcional)" style="flex:1;min-width:220px"><input id="ape-quien" placeholder="Tu nombre" style="width:160px"><button onclick="guardarApertura()">Agregar apertura</button><span class="d" id="ape-msg"></span></div>
+      <div class="scroll" style="max-height:none;margin-top:10px"><table id="tb-ape"></table></div>
+      <h3>Catálogo de productos de la tienda nueva (opcional)</h3>
+      <p class="d">Excel con la columna <b>CLAVE</b> y, si los tienes, <b>BASE</b> (inventario inicial) y <b>VENTA</b> (venta mensual esperada). Si una apertura tiene catálogo, solo esas claves cuentan; lo que venga vacío se toma de la tienda parecida × peso. Sin catálogo cuentan las claves que maneja la tienda parecida (las que tiene con número base o con venta; las bloqueadas B, BX y P no).</p>
+      <div class="row"><select id="cat-ape"></select><input type="file" id="cat-file" accept=".xlsx,.xls,.csv"><button class="sec" onclick="cargarCatalogo()">Cargar catálogo</button><span class="d" id="cat-msg"></span></div>
+    </div>
+  </section>
+
+  <section id="t-ofe" style="display:none">
+    <div class="card">
+      <h2>Ofertas: distribución adicional</h2>
+      <p class="d">Carga el archivo de ofertas de SANVER. De cada hoja con la columna <b>ID</b> y columnas <b>PLAN ó 30%</b> por tienda se toma la distribución adicional que planeó el desarrollador. Esa cantidad sale del CEDI en el mes de la oferta, así que se suma a la compra cuando ese mes cae dentro del tiempo de entrega o de los meses que cubre el pedido. Si el archivo trae una columna de volumen para mayoreo, también se suma. <span id="ofe-est"></span></p>
+      <div class="row"><input type="file" id="ofe-file" accept=".xlsx,.xls"><button class="sec" onclick="leerOfertas()">Leer archivo</button><span class="d" id="ofe-msg"></span></div>
+      <div id="ofe-prev" style="margin-top:8px"></div>
+      <h3>Ofertas cargadas</h3>
+      <div class="scroll" style="max-height:none"><table id="tb-ofe"></table></div>
+    </div>
+  </section>
 </div>
 </main>
 <div id="toast"></div>
@@ -226,7 +256,7 @@ async function cargarDatos(){
   try{paso('Leyendo recepciones para medir el tiempo de entrega real…');
     const [rec,lin]=await Promise.all([
       todo(()=>sb.from('plan_recepciones_real').select('folio_oc,clave,fecha,cantidad').order('folio_oc').order('clave').order('fecha')),
-      todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_ped,proveedor,entrega_directa').order('folio').order('clave'))]);
+      todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_ped,cantidad_pend,proveedor,entrega_directa,cancelada,cerrada_en').order('folio').order('clave'))]);S.ocLin=lin;
     const OL=new Map();lin.forEach(l=>{const key=l.folio+'|'+l.clave;if(!OL.has(key))OL.set(key,l);});
     const RR=new Map();rec.forEach(r=>{if(r.folio_oc==null)return;const key=r.folio_oc+'|'+r.clave;(RR.get(key)||RR.set(key,[]).get(key)).push(r);});
     const ultProv=new Map();
@@ -239,6 +269,13 @@ async function cargarDatos(){
       const u=ultProv.get(c);if(pv&&(!u||f0>u.f))ultProv.set(c,{f:f0,pv});S.teN++;});
     S.teUlt=ultProv;
   }catch(e){S.teNota='No se pudieron leer las recepciones ('+(e.message||e)+'): se usa el tiempo de entrega del portal.';}
+  // Compra nacional e importación (Admin del portal: plan_abasto_dual y plan_stock_proveedor), igual que Propuestas de compra
+  S.dual=new Map();
+  try{const du=await todo(()=>sb.from('plan_abasto_dual').select('*').order('clave'));
+    if(du.length){let st=[];try{st=await todo(()=>sb.from('plan_stock_proveedor').select('clave,proveedor,cantidad,fecha_corte').order('clave').order('proveedor'));}catch(e){}
+      S.dual=P.dualMapa(du,st,(S.ocLin||[]).filter(l=>!l.cerrada_en),est.fecha);}
+  }catch(e){S.dualNota='No se pudo leer la lista de compra nacional e importación ('+(e.message||e)+').';}
+  await leerExtras();
   const AG=new Map();ag.forEach(r=>{const k=Number(r.clave);if(!AG.has(k))AG.set(k,new Set());AG.get(k).add(String(r.mes).slice(0,7));});
   const FM=new Map(fam.map(r=>[Number(r.clave),r]));
   // Meses: del primero con venta al último mes completo antes de la fecha del cálculo
@@ -267,13 +304,125 @@ async function cargarDatos(){
     if(parcial)k.par=Math.max(0,Number(ser[mesAct])||0);
     {const a=S.te.get(c),u=S.teUlt&&S.teUlt.get(c);if(a)k.teA=a;if(u)k.tePv=u.pv;if(a||u)S.teInfo.set(c,1);}
     if(S.red.ventas&&(RV.has(c)||RI.has(c)))k.red=LAB.red.armar(RV.get(c),RI.get(c),S.red.ventas,meses);
+    if(S.dual.has(c))k.dual=S.dual.get(c);
+    if(RV.has(c))k.tRef=(RV.get(c)||{}).t||null;
     claves.push(k);
     S.info.set(c,{n:r.n||'',comp,rot,g:r.g||'',m:r.m||'',u:r.u||'',D:r.D,est:r.est});
   });
   S.estOCs=est.ocs||{};S.estFila=new Map((est.claves||[]).map(r=>[Number(r.c),r]));
   const teProv={};S.teProv.forEach((v,k)=>{if(v.length>=5)teProv[k]=v;});
-  S.D={meses,claves,parcial,teProv};S.fecha=fecha;S.nRed=claves.filter(k=>k.red).length;S.nED=ED.size;S.nAG=AG.size;
+  S.D={meses,claves,parcial,teProv};S.mes0=mesAct;armarExtras();S.fecha=fecha;S.nRed=claves.filter(k=>k.red).length;S.nED=ED.size;S.nAG=AG.size;
   $('corte').textContent='Cálculo del portal al '+String(fecha).slice(8,10)+'/'+String(fecha).slice(5,7)+'/'+String(fecha).slice(0,4)+' · '+nf(claves.length)+' claves · ventas '+meses[0]+' a '+fin+(parcial?' · mes en curso al '+parcial.corte.slice(8,10)+'/'+parcial.corte.slice(5,7)+' ('+Math.round(parcial.p*100)+'% del mes)':'');
+}
+// ── Aperturas y ofertas: se leen de lab_aperturas, lab_aperturas_claves y lab_ofertas (lab_tablas_04.sql) ──
+async function leerExtras(){
+  S.ape=[];S.apeCat=new Map();S.ofe=[];S.extOk=true;
+  try{S.ape=await todo(()=>sb.from('lab_aperturas').select('*').order('fecha'));
+    (await todo(()=>sb.from('lab_aperturas_claves').select('*').order('apertura_id').order('clave'))).forEach(r=>{const id=Number(r.apertura_id);(S.apeCat.get(id)||S.apeCat.set(id,new Map()).get(id)).set(Number(r.clave),r);});
+    S.ofe=await todo(()=>sb.from('lab_ofertas').select('mes,clave,vol_tiendas,vol_mayoreo,tiendas,vigencia,descripcion,hoja,archivo,cargado_por,cargado_en').order('mes').order('clave'));
+  }catch(e){S.extOk=false;S.extNota=(e.code==='42P01'||/lab_aperturas|lab_ofertas|does not exist|schema cache/.test(String(e.message||e)))?'Faltan las tablas de aperturas y ofertas: corre lab_tablas_04.sql en Supabase.':'No se pudieron leer aperturas y ofertas ('+(e.message||e)+').';}
+}
+const mesesEntre=(a,b)=>{const[y1,m1]=a.split('-').map(Number),[y2,m2]=b.split('-').map(Number);return(y2-y1)*12+(m2-m1);};
+// Promedio por tienda abierta: venta mensual y número base (solo bases numéricas)
+function refDe(t,ref){
+  if(!t)return null;const cerr=new Set((S.red&&S.red.ventas&&S.red.ventas.cerradas)||[]);
+  if(ref!=='PROMEDIO'){const a=t[ref];if(!a)return null;return{v:Number(a[0])||0,b:a[1]};}
+  let v=0,b=0,nv=0,nb=0;for(const s in t){if(cerr.has(s))continue;const a=t[s];if(typeof a[1]==='string'&&LAB.red.NO_SURTE.indexOf(a[1])>=0)continue;v+=Number(a[0])||0;nv++;if(typeof a[1]==='number'){b+=a[1];nb++;}}
+  return nv?{v:v/nv,b:nb?b/nb:null}:null;
+}
+function armarExtras(){
+  if(!S.D)return;const of=new Map();
+  (S.ofe||[]).forEach(o=>{const j=mesesEntre(S.mes0,o.mes);if(j<0||j>13)return;const c=Number(o.clave);if(!((Number(o.vol_tiendas)||0)+(Number(o.vol_mayoreo)||0)>0))return;
+    (of.get(c)||of.set(c,[]).get(c)).push({j,mes:o.mes,t:Number(o.vol_tiendas)||0,my:Number(o.vol_mayoreo)||0,vig:o.vigencia||'',nt:o.tiendas?Object.keys(o.tiendas).length:0,n:o.hoja||''});});
+  const act=(S.ape||[]).filter(a=>a.activa!==false).map(a=>({...a,j:mesesEntre(S.mes0,String(a.fecha).slice(0,7)),dia:Number(String(a.fecha).slice(8,10))||1}));
+  let nAp=0;
+  S.D.claves.forEach(k=>{k.of=of.get(k.c)||null;k.ap=null;
+    act.forEach(a=>{if(a.j<0||a.j>13)return;const cat=S.apeCat.get(Number(a.id)),cr=cat?cat.get(k.c):null;if(cat&&!cr)return;
+      const r=refDe(k.tRef,a.tienda_ref),w=Number(a.peso)||1;let v=cr&&cr.venta_mes!=null?Number(cr.venta_mes):(r?r.v*w:0);
+      if(!cat&&r&&typeof r.b==='string')return; // la tienda parecida la tiene bloqueada o pendiente
+      let base=cr&&cr.base!=null?Number(cr.base):(r&&typeof r.b==='number'?r.b*w:null);
+      if(base==null)base=(Number(a.base_meses)||0)*v;
+      if(!cat&&!(v>0)&&!(base>0))return;
+      if(!(v>0)&&!(base>0))return;
+      // en el mes de apertura vende la parte del mes que ya está abierta
+      (k.ap||(k.ap=[])).push({j:a.j,v,base,fr:Math.max(0,Math.min(1,(31-a.dia)/30)),n:a.nombre,id:a.id,f:String(a.fecha).slice(0,10)});});
+    if(k.ap)nAp++;});
+  S.nAp=nAp;S.nOf=of.size;
+}
+function reenviar(){armarExtras();W.postMessage({tipo:'datos',datos:S.D});}
+function tiendasRed(){const v=S.red&&S.red.ventas;const t=v?(v.tiendas||[]).filter(s=>(v.cerradas||[]).indexOf(s)<0):[];return t.sort();}
+function pintarAperturas(){
+  $('ape-ref').innerHTML='<option value="PROMEDIO">Promedio de las tiendas abiertas</option>'+tiendasRed().map(s=>'<option>'+esc(s)+'</option>').join('');
+  $('cat-ape').innerHTML=(S.ape||[]).map(a=>'<option value="'+a.id+'">'+esc(a.nombre)+' ('+String(a.fecha).slice(0,10)+')</option>').join('')||'<option value="">Primero agrega una apertura</option>';
+  $('ape-est').innerHTML=!S.extOk?'<b class="mal">'+esc(S.extNota)+'</b>':(S.red&&S.red.ventas?'':'<b class="mal">Carga primero la red (pestaña Variables): de ahí sale la venta y el número base de la tienda parecida.</b>');
+  const ef=c=>{let n=0,b=0,cob=0;(S.R?S.R.claves:[]).forEach(k=>{if(!k.extra||!k.extra.ap)return;const z=k.extra.ap.lst.filter(x=>Number(x.id)===Number(c));if(z.length){n++;b+=z.reduce((a,x)=>a+(x.base||0),0);}});return{n,b};};
+  const h='<tr><th class="l">Tienda</th><th>Apertura</th><th class="l">Parecida a</th><th>Peso</th><th>Catálogo</th><th>Claves que suma</th><th>Inventario inicial total</th><th class="l">Nota</th><th></th></tr>'+
+    (S.ape||[]).map(a=>{const e=ef(a.id),cat=S.apeCat.get(Number(a.id));return '<tr><td class="l">'+esc(a.nombre)+(a.activa===false?' <span class="d">(apagada)</span>':'')+'</td><td>'+String(a.fecha).slice(0,10)+'</td><td class="l">'+esc(a.tienda_ref==='PROMEDIO'?'Promedio':a.tienda_ref)+'</td><td>'+pc(Number(a.peso),0)+'</td><td>'+(cat?nf(cat.size)+' claves':'—')+'</td><td>'+nf(e.n)+'</td><td>'+nf(e.b)+'</td><td class="l">'+esc(a.nota||'')+'</td><td><button class="sec" onclick="activarApertura('+a.id+','+(a.activa===false)+')">'+(a.activa===false?'Prender':'Apagar')+'</button> <button class="sec" onclick="borrarApertura('+a.id+')">Borrar</button></td></tr>';}).join('');
+  $('tb-ape').innerHTML=(S.ape||[]).length?h:'<tr><td class="d">Sin aperturas capturadas.</td></tr>';
+}
+async function guardarApertura(){
+  const nombre=$('ape-nom').value.trim(),fecha=$('ape-fecha').value,quien=$('ape-quien').value.trim(),peso=Number($('ape-peso').value)/100;
+  if(!nombre||!fecha||!quien){toast('Escribe el nombre de la tienda, la fecha estimada y tu nombre.');return;}
+  if(!(peso>0)){toast('El peso debe ser mayor a 0.');return;}
+  const{error}=await sb.from('lab_aperturas').insert({nombre,fecha,tienda_ref:$('ape-ref').value,peso,base_meses:Number($('ape-bm').value)||0,nota:$('ape-nota').value.trim()||null,capturado_por:quien});
+  if(error){$('ape-msg').textContent='No se guardó: '+error.message;return;}
+  $('ape-nom').value='';$('ape-nota').value='';await leerExtras();pintarAperturas();reenviar();toast('Apertura guardada. Recalculando…');
+}
+async function activarApertura(id,on){const{error}=await sb.from('lab_aperturas').update({activa:!!on,actualizado_en:new Date().toISOString()}).eq('id',id);if(error){toast(error.message);return;}await leerExtras();pintarAperturas();reenviar();}
+async function borrarApertura(id){if(!confirmar('¿Borrar esta apertura y su catálogo?'))return;const{error}=await sb.from('lab_aperturas').delete().eq('id',id);if(error){toast(error.message);return;}await leerExtras();pintarAperturas();reenviar();}
+function confirmar(t){return window.confirm?window.confirm(t):true;}
+async function cargarCatalogo(){
+  const id=Number($('cat-ape').value),f=$('cat-file').files[0],msg=$('cat-msg');if(!id||!f){toast('Elige la apertura y el archivo.');return;}
+  try{msg.textContent='Leyendo…';const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:null,raw:true});
+    let h=-1;for(let i=0;i<Math.min(10,aoa.length);i++)if((aoa[i]||[]).some(c=>['CLAVE','IDART','IDARTICULO','ID'].indexOf(P.norm(c))>=0)){h=i;break;}
+    if(h<0)throw new Error('No encontré la columna CLAVE.');const H=aoa[h].map(P.norm),ic=H.findIndex(c=>['CLAVE','IDART','IDARTICULO','ID'].indexOf(c)>=0),ib=H.findIndex(c=>c.startsWith('BASE')),iv=H.findIndex(c=>c.startsWith('VENTA'));
+    const rows=new Map();for(let i=h+1;i<aoa.length;i++){const r=aoa[i]||[],c=P.clave(r[ic]);if(!c)continue;const n=x=>x==null||x===''?null:(isFinite(P.num(x))?P.num(x):null);rows.set(c,{apertura_id:id,clave:c,base:ib>=0?n(r[ib]):null,venta_mes:iv>=0?n(r[iv]):null});}
+    if(!rows.size)throw new Error('El archivo no trae claves.');
+    msg.textContent='Guardando '+nf(rows.size)+' claves…';
+    {const{error}=await sb.from('lab_aperturas_claves').delete().eq('apertura_id',id);if(error)throw error;}
+    const L_=[...rows.values()];for(let i=0;i<L_.length;i+=500){const{error}=await sb.from('lab_aperturas_claves').insert(L_.slice(i,i+500));if(error)throw error;}
+    msg.textContent='Catálogo guardado: '+nf(rows.size)+' claves.';await leerExtras();pintarAperturas();reenviar();
+  }catch(e){msg.textContent='No se cargó: '+(e.message||e);}
+}
+// Ofertas
+async function leerOfertas(){
+  const f=$('ofe-file').files[0],msg=$('ofe-msg');if(!f){toast('Elige el archivo de ofertas.');return;}
+  try{msg.textContent='Leyendo '+f.name+'…';const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});
+    const hojas=wb.SheetNames.map(n=>({nombre:n,aoa:XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:null,raw:true})}));
+    const r=LAB.ofertasLeer(hojas).filter(x=>x.filas.length);if(!r.length)throw new Error('No encontré hojas con la columna ID y columnas «PLAN ó 30%».');
+    const yF=(f.name.match(/20\d\d/)||[])[0];const hoy=S.mes0||new Date().toISOString().slice(0,7);
+    S.ofLeido={archivo:f.name,hojas:r};msg.textContent='';
+    $('ofe-prev').innerHTML='<table><tr><th>Usar</th><th class="l">Hoja</th><th>Tiendas</th><th>Claves</th><th>Con distribución</th><th>Piezas adicionales</th><th>Mes en que se distribuye</th></tr>'+
+      r.map((x,i)=>{const mm=x.mes||Number(hoy.slice(5,7))+1>12?1:Number(hoy.slice(5,7))+1;const m=x.mes||mm;let y=yF?Number(yF):Number(hoy.slice(0,4));if(!yF&&(y+'-'+String(m).padStart(2,'0'))<hoy)y++;
+        return '<tr><td><input type="checkbox" id="of-u'+i+'" '+(x.mes&&x.tiendas.length>=5?'checked':'')+'></td><td class="l">'+esc(x.hoja)+'</td><td>'+x.tiendas.length+'</td><td>'+nf(x.filas.length)+'</td><td>'+nf(x.conVol)+'</td><td>'+nf(x.total)+'</td><td><input type="month" id="of-m'+i+'" value="'+y+'-'+String(m).padStart(2,'0')+'"></td></tr>';}).join('')+'</table>'+
+      '<p class="d">Marcadas por omisión: las hojas cuyo nombre dice el mes y que traen distribución por tienda. Si otra hoja también es distribución adicional (por ejemplo, la de implementaciones o la de una tienda), márcala. Si dos hojas traen la misma clave en el mismo mes, se suman.</p>'+
+      '<div class="row"><input id="ofe-quien" placeholder="Tu nombre" style="width:160px"><button onclick="guardarOfertas()">Guardar ofertas</button><span class="d">Reemplaza lo cargado antes para los meses elegidos.</span></div>';
+  }catch(e){msg.textContent='No se pudo leer: '+(e.message||e);}
+}
+async function guardarOfertas(){
+  const L_=S.ofLeido,quien=($('ofe-quien')||{}).value;if(!L_){return;}if(!quien||!quien.trim()){toast('Escribe tu nombre.');return;}
+  if(!S.extOk){toast('Primero corre lab_tablas_04.sql en Supabase.');return;}
+  const m=new Map(),meses=new Set();
+  L_.hojas.forEach((x,i)=>{if(!$('of-u'+i).checked)return;const mes=$('of-m'+i).value;if(!/^\d{4}-\d{2}$/.test(mes))return;meses.add(mes);
+    x.filas.forEach(fx=>{const key=mes+'|'+fx.clave;let r=m.get(key);
+      if(!r){r={mes,clave:fx.clave,vol_tiendas:0,vol_mayoreo:0,tiendas:{},vigencia:fx.vig||null,descripcion:fx.desc||null,hoja:x.hoja,archivo:L_.archivo,cargado_por:quien.trim()};m.set(key,r);}
+      else if(r.hoja.indexOf(x.hoja)<0)r.hoja+=' + '+x.hoja;
+      r.vol_tiendas+=fx.vt;r.vol_mayoreo+=fx.my;for(const t in fx.t)r.tiendas[t]=(r.tiendas[t]||0)+fx.t[t];if(!r.vigencia&&fx.vig)r.vigencia=fx.vig;});});
+  if(!m.size){toast('Marca al menos una hoja.');return;}
+  const msg=$('ofe-msg');try{
+    for(const mes of meses){const{error}=await sb.from('lab_ofertas').delete().eq('mes',mes);if(error)throw error;}
+    const R_=[...m.values()];for(let i=0;i<R_.length;i+=500){msg.textContent='Guardando '+nf(Math.min(R_.length,i+500))+' de '+nf(R_.length)+'…';const{error}=await sb.from('lab_ofertas').insert(R_.slice(i,i+500));if(error)throw error;}
+    msg.textContent='Guardado: '+nf(R_.length)+' claves en '+[...meses].join(', ')+'.';$('ofe-prev').innerHTML='';S.ofLeido=null;
+    await leerExtras();pintarOfertas();reenviar();toast('Ofertas guardadas. Recalculando…');
+  }catch(e){msg.textContent='No se guardó: '+(e.message||e);}
+}
+async function borrarOfertasMes(mes){if(!confirmar('¿Quitar las ofertas de '+mes+'?'))return;const{error}=await sb.from('lab_ofertas').delete().eq('mes',mes);if(error){toast(error.message);return;}await leerExtras();pintarOfertas();reenviar();}
+function pintarOfertas(){
+  $('ofe-est').innerHTML=!S.extOk?'<b class="mal">'+esc(S.extNota)+'</b>':'';
+  const g=new Map();(S.ofe||[]).forEach(o=>{let x=g.get(o.mes);if(!x){x={mes:o.mes,n:0,v:0,my:0,hojas:new Set(),por:o.cargado_por,en:o.cargado_en,arch:o.archivo};g.set(o.mes,x);}x.n++;if(o.vol_tiendas>0||o.vol_mayoreo>0)x.v++;x.my+=Number(o.vol_mayoreo)||0;x.vt=(x.vt||0)+(Number(o.vol_tiendas)||0);String(o.hoja||'').split(' + ').forEach(h=>x.hojas.add(h));});
+  const enC=mes=>{let a=0,n=0;(S.R?S.R.claves:[]).forEach(k=>{if(k.extra&&k.extra.of&&k.extra.of.lst.some(o=>o.mes===mes)){n++;a+=k.extra.of.c;}});return{a,n};};
+  $('tb-ofe').innerHTML=g.size?'<tr><th>Mes</th><th class="l">Archivo y hojas</th><th>Claves</th><th>Con distribución</th><th>Piezas a tiendas</th><th>Piezas mayoreo</th><th>Claves donde entra a la compra</th><th class="l">Cargó</th><th></th></tr>'+
+    [...g.values()].map(x=>{const e=enC(x.mes);return '<tr><td>'+x.mes+'</td><td class="l">'+esc(x.arch||'')+' · '+esc([...x.hojas].join(', '))+'</td><td>'+nf(x.n)+'</td><td>'+nf(x.v)+'</td><td>'+nf(x.vt)+'</td><td>'+nf(x.my)+'</td><td>'+nf(e.n)+'</td><td class="l">'+esc(x.por||'')+' '+String(x.en||'').slice(0,10)+'</td><td><button class="sec" onclick="borrarOfertasMes(\''+x.mes+'\')">Quitar</button></td></tr>';}).join(''):'<tr><td class="d">Sin ofertas cargadas.</td></tr>';
 }
 async function abrir(){
   $('lock').style.display='none';$('app').style.display='block';
@@ -284,12 +433,12 @@ async function abrir(){
 }
 
 // ── Cálculo en segundo plano ──
-const W=new Worker('lab_worker.js?v=20261118a');
+const W=new Worker('lab_worker.js?v=20261118b');
 W.onmessage=e=>{const m=e.data;
   if(m.tipo==='datos-ok'){recalcular();}
   else if(m.tipo==='progreso'){$('barra').style.display='block';$('barra').firstElementChild.style.width=(m.f*100).toFixed(0)+'%';$('avance').textContent=m.t;}
   else if(m.tipo==='listo'){S.R=m.R;S.por=new Map(m.R.claves.map(k=>[k.c,k]));$('barra').style.display='none';$('avance').textContent='';$('b-rec').disabled=false;
-    $('estado-carga').style.display='none';$('tabs').style.display='flex';pintarResumen();pintarFiltros();pintarClaves();if(!S.vista)ver('res');if(S.sel)ficha(S.sel);}
+    $('estado-carga').style.display='none';$('tabs').style.display='flex';pintarResumen();pintarFiltros();pintarClaves();pintarAperturas();pintarOfertas();if(!S.vista)ver('res');if(S.sel)ficha(S.sel);}
   else if(m.tipo==='error'){$('b-rec').disabled=false;$('barra').style.display='none';$('avance').textContent='';$('carga-err').textContent='Error en el cálculo: '+m.mensaje;$('estado-carga').style.display='block';}
 };
 W.onerror=e=>{$('carga-err').textContent='Error en el cálculo: '+(e.message||'no se pudo iniciar');$('estado-carga').style.display='block';};
@@ -298,7 +447,7 @@ function recalcular(){leerVars();$('b-rec').disabled=true;$('msg').textContent='
 
 // ── Pestañas ──
 document.querySelectorAll('#tabs div').forEach(d=>d.onclick=()=>ver(d.dataset.t));
-function ver(t){S.vista=t;document.querySelectorAll('#tabs div').forEach(d=>d.classList.toggle('on',d.dataset.t===t));['res','cla','var'].forEach(x=>$('t-'+x).style.display=x===t?'block':'none');}
+function ver(t){S.vista=t;document.querySelectorAll('#tabs div').forEach(d=>d.classList.toggle('on',d.dataset.t===t));['res','cla','var','ape','ofe'].forEach(x=>$('t-'+x).style.display=x===t?'block':'none');}
 
 // ── Resumen ──
 const ROTN={'SAGRADOS':'Sagrados','ALTA ROTACION':'Alta','MEDIA ROTACION':'Media','LENTA ROTACION':'Lenta','NUEVOS':'Nuevos'};
@@ -341,6 +490,8 @@ function pintarResumen(){
     (S.D.parcial?' Venta del mes en curso al '+S.D.parcial.corte+' ('+Math.round(S.D.parcial.p*100)+'% del mes): ajusta el pronóstico de lo que falta; esta parte no entra en la prueba contra el historial.':(S.parNota?' '+esc(S.parNota):''))+
     (S.nSust?' Incluye el historial de '+nf(S.nSust)+' claves sustituidas (estatus SUSTITUTO).':'')+(S.nProd?' Suma el consumo por producción a '+nf(S.nProd)+' insumos (venta SANVER de sus productos × insumo por unidad, igual que el portal).':(S.prodNota?' '+esc(S.prodNota):''))+
     (S.teN?' Tiempo de entrega real medido en '+nf(S.teN)+' OCs completas ('+nf(R.claves.filter(k=>k.te).length)+' claves con dato propio o de su proveedor): '+(R.param.TE_FUENTE?'<b>se usa en lugar del T. entrega del portal</b>':'se muestra en la ficha; el cálculo usa el T. entrega del portal')+'.':(S.teNota?' '+esc(S.teNota):''))+
+    (S.dual&&S.dual.size?' Compra nacional e importación: '+nf(S.dual.size)+' claves con su tiempo de entrega, sus meses objetivo y el stock del proveedor nacional (en la ficha y al elegir el tipo de compra en Propuestas).':'')+
+    (S.nOf?' Ofertas: distribución adicional en '+nf(S.nOf)+' claves.':'')+(S.nAp?' Aperturas de tiendas: '+nf(S.nAp)+' claves.':'')+(S.extOk===false?' '+esc(S.extNota):'')+
     (S.nRed?'':' <b>Todavía no incluye:</b> la red de tiendas MF y mayoreo.');
 }
 
@@ -398,7 +549,7 @@ function ficha(c){
     dato('Riesgo de agotarse antes de que llegue un pedido de hoy',pc(k.pAgotar,0))+
     dato('Pedir hasta','<b>'+nf(k.hasta)+'</b> (alarma + '+nf(k.cob,1)+' meses de venta'+(k.red&&k.red.aj?(k.red.aj<0?' − ':' + ')+nf(Math.abs(k.red.aj))+' por tiendas':'')+')')+
     dato('Propuesta de compra','<b>'+nf(k.propuesta)+'</b>'+(k.hastaPortal!=null?' · portal hoy '+nf(Math.max(0,k.hastaPortal-k.disp)):''))+
-    fichaRed(k)+
+    fichaExtra(k)+fichaDual(k,d)+fichaRed(k)+
     '<p class="d" style="margin-top:8px">El rango y el inventario de seguridad salen de los errores reales del pronóstico en esta clave y en claves parecidas (mismo tipo de venta y confiabilidad). El área sombreada de la gráfica es un rango aproximado por mes.</p>';
   const lab=[],hist=[],ago=[],pro=[],lo=[],hi=[];
   for(let t=a;t<T;t++){lab.push(M[t]);hist.push(d.s[t]);ago.push(k.val[t]?null:d.s[t]);pro.push(t===T-1?d.s[t]:null);lo.push(null);hi.push(null);}
@@ -426,6 +577,21 @@ function fichaPar(k){
     dato('Cierre estimado que se usa','<span class="'+(dif>0.1?'med':dif<-0.1?'ok':'')+'">'+nf(a.cierre)+'</span> ('+(dif>=0?'+':'')+pc(dif,0)+' contra el pronóstico)')+
     dato('Mes siguiente: antes · ahora',nf(a.sigAntes)+' · '+nf(a.sig));
 }
+function fichaExtra(k){
+  const e=k.extra;if(!e||(!e.of&&!e.ap))return'';const dato=(x,v)=>'<div class="dato"><span>'+x+'</span><b>'+v+'</b></div>';let h='<h3>Demanda planeada</h3>';
+  if(e.of){e.of.lst.forEach(o=>{h+=dato('Oferta '+o.mes+(o.vig?' ('+esc(o.vig)+')':''),nf(o.t)+' pzs a '+o.nt+' tiendas'+(o.my?' + '+nf(o.my)+' mayoreo':'')+' · '+esc(o.n));});
+    h+=dato('Ofertas que entran al cálculo',nf(e.of.h)+' en la alarma · '+nf(e.of.c)+' en la compra');}
+  if(e.ap){e.ap.lst.forEach(a=>{h+=dato('Apertura '+esc(a.n)+' ('+a.f+')','inventario inicial '+nf(a.base)+' · venta '+nf(a.v,1)+' / mes');});
+    h+=dato('Aperturas que entran al cálculo',nf(e.ap.h)+' en la alarma · '+nf(e.ap.c)+' en la compra'+(e.ap.fa<1?' (el CEDI surte el '+pc(e.ap.fa,0)+')':''));}
+  return h;
+}
+function fichaDual(k,d){
+  const u=k.dual;if(!u)return'';const dato=(x,v)=>'<div class="dato"><span>'+x+'</span><b>'+v+'</b></div>';let h='<h3>Compra nacional e importación</h3>';
+  const disp=Number(d.ex)||0,bo=Number(d.bo)||0,boI=Math.round(bo*(u.fI||0)),boN=bo-boI,cb=!!S.R.param.CON_BO;
+  if(u.N){const tope=u.stk!=null?u.stk:null,pr=Math.max(0,u.N.hasta-(disp+(cb?boN:0)));h+=dato('Nacional (T. entrega '+nf(u.ltN!=null?u.ltN:d.lt,2)+' · objetivo '+nf(u.pmN!=null?u.pmN:d.pm,1)+')','alarma '+nf(u.N.punto)+' · pedir hasta '+nf(u.N.hasta)+' · propuesta <b>'+nf(tope!=null?Math.min(pr,tope):pr)+'</b>'+(tope!=null?' (el proveedor nacional tiene '+nf(tope)+(pr>tope?'; faltan '+nf(pr-tope)+' que van por importación':'')+')':' · sin stock del proveedor nacional cargado'));}
+  if(u.I){const pr=Math.max(0,u.I.hasta-(disp+(cb?bo:0)+(u.stk>0?u.stk:0)));h+=dato('Importación (T. entrega '+nf(u.ltI!=null?u.ltI:d.lt,2)+' · objetivo '+nf(u.pmI!=null?u.pmI:d.pm,1)+')','alarma '+nf(u.I.punto)+' · pedir hasta '+nf(u.I.hasta)+' · propuesta <b>'+nf(pr)+'</b>'+(u.stk>0?' (resta el stock del proveedor nacional: '+nf(u.stk)+')':''));}
+  return h;
+}
 function fichaTE(c,d){
   const t=(S.por.get(c)||{}).te,dato=(x,v)=>'<div class="dato"><span>'+x+'</span><b>'+v+'</b></div>';
   if(!t)return dato('Tiempo de entrega real','sin recepciones suficientes'+(S.teNota?'':' (menos de 3 OCs completas de la clave y menos de 5 de su proveedor)')+' · se usa el del portal');
@@ -451,7 +617,7 @@ function fichaRed(k){
 }
 function exportar(){
   const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,'Venta mensual portal':k.Dportal,
-    'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,'Punto de alarma':k.punto,'Alarma actual':k.puntoPortal,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Propuesta actual':k.propPortal}));
+    'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,'Punto de alarma':k.punto,'Alarma actual':k.puntoPortal,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Ofertas en la compra':k.extra&&k.extra.of?k.extra.of.c:null,'Aperturas en la compra':k.extra&&k.extra.ap?k.extra.ap.c:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Propuesta actual':k.propPortal,'Pedir hasta nacional':k.dual&&k.dual.N?k.dual.N.hasta:null,'Pedir hasta importación':k.dual&&k.dual.I?k.dual.I.hasta:null}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Laboratorio');XLSX.writeFile(wb,'Laboratorio_'+S.fecha+'.xlsx');
 }
 
@@ -462,7 +628,7 @@ const VARS=[
   ['SERVICIO.LENTA ROTACION','Nivel de servicio · Lenta (%)',50,99.9,.5,100],['SERVICIO.NUEVOS','Nivel de servicio · Nuevos (%)',50,99.9,.5,100],
   ['DIAS_REACCION','Días entre la alarma y levantar el pedido',0,60,1],['COBERTURA_MESES','Meses de venta que cubre cada pedido (0 = meses objetivo de la clave)',0,12,.25],
   ['SEG_MAX','Tope del inventario de seguridad, en meses de venta (0 = sin tope)',0,24,.5],['CON_BO','Contar el BO como disponible (1 = sí, 0 = no)',0,1,1],['RED_ACTIVA','Ajustar la compra con el inventario de las tiendas (1 = sí, 0 = no)',0,1,1],
-  ['PARCIAL_ACTIVA','Usar la venta del mes en curso (1 = sí, 0 = no)',0,1,1],['PARCIAL_MIN_AVANCE','Mes en curso: avance mínimo del mes para usarlo (%)',5,90,5,100],['PARCIAL_TOPE','Mes en curso: tope del ritmo, en veces el pronóstico',1.2,5,0.1],['TE_FUENTE','Tiempo de entrega: 0 = el del portal, 1 = el real de las recepciones',0,1,1],['TE_CUANTIL','Tiempo de entrega real: parte de las OCs que debe cubrir (%)',50,95,5,100],['FACT_ALARMA','Regla actual: alarma con T. entrega × este factor',1,2,.05]]],
+  ['PARCIAL_ACTIVA','Usar la venta del mes en curso (1 = sí, 0 = no)',0,1,1],['PARCIAL_MIN_AVANCE','Mes en curso: avance mínimo del mes para usarlo (%)',5,90,5,100],['PARCIAL_TOPE','Mes en curso: tope del ritmo, en veces el pronóstico',1.2,5,0.1],['TE_FUENTE','Tiempo de entrega: 0 = el del portal, 1 = el real de las recepciones',0,1,1],['OFERTAS_ACTIVA','Sumar la distribución adicional de las ofertas (1 = sí)',0,1,1],['APERTURAS_ACTIVA','Sumar las aperturas de tiendas (1 = sí)',0,1,1],['TE_CUANTIL','Tiempo de entrega real: parte de las OCs que debe cubrir (%)',50,95,5,100],['FACT_ALARMA','Regla actual: alarma con T. entrega × este factor',1,2,.05]]],
  ['Nivel de venta',[
   ['HIST','Meses de historia',6,36,1],['MEDIA_VIDA','Peso de lo reciente: un mes de hace N meses pesa la mitad',1,36,1],['TOPE_PICO','Tope de picos: veces la mediana',2,20,.5],
   ['REGULAR','Agotado sospechoso: meses con venta de los 12 previos',6,12,1],['RACHA','Agotado sospechoso: meses seguidos en cero',1,6,1]]],
@@ -534,7 +700,7 @@ async function publicar(){
     const datos=S.R.claves.map(k=>{const e=E.get(k.c),i=S.info.get(k.c);let inn=0,mas=0;
       if(e&&e.validacion==='VALIDO'){let f=1;if(P.norm(e.uni_compra)!==P.norm(i.u))f=e.factor_conv||0;inn=(e.inner_cant||0)*f;mas=(e.master_cant||0)*f;}
       const n3=x=>x==null||isNaN(x)?null:r1(x);
-      return[k.c,r1(k.Dm),r1(k.punto),r1(k.hasta),k.conf,r1(inn),r1(mas),n3(k.seguridad),n3(k.H),n3(k.cob),k.servicio,k.red?n3(k.red.aj):null,k.tipo,n3(k.errRel),n3(k.pAgotar),k.par?n3(k.par.v):null,k.par?n3(k.par.cierre):null,k.par?n3(k.par.antes):null,k.red?n3(k.red.hastaSin):null];});
+      return[k.c,r1(k.Dm),r1(k.punto),r1(k.hasta),k.conf,r1(inn),r1(mas),n3(k.seguridad),n3(k.H),n3(k.cob),k.servicio,k.red?n3(k.red.aj):null,k.tipo,n3(k.errRel),n3(k.pAgotar),k.par?n3(k.par.v):null,k.par?n3(k.par.cierre):null,k.par?n3(k.par.antes):null,k.red?n3(k.red.hastaSin):null,k.dual&&k.dual.N?n3(k.dual.N.punto):null,k.dual&&k.dual.N?n3(k.dual.N.hasta):null,k.dual&&k.dual.I?n3(k.dual.I.punto):null,k.dual&&k.dual.I?n3(k.dual.I.hasta):null,k.extra&&k.extra.of?n3(k.extra.of.c):null,k.extra&&k.extra.ap?n3(k.extra.ap.c):null,k.extra&&k.extra.of?n3(k.extra.of.h):null,k.extra&&k.extra.ap?n3(k.extra.ap.h):null];});
     msg.textContent='Guardando…';
     const{error}=await sb.from('lab_publicacion').upsert({id:'vigente',fecha_calculo:S.fecha,parametros:S.param,resumen:resumenAct(),datos,creado_por:quien,creado_en:new Date().toISOString()},{onConflict:'id'});
     if(error)throw error;
