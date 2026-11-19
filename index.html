@@ -2470,8 +2470,8 @@ init();
         </div>
         <p style="font-size:10.5px;color:#6b7a99;margin-top:6px">Puedes editar el texto antes de copiarlo. Los datos salen de la base del portal (detalle diario).</p>
         <div style="margin-top:16px;border-top:1px dashed #c9d4f0;padding-top:12px">
-          <div style="font-size:12px;font-weight:700;color:#1e3a5f;margin-bottom:4px">⚠️ Segundo mensaje — Claves en riesgo alto que se acaban en los próximos 14 días</div>
-          <div style="font-size:10.5px;color:#6b7a99;margin-bottom:6px;line-height:1.4">Por clasificación (Sagrados, Alta, Media y Lenta): clave, descripción, marca, comprador y la fecha en que se acabaría al ritmo de venta actual. No incluye claves restringidas ni las que nunca se han comprado. El detalle completo está en el portal: <b>Mi Resumen → ⚠️ Riesgo del día</b> (el link del mensaje lo abre).</div>
+          <div style="font-size:12px;font-weight:700;color:#1e3a5f;margin-bottom:4px">⚠️ Segundo mensaje — Riesgo por clasificación</div>
+          <div style="font-size:10.5px;color:#6b7a99;margin-bottom:6px;line-height:1.4">Por clasificación (Sagrados, Alta, Media y Lenta): top 5 en riesgo alto que se acaban en los próximos 15 días; si una clasificación no tiene ninguna, su top 5 en riesgo (alto, medio o bajo) que se acaba primero. Clave, descripción, marca, comprador y la fecha en que se acabaría al ritmo de venta actual. No incluye claves restringidas ni las que nunca se han comprado. El detalle completo está en el portal: <b>Mi Resumen → ⚠️ Riesgo del día</b> (el link del mensaje lo abre).</div>
           <div id="tg-rsg-parts"><textarea id="tg-txt2" spellcheck="false">Cargando…</textarea></div>
         </div>
       </div>
@@ -2795,28 +2795,32 @@ function genTgRiesgo(){
   try{
     const {fB,rg}=TG;if(!fB||!rg){box.innerHTML='';return;}
     const h=tgHandles(),B=tgC('tg-negritas')?(s=>`**${s}**`):(s=>s);
-    const DIAS=14,lim=P.addDias(fB,DIAS);
+    // Por clasificación (nov-2026): top 5 en riesgo ALTO que se acaban en los próximos 15 días; si una clasificación no tiene
+    // ninguna, el top 5 de sus claves en riesgo (alto, medio o bajo) que se acaban primero. Así siempre se ve cada clasificación.
+    const DIAS=15,TOP=5,lim=P.addDias(fB,DIAS);
     const L=[],F=rg.filas,alto=F.filter(r=>r.nv==='ALTO');
-    L.push(`⚠️ ${B('RIESGO ALTO — '+tgFecha(fB).toUpperCase())}`);
+    L.push(`⚠️ ${B('RIESGO POR CLASIFICACIÓN — '+tgFecha(fB).toUpperCase())}`);
     if(rg.sinNivel){L.push('ℹ️ El cálculo publicado todavía no trae el nivel de riesgo: corre Cálculo diario → 6 con el Excel del día.');}
     L.push(`🔴 En riesgo alto: ${B(String(alto.length))} claves`+(alto.length?` (${tgClsCuenta(alto)})`:''));
-    // Claves en riesgo alto que se acaban en los próximos 14 días, por clasificación
     const prox=alto.filter(r=>r.fAg&&r.fAg<=lim);
-    L.push('');L.push(`⏳ ${B('Se acaban en los próximos '+DIAS+' días')} (al ${segFmt(lim)}): ${prox.length}`);
-    const grupos=[['SAGRADOS','⭐','SAGRADOS'],['ALTA','🔺','ALTA ROTACIÓN'],['MEDIA','🔸','MEDIA ROTACIÓN'],['LENTA','🔹','LENTA ROTACIÓN']];
-    // Se arma con hasta 25 claves por clasificación y se baja el tope si no cabe en un mensaje de Telegram (4,096 caracteres)
-    const L0=L.slice();let G=[];
-    for(const MAXG of [25,20,16,12,10,8,6,5]){G=[];
-      grupos.forEach(([k,ic,t])=>{const rs=prox.filter(r=>tgCls(r.rotacion)===k).sort((a,b)=>String(a.fAg).localeCompare(String(b.fAg))||(a.dA??9e9)-(b.dA??9e9));if(!rs.length)return;
-        G.push('');G.push(`${ic} ${B(t)} (${rs.length})`);
-        rs.slice(0,MAXG).forEach(r=>G.push(`• ${r.clave} – ${tgCorto(r.nombre,32)} – ${tgCorto(r.marca||'',12)} – ${tgWho(tgComp(r),h)} → ${r.dA!=null&&Math.floor(r.dA)<=0?'HOY':segFmt(r.fAg)}`));
-        if(rs.length>MAXG)G.push(`   …y ${rs.length-MAXG} más en el portal`);});
-      if(L0.join('\n').length+G.join('\n').length<3600)break;}
-    L.push(...G);
-    if(!prox.length)L.push('Ninguna clave en riesgo alto se acaba en los próximos '+DIAS+' días.');
+    L.push(`⏳ Riesgo alto que se acaba en los próximos ${DIAS} días (al ${segFmt(lim)}): ${B(String(prox.length))}`);
+    const NV={ALTO:'🔴',MEDIO:'🟠',BAJO:'🟡'},ord=(a,b)=>String(a.fAg||'9999').localeCompare(String(b.fAg||'9999'))||(a.dA??9e9)-(b.dA??9e9);
+    const lin=(r,conNv)=>`• ${conNv?(NV[r.nv]||'')+' ':''}${r.clave} – ${tgCorto(r.nombre,30)} – ${tgCorto(r.marca||'',12)} – ${tgWho(tgComp(r),h)} → ${r.dA!=null&&Math.floor(r.dA)<=0?'HOY':r.fAg?segFmt(r.fAg):'s/f'}`;
+    [['SAGRADOS','⭐','SAGRADOS'],['ALTA','🔺','ALTA ROTACIÓN'],['MEDIA','🔸','MEDIA ROTACIÓN'],['LENTA','🔹','LENTA ROTACIÓN']].forEach(([k,ic,t])=>{
+      const enCls=F.filter(r=>tgCls(r.rotacion)===k),p15=prox.filter(r=>tgCls(r.rotacion)===k).sort(ord);
+      L.push('');
+      if(p15.length){
+        L.push(`${ic} ${B(t)} · riesgo alto que se acaba en ${DIAS} días: ${p15.length}`+(p15.length>TOP?` (top ${TOP})`:''));
+        p15.slice(0,TOP).forEach(r=>L.push(lin(r,false)));
+      }else if(enCls.length){
+        const top=enCls.slice().sort((a,b)=>(a.nv==='ALTO'?0:a.nv==='MEDIO'?1:2)-(b.nv==='ALTO'?0:b.nv==='MEDIO'?1:2)||ord(a,b));
+        L.push(`${ic} ${B(t)} · ninguna en riesgo alto a ${DIAS} días; en riesgo: ${enCls.length}`+(enCls.length>TOP?` (top ${TOP})`:''));
+        top.slice(0,TOP).forEach(r=>L.push(lin(r,true)));
+      }else L.push(`${ic} ${B(t)} · sin claves en riesgo ✅`);
+    });
     const notas=[];if(rg.nRestr)notas.push(rg.nRestr+' restringidas');if(rg.nSe)notas.push(rg.nSe+' sin entradas (nunca compradas)');
     if(notas.length)L.push('',`ℹ️ No se incluyen claves ${notas.join(' ni ')}.`);
-    L.push('');L.push('ℹ️ Riesgo alto: se acaba antes de la mitad de su tiempo de entrega. La fecha es cuándo se acabaría al ritmo de venta actual.');
+    L.push('');L.push('ℹ️ 🔴 alto: se acaba antes de la mitad de su tiempo de entrega · 🟠 medio: antes del tiempo de entrega · 🟡 bajo: en riesgo pero con más margen. La fecha es cuándo se acabaría al ritmo de venta actual.');
     L.push(`📦 ${B('Riesgo calculado SIN BO')} (solo existencia): dependemos del BO del CEDI para que este riesgo no se haga faltante.`);
     const link=tgV('tg-link').trim();if(link){L.push(`👉 Detalle por comprador: ${link.replace(/[?#].*$/,'')}?riesgo=1`);}
     const txt=L.join('\n');
