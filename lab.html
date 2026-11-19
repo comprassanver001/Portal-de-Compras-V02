@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
-<script src="lab_motor.js?v=20261118b" charset="utf-8"></script>
+<script src="lab_motor.js?v=20261118c" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;font-size:13px;color:#1a2035;background:#f3f5f9}
@@ -177,7 +177,7 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
   <section id="t-ofe" style="display:none">
     <div class="card">
       <h2>Ofertas: distribución adicional</h2>
-      <p class="d">Carga el archivo de ofertas de SANVER. De cada hoja con la columna <b>ID</b> y columnas <b>PLAN ó 30%</b> por tienda se toma la distribución adicional que planeó el desarrollador. Esa cantidad sale del CEDI en el mes de la oferta, así que se suma a la compra cuando ese mes cae dentro del tiempo de entrega o de los meses que cubre el pedido. Si el archivo trae una columna de volumen para mayoreo, también se suma. <span id="ofe-est"></span></p>
+      <p class="d">Carga el archivo de ofertas de SANVER. De cada hoja con la columna <b>ID</b> y columnas <b>PLAN ó 30%</b> por tienda se toma la distribución adicional que planeó el desarrollador. Esa cantidad sale del CEDI antes de que empiece la oferta: se toma completa al inicio de su mes y se suma al punto de alarma si ese día cae dentro del tiempo de entrega, o al «pedir hasta» si cae dentro de los meses que cubre el pedido. La de una oferta del mes en curso se da por surtida. Si el archivo trae una columna de volumen para mayoreo, también se suma. <span id="ofe-est"></span></p>
       <div class="row"><input type="file" id="ofe-file" accept=".xlsx,.xls"><button class="sec" onclick="leerOfertas()">Leer archivo</button><span class="d" id="ofe-msg"></span></div>
       <div id="ofe-prev" style="margin-top:8px"></div>
       <h3>Ofertas cargadas</h3>

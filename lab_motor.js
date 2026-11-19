@@ -73,15 +73,19 @@ L.teReal=(k,prov,P)=>{
 // desarrollador (sale toda del CEDI). Aperturas: inventario inicial de la tienda nueva en su mes de apertura y su venta en los meses
 // siguientes (con temporada); se multiplica después por la parte de la venta de tiendas que surte el CEDI.
 L.extras=(k,f,I,mo0,P)=>{
-  const m=new Float64Array(14),apm=new Float64Array(14),of=[],ap=[];
-  if(P.OFERTAS_ACTIVA)(k.of||[]).forEach(o=>{if(o.j<0||o.j>13)return;const q=(o.t||0)+(o.my||0);if(q>0){m[o.j]+=q;of.push(o);}});
-  (k.ap||[]).forEach(a=>{if(a.j<0||a.j>13)return;let tot=0;apm[a.j]+=a.base||0;tot+=a.base||0;
+  const m=new Float64Array(14),apm=new Float64Array(14),apb=new Float64Array(14),of=[],ap=[];
+  // la distribución de una oferta sale del CEDI antes de que empiece la oferta: se toma completa al inicio de su mes; la del mes en curso ya salió
+  if(P.OFERTAS_ACTIVA)(k.of||[]).forEach(o=>{if(o.j<1||o.j>13)return;const q=(o.t||0)+(o.my||0);if(q>0){m[o.j]+=q;of.push(o);}});
+  // el inventario inicial de la tienda nueva sale del CEDI antes de abrir: al inicio de su mes (si abre este mes, repartido en lo que queda)
+  (k.ap||[]).forEach(a=>{if(a.j<0||a.j>13)return;let tot=0;if(a.j>=1)apb[a.j]+=a.base||0;else apm[a.j]+=a.base||0;tot+=a.base||0;
     for(let j=a.j;j<14;j++){const v=(a.v||0)*(I?I[(mo0+j)%12]:1)*(j===a.j?(a.fr!=null?a.fr:0.5):1);apm[j]+=v;tot+=v;}
     if(tot>0)ap.push(a);});
-  return{m,apm,of,ap};
+  return{m,apm,apb,of,ap};
 };
 // Suma de la demanda planeada dentro de los próximos h meses contados desde hoy (p0 = parte del mes en curso que ya pasó)
 L.extraEn=(m,p0,h)=>{let s=0;for(let j=0;j<m.length;j++){const a=Math.max(0,j-p0),b=Math.min(h,j+1-p0);if(b>a)s+=m[j]*(b-a)/Math.max(1e-9,(j+1-p0)-Math.max(0,j-p0));}return s;};
+// Ofertas: cantidades al inicio de cada mes; entran si el mes empieza antes de h meses contados desde hoy
+L.extraIni=(m,p0,h)=>{let s=0;for(let j=1;j<m.length;j++)if(j-p0<h)s+=m[j];return s;};
 // ── Archivo de ofertas de SANVER ──
 // hojas = [{nombre, aoa}]. Busca en cada hoja el renglón de encabezados con «ID» y columnas «PLAN ó 30%» (una por tienda; el nombre de la
 // tienda va en el renglón de arriba). Regresa por hoja las claves con su distribución adicional por tienda.
@@ -548,13 +552,13 @@ L.correr=(D,Pin,hooks)=>{
       let Fx=Fh,Fxc=Fhc;
       if(Hx!==H||cx!==cob){if(par){const q_=Math.max(0,1-(pc_.pHoy!=null?pc_.pHoy:pc_.p));Fx=L.acumHoy(par.resto,q_,Float64Array.from(f.slice(1)),Hx);Fxc=L.acumHoy(par.resto,q_,Float64Array.from(f.slice(1)),Math.min(12,Hx+cx));}
         else{Fx=L.acum(f,Hx);Fxc=L.acum(f,Math.min(12,Hx+cx));}}
-      const eh=L.extraEn(EX.m,p0,Hx),ec=L.extraEn(EX.m,p0,Math.min(12,Hx+cx));
+      const eh=L.extraIni(EX.m,p0,Hx),ec=L.extraIni(EX.m,p0,Math.min(12,Hx+cx));
       const ex_=Hx===H?esc:L.escala(Fx,PR[b],Hx,P),pz=Hx===H?pozo:er.pozo[TP[b]][hb(Hx)][E.gr[i]],qq=x=>L.cuantilMezcla(pr,pz,x,P);
       let iv=L.inventario({Fh:Fx+eh,Dm:Fx/Hx,esc:ex_,qServ:qq(p),Fcic:Math.max(0,(Fxc+ec)-(Fx+eh)),ex:k.ex,bo:k.bo,conBO:!!P.CON_BO},P),rd=null;
       if(k.red){rd=L.red.calcular(k.red,{s:k.s,f,I:u.I,mo0:(m0+T)%12,meses:MES,H:Hx,cob:cx,hasta:iv.hasta,punto:iv.punto},P);
         rd.hastaSin=iv.hasta;iv=Object.assign({},iv,{hasta:rd.hasta,propuesta:Math.max(0,rd.hasta-iv.disp)});}
       // aperturas: lo que la tienda nueva necesita del CEDI (inventario inicial + venta), por la parte que surte el CEDI
-      const fa=rd?rd.alfa:1,ah=EX.ap.length?L.extraEn(EX.apm,p0,Hx)*fa:0,ahc=EX.ap.length?L.extraEn(EX.apm,p0,Math.min(12,Hx+cx))*fa:0;
+      const fa=rd?rd.alfa:1,ah=EX.ap.length?(L.extraEn(EX.apm,p0,Hx)+L.extraIni(EX.apb,p0,Hx))*fa:0,ahc=EX.ap.length?(L.extraEn(EX.apm,p0,Math.min(12,Hx+cx))+L.extraIni(EX.apb,p0,Math.min(12,Hx+cx)))*fa:0;
       if(ahc>0&&P.APERTURAS_ACTIVA){const punto=iv.punto+ah,hasta=Math.max(punto,iv.hasta+ahc);iv=Object.assign({},iv,{punto,hasta,propuesta:Math.max(0,hasta-iv.disp),pedir:iv.disp<=punto,
         dias:Dm>0?Math.max(0,(iv.disp-punto)/(Dm/30)):null});}
       return{iv,rd,eh,ec,ah,ahc,fa};
