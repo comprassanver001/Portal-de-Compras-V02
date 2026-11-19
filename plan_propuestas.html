@@ -34,7 +34,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 table{border-collapse:collapse;font-size:12.5px;width:100%}
 th,td{border-bottom:1px solid var(--brd);padding:6px 8px;text-align:left;white-space:nowrap;vertical-align:middle}
 th{background:#f0f4ff;color:var(--navy);position:sticky;top:0;z-index:1;font-size:11.5px}
-th.gP{background:#e8eefc}th.gS{background:#fff4e5}th.gR{background:#eaf6ec}
+th.gP{background:#e8eefc}th.gS{background:#fff4e5}th.gR{background:#eaf6ec}th.gA{background:#ede9fe}td.cA{background:#faf8ff}
 td.num,th.num{text-align:right}
 td.desc{white-space:normal;min-width:180px;max-width:260px;line-height:1.3}
 .chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;display:inline-block;white-space:nowrap}
@@ -418,7 +418,84 @@ function estFolio(p){if(!conBO()||!(Number(p.bo)>0))return esc(p.est||'')+P.nivC
 const pp=l=>P.dualP(l.portal||{},tipoF(),{cont:!!(S.actual&&S.actual.min_cont)});
 function evaluar(l){return P.propLinea(pp(l),l.surt||null,{conBO:conBO()});}
 const baseTxt=e=>e.br&&e.br.b?P.BASE_L[e.br.b]:'—';
+// ── Ajustes del autorizante (nov-2026 · plan_tablas_27.sql) ──
+// En EN REVISION, Jefe, Gerente o Dirección desbloquean con su PIN y ponen su cantidad por clave (pedido_aut) con motivo;
+// también pueden agregar claves del mismo comprador (y del mismo tipo de compra) o quitar con 0. Se autoriza directo o se regresa al comprador.
+const AUT_MOTIVOS=['Sobre inventario','Quedaría corto / faltará','Temporada','Mínimo o empaque del proveedor','Consolidar con otro pedido','Otro'];
+const ajustada=l=>l.pedido_aut!=null&&(l.pedido==null||Number(l.pedido_aut)!==Number(l.pedido));
+const hayAjustes=()=>(S.lineas||[]).some(ajustada);
+const modoRev=()=>!!(S.rev&&S.actual&&S.actual.estado==='EN REVISION'&&S.rev.folio===S.actual.folio);
+const verAut=()=>modoRev()||(S.lineas||[]).some(l=>l.pedido_aut!=null||l.agregada_aut);
+const faltaMotAut=l=>ajustada(l)&&(!l.aut_motivo||(l.aut_motivo==='Otro'&&!String(l.aut_comentario||'').trim()));
+// Cálculo con la cantidad final (la del autorizante si la puso)
+function evaluarFinal(l){return l.pedido_aut!=null?P.propLinea(pp(l),{...(l.surt||{}),pedido:Number(l.pedido_aut)},{conBO:conBO()}):evaluar(l);}
+async function bitacoraAut(clave,accion,antes,despues,motivo,comentario,usuario){
+  try{await sb.from('plan_propuesta_ajustes').insert({folio:S.actual.folio,clave:Number(clave),accion,antes,despues,motivo:motivo||null,comentario:comentario||null,usuario:usuario||null});}catch(e){}}
+async function ajustarAut(clave,val){
+  if(!modoRev()){toast('Desbloquea los ajustes con tu PIN');return;}
+  const l=S.lineas.find(x=>Number(x.clave)===Number(clave));if(!l)return;
+  let q=String(val).trim()===''?null:Number(val);
+  if(q!=null&&(!isFinite(q)||q<0)){toast('Cantidad no válida');pintarFolio();return;}
+  if(l.agregada_aut&&q==null)q=0;
+  if(q!=null&&!l.agregada_aut&&q===Number(l.pedido??0))q=null;   // igual a la del comprador = sin ajuste
+  const antes=l.pedido_aut??l.pedido??null,ahora=new Date().toISOString(),sin=q==null;
+  const campos={pedido_aut:q,aut_por:sin?null:S.rev.nombre,aut_en:sin?null:ahora,...(sin?{aut_motivo:null,aut_comentario:null}:{}),actualizado_en:ahora};
+  const{error}=await sb.from('plan_propuesta_lineas').update(campos).eq('folio',S.actual.folio).eq('clave',l.clave);
+  if(error){toast('❌ '+error.message+(/aut_/.test(error.message)?' · Falta plan_tablas_27.sql':''));return;}
+  Object.assign(l,campos);await bitacoraAut(l.clave,'AJUSTE',antes,q??l.pedido??null,l.aut_motivo,l.aut_comentario,S.rev.nombre);
+  toast(sin?'✓ Sin ajuste (queda la cantidad del comprador)':'✓ Cantidad del autorizante guardada'+(faltaMotAut(l)?' · falta el motivo':''));pintarFolio();
+}
+async function motAut(clave,motivo,comentario){
+  if(!modoRev())return;const l=S.lineas.find(x=>Number(x.clave)===Number(clave));if(!l)return;
+  if(motivo!==null){l.aut_motivo=motivo||null;if(motivo!=='Otro'&&comentario===null)l.aut_comentario=null;}if(comentario!==null)l.aut_comentario=String(comentario).trim()||null;
+  const{error}=await sb.from('plan_propuesta_lineas').update({aut_motivo:l.aut_motivo,aut_comentario:l.aut_comentario,aut_por:S.rev.nombre,aut_en:new Date().toISOString(),actualizado_en:new Date().toISOString()}).eq('folio',S.actual.folio).eq('clave',l.clave);
+  if(error){toast('❌ '+error.message);return;}l.aut_por=S.rev.nombre;await bitacoraAut(l.clave,'MOTIVO',null,null,l.aut_motivo,l.aut_comentario,S.rev.nombre);toast('✓ Motivo guardado');pintarFolio();
+}
+async function agregarAut(){
+  if(!modoRev())return;const f=S.actual,k=Number(String($('aut-k').value).trim()),q=Number($('aut-q').value);
+  if(!k){toast('Escribe la clave');return;}if(!(q>0)){toast('Escribe la cantidad del autorizante');return;}
+  if(S.lineas.some(l=>Number(l.clave)===k)){toast('La clave '+k+' ya está en el folio: ajusta su cantidad en la tabla');return;}
+  const r=S.byClave.get(k);if(!r){toast('La clave '+k+' no está en el cálculo del portal');return;}
+  if(r.pr||P.esProd(r)){toast('La clave '+k+' es de producción: no entra a propuestas');return;}
+  if(nNom(r.comp)!==nNom(f.comprador)){toast('La clave '+k+' es de '+(r.comp||'otro comprador')+': solo se agregan claves de '+f.comprador);return;}
+  if(f.tipo_compra&&!esDual(k)){toast('El folio es de compra '+P.TIPO_L[f.tipo_compra].toLowerCase()+': la clave '+k+' no está dada de alta como compra nacional e importación');return;}
+  const ahora=new Date().toISOString();
+  const row={folio:f.folio,clave:k,portal:snap(r),pedido:null,pedido_aut:q,agregada_aut:true,aut_por:S.rev.nombre,aut_en:ahora,semaforo:'SIN DATO',avisos:'Agregada por el autorizante',actualizado_en:ahora};
+  const{error}=await sb.from('plan_propuesta_lineas').insert(row);if(error){toast('❌ '+error.message+(/aut_/.test(error.message)?' · Falta plan_tablas_27.sql':''));return;}
+  S.lineas.push(row);await bitacoraAut(k,'AGREGADA',null,q,null,null,S.rev.nombre);
+  try{const{data}=await sb.from('plan_costos').select('clave,costo').eq('clave',k);(data||[]).forEach(x=>S.costos.set(Number(x.clave),Number(x.costo)));}catch(e){}
+  $('aut-k').value='';$('aut-q').value='';toast('✓ Clave '+k+' agregada · elige el motivo');pintarFolio();
+}
+async function quitarAgregada(clave){
+  if(!modoRev()||!confirm('¿Quitar la clave '+clave+' que agregó el autorizante?'))return;
+  const{error}=await sb.from('plan_propuesta_lineas').delete().eq('folio',S.actual.folio).eq('clave',clave).eq('agregada_aut',true);if(error){toast('❌ '+error.message);return;}
+  const l=S.lineas.find(x=>Number(x.clave)===Number(clave));await bitacoraAut(clave,'QUITADA',l&&l.pedido_aut,null,null,null,S.rev.nombre);
+  S.lineas=S.lineas.filter(x=>Number(x.clave)!==Number(clave));pintarFolio();
+}
+function terminarRev(){S.rev=null;toast('Ajustes cerrados. Ya puedes autorizar o regresar el folio.');pintarFolio();}
+// El comprador acepta los ajustes: su cantidad pasa a ser la del autorizante (queda registro en la bitácora)
+async function aceptarAjustes(){
+  const L=S.lineas.filter(ajustada);if(!L.length){toast('No hay ajustes pendientes de aceptar');return;}
+  if(!confirm('¿Aceptar los ajustes del autorizante en '+L.length+' clave(s)? Tu cantidad se cambia por la del autorizante.'))return;
+  const ahora=new Date().toISOString();
+  for(const l of L){const antes=l.pedido;l.pedido=Number(l.pedido_aut);l.surt={...(l.surt||{}),pedido:l.pedido,...(l.agregada_aut&&!(l.surt&&l.surt.pedido!=null)?{agregadaAut:true}:{})};
+    const e=evaluar(l);l.semaforo=e.sem;l.avisos=e.avisos.join(' | ')||null;
+    const{error}=await sb.from('plan_propuesta_lineas').update({pedido:l.pedido,surt:l.surt,semaforo:l.semaforo,avisos:l.avisos,actualizado_en:ahora}).eq('folio',S.actual.folio).eq('clave',l.clave);
+    if(error){toast('❌ '+error.message);return;}await bitacoraAut(l.clave,'ACEPTADO',antes,l.pedido,l.aut_motivo,l.aut_comentario,quien()||S.actual.comprador);}
+  toast('✓ Ajustes aceptados: revisa los motivos que pida el semáforo y vuelve a enviar a autorización');pintarFolio();
+}
 function faltaMotivo(l){return (l.semaforo==='AMARILLO'||l.semaforo==='ROJO')&&!l.motivo||(l.semaforo==='ROJO'&&!String(l.comentario||'').trim());}
+function celdasAut(l,MR,opsA){
+  const aj=ajustada(l),ef=aj?evaluarFinal(l):null,falta=faltaMotAut(l);
+  const dif=aj&&!l.agregada_aut?Number(l.pedido_aut)-Number(l.pedido||0):null;
+  const cant=MR?'<input type="number" min="0" value="'+(l.pedido_aut??'')+'" placeholder="'+(l.agregada_aut?'0':nf(l.pedido))+'" style="width:86px;text-align:right" onchange="ajustarAut('+l.clave+',this.value)" title="Vacío = la del comprador · 0 = quitar">'+(dif!=null?'<div class="mut">'+sg(dif)+' vs comprador</div>':'')
+    :aj?'<b style="color:#6d28d9">'+nf(l.pedido_aut)+'</b>'+(dif!=null?'<div class="mut">'+sg(dif)+' vs comprador</div>':'<div class="mut">agregada</div>'):'<span class="mut">=</span>';
+  const mes=aj?nf(ef.lA,1)+' / '+nf(ef.lP,1)+'<div class="mut">rec. '+nf(ef.lR,1)+'</div>':'<span class="mut">—</span>';
+  const sem=aj?semChip(ef.sem):'<span class="mut">—</span>';
+  const mot=MR&&aj?'<select onchange="motAut('+l.clave+',this.value,null)"'+(falta&&!l.aut_motivo?' style="border-color:var(--err)"':'')+'>'+opsA(l.aut_motivo||'')+'</select>'+(l.aut_motivo==='Otro'?'<br><textarea placeholder="Comentario obligatorio" onchange="motAut('+l.clave+',null,this.value)"'+(falta?' style="border-color:var(--err)"':'')+'>'+esc(l.aut_comentario||'')+'</textarea>':'')
+    :aj?'<b>'+esc(l.aut_motivo||'—')+'</b>'+(falta?' <span class="chip s-ROJO">falta motivo</span>':'')+(l.aut_comentario?'<div class="av">'+esc(l.aut_comentario)+'</div>':'')+(l.aut_por?'<div class="av">'+esc(l.aut_por)+(l.aut_en?' · '+fFH(l.aut_en):'')+'</div>':''):'<span class="mut">—</span>';
+  return '<td class="num cA">'+cant+'</td><td class="num cA">'+mes+'</td><td class="cA">'+sem+'</td><td class="cA" style="min-width:150px;white-space:normal">'+mot+'</td>';
+}
 function pintarFolio(){
   const f=S.actual,L=S.lineas;
   $('f-tit').innerHTML='Folio '+esc(f.folio)+' '+estChip(f.estado)+(f.tipo_compra?' '+P.tipoChip(f.tipo_compra):'');
@@ -429,11 +506,12 @@ function pintarFolio(){
   const c={VERDE:0,AMARILLO:0,ROJO:0,SIN:0};L.forEach(l=>c[l.semaforo&&l.semaforo!=='SIN DATO'?l.semaforo:'SIN']++);
   const piezas=L.reduce((s,l)=>s+(Number(l.pedido_aut??l.pedido)||0),0);
   const VF=valorFolio(),RG=rangoDe(VF.total);
-  $('f-kpis').innerHTML='<div class="kpi" title="Inversión de surtimiento'+(VF.est?'; '+VF.est+' claves valuadas con costo de compra':'')+(VF.sin?'; '+VF.sin+' sin precio':'')+'"><b>'+mxn(VF.total)+'</b><span>valor · autoriza '+RG[1]+(RG[0]==='DIRECTOR'?'':' o superior')+'</span></div><div class="kpi"><b>'+L.length+'</b><span>claves</span></div><div class="kpi"><b style="color:var(--ok)">'+c.VERDE+'</b><span>verde</span></div><div class="kpi"><b style="color:var(--warn)">'+c.AMARILLO+'</b><span>amarillo (motivo)</span></div><div class="kpi"><b style="color:var(--err)">'+c.ROJO+'</b><span>rojo (motivo y comentario)</span></div><div class="kpi"><b style="color:var(--gray)">'+c.SIN+'</b><span>sin surtimiento</span></div><div class="kpi"><b>'+nf(piezas)+'</b><span>piezas del pedido</span></div>';
+  $('f-kpis').innerHTML='<div class="kpi" title="Inversión de surtimiento'+(VF.est?'; '+VF.est+' claves valuadas con costo de compra':'')+(VF.sin?'; '+VF.sin+' sin precio':'')+'"><b>'+mxn(VF.total)+'</b><span>valor · autoriza '+RG[1]+(RG[0]==='DIRECTOR'?'':' o superior')+'</span></div><div class="kpi"><b>'+L.length+'</b><span>claves</span></div><div class="kpi"><b style="color:var(--ok)">'+c.VERDE+'</b><span>verde</span></div><div class="kpi"><b style="color:var(--warn)">'+c.AMARILLO+'</b><span>amarillo (motivo)</span></div><div class="kpi"><b style="color:var(--err)">'+c.ROJO+'</b><span>rojo (motivo y comentario)</span></div><div class="kpi"><b style="color:var(--gray)">'+c.SIN+'</b><span>sin surtimiento</span></div><div class="kpi"><b>'+nf(piezas)+'</b><span>piezas del pedido</span></div>'+(hayAjustes()?'<div class="kpi" style="border-color:#c4b5fd"><b style="color:#6d28d9">'+S.lineas.filter(ajustada).length+'</b><span>ajustes del autorizante'+(S.lineas.some(faltaMotAut)?' · <b style="color:var(--err)">'+S.lineas.filter(faltaMotAut).length+' sin motivo</b>':'')+'</span></div>':'');
   const ed=editable(),adm=S.esAdmin||quien()==='ADMIN';
   let acc='';
   if(ed)acc+='<button class="sec" onclick="descargarPlantilla()">⬇ Plantilla</button><button onclick="$(\'f-arch\').value=\'\';$(\'f-arch\').click()">⬆ Subir plantilla con surtimiento</button><button class="ok" onclick="enviar()" '+(conS===L.length&&L.length&&!falt?'':'style="opacity:.6" title="Faltan claves con surtimiento o motivos: da clic para ver cuáles"')+'>Enviar a autorización</button>';
-  if(f.estado==='EN REVISION')acc+='<button class="ok" onclick="autorizar()">🔒 Autorizar con PIN</button><button class="bad" onclick="regresar()">↩ Regresar</button>';
+  if(f.estado==='EN REVISION')acc+=(modoRev()?'':'<button class="sec" onclick="pinAbrir(\'AJUSTAR\')" title="Jefe, Gerente o Dirección: ajusta cantidades, agrega o quita claves con motivo">✏️ Ajustar cantidades (autorizante)</button>')+'<button class="ok" onclick="autorizar()">🔒 Autorizar con PIN</button><button class="bad" onclick="regresar()">↩ Regresar</button>';
+  if(ed&&f.estado==='REGRESADO'&&hayAjustes())acc+='<button class="ok" onclick="aceptarAjustes()" title="Tu cantidad se cambia por la del autorizante en las claves ajustadas">✓ Aceptar ajustes del autorizante</button>';
   if(f.estado==='AUTORIZADO'&&!f.cmp_id)acc+='<button onclick="enviarComparativos()">➜ Enviar a comparativos</button>';
   acc+='<button class="sec" onclick="imprimir()">🖨 Imprimir</button><button class="sec" onclick="excelFolio()">⬇ Excel</button>';
   if(ed&&S.fecha&&S.fecha!==f.fecha_calculo)acc+='<button class="sec" onclick="refrescarFolio()" title="Vuelve a tomar existencia, BO, consumo y estatus del cálculo del portal más reciente ('+fF(S.fecha)+'); lo pegado de surtimiento y los motivos se conservan">↻ Actualizar al cálculo del '+fF(S.fecha)+'</button>';
@@ -443,13 +521,17 @@ function pintarFolio(){
   $('f-bo').innerHTML='Meses y propuestas: <select id="f-conbo" onchange="cambiarBO(this.value)" '+(ed?'':'disabled')+'><option value="1">Con BO del CEDI</option><option value="0">Sin BO (solo existencia)</option></select> <span class="mut">Usa la misma opción que "¿Considerar BO?" de surtimiento.</span>'+(conBO()?' <span class="chip" style="background:#dbeafe;color:#1e40af">🚚 Estatus, nivel, propuestas y semáforo consideran el BO actual del CEDI</span>':' <span class="chip s-SIN">📦 Estatus, nivel, propuestas y semáforo sin BO (solo existencia)</span>')
     +(f.tipo_compra==='IMPORTACION'?'<div style="margin-top:6px">'+P.tipoChip('IMPORTACION')+' T. entrega y objetivo de importación; la propuesta resta el stock del proveedor nacional'+(conBO()?' y todo el BO (nacional + importación)':'')+'. <label><input type="checkbox" id="f-cont" '+(f.min_cont?'checked':'')+' '+(ed?'':'disabled')+' onchange="cambiarCont(this.checked)"> Redondear la propuesta al mínimo por contenedor</label></div>'
      :f.tipo_compra==='NACIONAL'?'<div style="margin-top:6px">'+P.tipoChip('NACIONAL')+' T. entrega y objetivo de compra nacional; la propuesta tiene tope en el stock disponible del proveedor nacional'+(conBO()?' y resta solo el BO de OCs nacionales':'')+'.</div>':'');$('f-conbo').value=conBO()?'1':'0';
-  $('f-aviso').innerHTML=f.estado==='REGRESADO'&&f.comentario?'<div class="card" style="background:var(--warnbg);border-color:#f0d58a;margin:0 0 10px"><b>Regresado:</b> '+esc(f.comentario)+'</div>':f.estado==='EN REVISION'?'<p class="d" style="margin-bottom:8px">En revisión. Lo autoriza el Jefe o el Gerente de Compras con su nombre y PIN.</p>':'';
+  const barraRev=modoRev()?'<div class="card" style="background:#f5f3ff;border-color:#c4b5fd;margin:0 0 10px"><b>✏️ Ajustando como '+esc(S.rev.nombre)+'</b> · pon tu cantidad en la columna «Autorizante» (vacío = la del comprador; 0 = quitar) y elige el motivo; «Otro» pide comentario. Los meses al llegar y el semáforo se recalculan con tu cantidad.'
+      +'<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">Agregar clave de '+esc(f.comprador)+(f.tipo_compra?' ('+P.TIPO_L[f.tipo_compra].toLowerCase()+')':'')+': <input id="aut-k" placeholder="Clave" style="width:90px" inputmode="numeric"> <input id="aut-q" type="number" min="0" placeholder="Cantidad" style="width:100px" onkeydown="if(event.key===\'Enter\')agregarAut()"> <button onclick="agregarAut()">➕ Agregar</button> <button class="sec" style="margin-left:auto" onclick="terminarRev()">Terminar ajustes</button></div></div>':'';
+  const avAut=!modoRev()&&hayAjustes()?'<div class="card" style="background:#f5f3ff;border-color:#c4b5fd;margin:0 0 10px"><b>✏️ Ajustes del autorizante:</b> '+S.lineas.filter(ajustada).length+' clave(s)'+([...new Set(S.lineas.filter(ajustada).map(l=>l.aut_por).filter(Boolean))].length?' por '+esc([...new Set(S.lineas.filter(ajustada).map(l=>l.aut_por).filter(Boolean))].join(', ')):'')+'. Ver columna «Autorizante».'+(f.estado==='REGRESADO'?' Si estás de acuerdo da clic en «✓ Aceptar ajustes del autorizante»; si no, ajusta tu plantilla y vuelve a enviar.':'')+'</div>':'';
+  $('f-aviso').innerHTML=barraRev+avAut+(f.estado==='REGRESADO'&&f.comentario?'<div class="card" style="background:var(--warnbg);border-color:#f0d58a;margin:0 0 10px"><b>Regresado:</b> '+esc(f.comentario)+'</div>':f.estado==='EN REVISION'?'<p class="d" style="margin-bottom:8px">En revisión. Lo autoriza el Jefe o el Gerente de Compras (o Dirección) con su nombre y PIN; con «✏️ Ajustar cantidades» pueden poner su propia cantidad por clave con motivo.</p>':'');
   pintarCmp();
-  const tp=f.tipo_compra||'';
-  $('f-head').innerHTML='<tr><th colspan="5"></th><th colspan="'+(tp?10:9)+'" class="gP" style="text-align:center">Portal (al '+fF(f.fecha_calculo)+') · '+(conBO()?'con BO':'sin BO')+(tp?' · '+P.TIPO_L[tp].toLowerCase():'')+'</th><th colspan="4" class="gS" style="text-align:center">Surtimiento</th><th colspan="5" class="gR" style="text-align:center">Comparativo</th><th colspan="2"></th></tr>'
+  const tp=f.tipo_compra||'',VA=verAut(),MR=modoRev();
+  const opsA=sel=>'<option value="">— Motivo —</option>'+AUT_MOTIVOS.map(m=>'<option'+(m===sel?' selected':'')+'>'+esc(m)+'</option>').join('');
+  $('f-head').innerHTML='<tr><th colspan="5"></th><th colspan="'+(tp?10:9)+'" class="gP" style="text-align:center">Portal (al '+fF(f.fecha_calculo)+') · '+(conBO()?'con BO':'sin BO')+(tp?' · '+P.TIPO_L[tp].toLowerCase():'')+'</th><th colspan="4" class="gS" style="text-align:center">Surtimiento</th><th colspan="5" class="gR" style="text-align:center">Comparativo</th>'+(VA?'<th colspan="4" class="gA" style="text-align:center">Autorizante</th>':'')+'<th colspan="2"></th></tr>'
     +'<tr><th>Clave</th><th>Descripción</th><th>Origen</th><th>Proveedor</th><th>Estatus</th><th class="num gP">Exist.</th><th class="num gP">BO'+(tp==='NACIONAL'?' nacional':' CEDI')+'</th>'+(tp?'<th class="num gP">Stock prov. nac.</th>':'')+'<th class="num gP">Cons. ant.</th><th class="num gP">Cons. pron.</th><th class="num gP">T. entr.</th><th class="num gP">Obj.</th><th class="num gP">Prop. ant.</th><th class="num gP">Prop. pron.</th><th class="gP">Recomendada</th>'
     +'<th class="num gS">Pedido</th><th class="num gS">Anteo</th><th class="num gS">Pron</th><th class="num gS">Redond</th>'
-    +'<th class="num gR">Meses ant. portal<br>(al llegar)</th><th class="num gR">Meses pron. portal<br>(al llegar)</th><th class="num gR">Diferencia vs<br>recomendada</th><th class="num gR">Diferencia en meses<br>vs ant. / pron.</th><th class="gR">Semáforo</th><th>Avisos</th><th>Motivo y comentario</th></tr>';
+    +'<th class="num gR">Meses ant. portal<br>(al llegar)</th><th class="num gR">Meses pron. portal<br>(al llegar)</th><th class="num gR">Diferencia vs<br>recomendada</th><th class="num gR">Diferencia en meses<br>vs ant. / pron.</th><th class="gR">Semáforo</th>'+(VA?'<th class="num gA">Cantidad<br>autorizante</th><th class="num gA">Meses al llegar<br>ant. / pron.</th><th class="gA">Semáforo<br>final</th><th class="gA">Motivo del ajuste</th>':'')+'<th>Avisos</th><th>Motivo y comentario</th></tr>';
   const ops='<option value="">— Motivo —</option>'+P.PROP_MOTIVOS.map(m=>'<option>'+esc(m)+'</option>').join('');
   const pend=l=>ed&&(!l.surt||faltaMotivo(l));const Lo=ed?[...L.filter(pend),...L.filter(l=>!pend(l))]:L;
   $('f-body').innerHTML=Lo.map(l=>{const p=l.portal||{},q=pp(l),s=l.surt||{},e=evaluar(l);const necesita=l.semaforo==='AMARILLO'||l.semaforo==='ROJO';
@@ -457,10 +539,10 @@ function pintarFolio(){
     const vR=e.difR==null?'—':'<b>'+sg(e.difR)+' pzs</b><div class="mut">'+sg(e.dmR,1)+' meses</div>';
     const rec=e.br&&e.br.b?'<b>'+nf(e.sR)+'</b><div class="badge" title="'+esc(e.br.por)+'">'+esc(baseTxt(e))+'</div>':'—';
     const mot=necesita||l.motivo?(ed?'<select onchange="guardarMotivo('+l.clave+',this.value,null)">'+ops.replace('<option>'+esc(l.motivo||'')+'</option>','<option selected>'+esc(l.motivo||'')+'</option>')+'</select><br><textarea placeholder="'+(l.semaforo==='ROJO'?'Comentario obligatorio':'Comentario')+'" onchange="guardarMotivo('+l.clave+',null,this.value)">'+esc(l.comentario||'')+'</textarea>':'<b>'+esc(l.motivo||'—')+'</b><div class="av">'+esc(l.comentario||'')+'</div>'):'<span class="mut">—</span>';
-    return '<tr data-k="'+l.clave+'"'+(ed&&!l.surt?' class="pend" style="background:#fdeaea"':faltaMotivo(l)&&ed?' class="pend" style="background:#fffaf0"':'')+'><td><b>'+l.clave+'</b>'+(ed?'<br><a class="lk" style="font-size:11px;font-weight:400" onclick="quitarClave('+l.clave+')">quitar</a>':'')+'</td><td class="desc">'+esc(p.n)+'<div class="badge">'+esc(p.m||'')+'</div></td><td>'+(oriDe(l.clave)?'<span class="chip s-SIN">🚛 '+esc(oriDe(l.clave))+'</span>':'<span class="mut">—</span>')+'</td><td>'+provCeldaT(l.clave,tp,p.dual)+'</td><td>'+estFolio(p)+histChip(p)+(tp&&!p.dual?'<div class="chip s-ROJO" style="margin-top:3px" title="La clave no tiene datos de compra nacional e importación: se calcula con la hoja Detalle. Dala de alta en Admin y usa «Actualizar al cálculo».">sin datos nac./imp.</div>':'')+'</td>'
+    return '<tr data-k="'+l.clave+'"'+(ed&&!l.surt?' class="pend" style="background:#fdeaea"':faltaMotivo(l)&&ed?' class="pend" style="background:#fffaf0"':'')+'><td><b>'+l.clave+'</b>'+(ed?'<br><a class="lk" style="font-size:11px;font-weight:400" onclick="quitarClave('+l.clave+')">quitar</a>':'')+(l.agregada_aut?'<div class="chip" style="background:#ede9fe;color:#5b21b6;font-size:10px;margin-top:3px">➕ agregada por autorizante</div>'+(MR?'<br><a class="lk" style="font-size:11px;font-weight:400" onclick="quitarAgregada('+l.clave+')">quitar</a>':''):'')+'</td><td class="desc">'+esc(p.n)+'<div class="badge">'+esc(p.m||'')+'</div></td><td>'+(oriDe(l.clave)?'<span class="chip s-SIN">🚛 '+esc(oriDe(l.clave))+'</span>':'<span class="mut">—</span>')+'</td><td>'+provCeldaT(l.clave,tp,p.dual)+'</td><td>'+estFolio(p)+histChip(p)+(tp&&!p.dual?'<div class="chip s-ROJO" style="margin-top:3px" title="La clave no tiene datos de compra nacional e importación: se calcula con la hoja Detalle. Dala de alta en Admin y usa «Actualizar al cálculo».">sin datos nac./imp.</div>':'')+'</td>'
       +'<td class="num">'+exRG(p)+'</td><td class="num">'+(tp?boTxt(q):nf(p.bo))+'</td>'+(tp?'<td class="num">'+stkTxt(p.dual)+'</td>':'')+'<td class="num">'+nf(p.A,1)+'</td><td class="num">'+nf(p.P,1)+'</td><td class="num">'+nf(q.lt,1)+(tp&&q.lt!==q.lt0?'<div class="badge" title="Hoja Detalle">det. '+nf(q.lt0,1)+'</div>':'')+'</td><td class="num">'+nf(q.pm,1)+(tp&&q.pm!==q.pm0?'<div class="badge" title="Hoja Detalle">det. '+nf(q.pm0,1)+'</div>':'')+'</td><td class="num">'+nf(e.sA)+'</td><td class="num">'+nf(e.sP)+'</td><td style="min-width:160px;max-width:200px;white-space:normal;line-height:1.3">'+rec+'<div style="font-size:10.5px;color:var(--tx2)">'+esc(e.br?e.br.por:'')+'</div></td>'
       +'<td class="num"><b>'+nf(l.pedido)+'</b>'+(l.pedido_aut!=null&&l.pedido_aut!==l.pedido?'<div style="color:var(--ok)">aut. '+nf(l.pedido_aut)+'</div>':'')+'</td><td class="num">'+nf(s.anteo,1)+'</td><td class="num">'+nf(s.pron,1)+'</td><td class="num mut">'+nf(s.redond)+'</td>'
-      +'<td class="num">'+nf(e.mA,1)+'<div class="mut">('+nf(e.lA,1)+')</div></td><td class="num">'+nf(e.mP,1)+'<div class="mut">('+nf(e.lP,1)+')</div></td><td class="num">'+vR+'</td><td class="num mut">'+v+'</td><td>'+semChip(l.semaforo)+'</td><td class="av">'+(l.avisos?String(l.avisos).split(' | ').map(a=>'<div>'+esc(a)+'</div>').join(''):'')+'</td><td>'+mot+'</td></tr>';}).join('')||'<tr><td colspan="'+(tp?26:25)+'" class="mut">El folio no tiene claves.</td></tr>';
+      +'<td class="num">'+nf(e.mA,1)+'<div class="mut">('+nf(e.lA,1)+')</div></td><td class="num">'+nf(e.mP,1)+'<div class="mut">('+nf(e.lP,1)+')</div></td><td class="num">'+vR+'</td><td class="num mut">'+v+'</td><td>'+semChip(l.semaforo)+'</td>'+(VA?celdasAut(l,MR,opsA):'')+'<td class="av">'+(l.avisos?String(l.avisos).split(' | ').map(a=>'<div>'+esc(a)+'</div>').join(''):'')+'</td><td>'+mot+'</td></tr>';}).join('')||'<tr><td colspan="'+((tp?26:25)+(VA?4:0))+'" class="mut">El folio no tiene claves.</td></tr>';
   pintarFiltros();fijarColumnas();
 }
 async function cambiarBO(v){
@@ -610,13 +692,24 @@ async function autorizadores(accion,valor){
   if(error)throw new Error('No pude leer los autorizadores del portal de comparativos: '+error.message);
   const us=(data||[]).filter(u=>u.activo!==false);
   if(accion==='CANCELAR')return us.filter(u=>u.rol==='ADMIN');
+  if(accion==='AJUSTAR')return us.filter(u=>{const n=nivelU(u);return n&&n!=='COMPRADOR';});
   if(accion!=='AUTORIZAR')return us.filter(u=>u.rol!=='COMPRADOR'&&!/COSTO/i.test(u.puesto||''));
   // Autorizar: puesto con límite suficiente para el valor del folio; el comprador, solo su propio folio
-  return us.filter(u=>{const n=nivelU(u);if(!n||limiteN(n)<valor)return false;return n!=='COMPRADOR'||mismoComp(u,S.actual.comprador);})
+  // Si el autorizante ajustó cantidades, quien ajustó puede autorizar aunque el nuevo valor pase de su límite (regla de Fernando, nov-2026)
+  const aj=new Set((S.lineas||[]).filter(ajustada).map(l=>nNom(l.aut_por)).filter(Boolean));
+  return us.filter(u=>{const n=nivelU(u);if(!n)return false;if(n!=='COMPRADOR'&&aj.has(nNom(u.nombre)))return true;if(limiteN(n)<valor)return false;return n!=='COMPRADOR'||mismoComp(u,S.actual.comprador);})
     .sort((a,b)=>limiteN(nivelU(a))-limiteN(nivelU(b)));
 }
 async function pinAbrir(accion){
   if(accion==='CANCELAR')return cancelarAbrir();
+  if(accion==='AJUSTAR'){let us;try{us=await autorizadores('AJUSTAR');}catch(e){toast('❌ '+e.message);return;}
+    if(!us.length){toast('❌ No hay Jefe, Gerente o Dirección dados de alta en el portal de comparativos');return;}
+    PINACC='AJUSTAR';$('pin-tit').textContent='Ajustar folio '+S.actual.folio;
+    $('pin-sub').textContent='Jefe, Gerente o Dirección: con tu nombre y PIN puedes poner tu cantidad por clave, agregar claves de '+S.actual.comprador+' o quitarlas con 0, cada una con su motivo. Después autorizas o regresas el folio.';
+    $('pin-u').innerHTML='<option value="">— ¿Quién ajusta? —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+'</option>').join('');
+    $('pin-p').value='';$('pin-c').value='';$('pin-c').style.display='none';$('pin-btn').textContent='Desbloquear ajustes';$('pin-btn').className='ok';$('pin-err').style.display='none';
+    $('pinbg').style.display='flex';$('pin-u').focus();return;}
+  if((accion==='AUTORIZAR'||accion==='REGRESAR')&&S.lineas.some(faltaMotAut)){const fa=S.lineas.filter(faltaMotAut);toast('Faltan motivos del autorizante en '+fa.length+' clave(s): '+fa.slice(0,10).map(l=>l.clave).join(', ')+' («Otro» pide comentario). Da clic en «✏️ Ajustar cantidades» para completarlos.');return;}
   const V=valorFolio(),rg=rangoDe(V.total);
   let us;try{us=await autorizadores(accion,V.total);}catch(e){toast('❌ '+e.message);return;}
   if(!us.length){toast(accion==='AUTORIZAR'?'❌ Nadie con rango para autorizar '+mxn(V.total)+' ('+rg[1]+' o superior). Dalo de alta con ese puesto en Comparativos → Administración.':'❌ No hay Jefe o Gerente de Compras dados de alta en el portal de comparativos');return;}
@@ -641,7 +734,7 @@ async function cancelarAbrir(){
   $('pin-btn').textContent='Cancelar folio';$('pin-btn').className='bad';$('pin-err').style.display='none';
   $('pinbg').style.display='flex';(pinReq?$('pin-u'):$('pin-c')).focus();
 }
-function pinCerrar(){$('pin-u').style.display=$('pin-p').style.display='';$('pinbg').style.display='none';PINACC=null;}
+function pinCerrar(){$('pin-u').style.display=$('pin-p').style.display=$('pin-c').style.display='';$('pinbg').style.display='none';PINACC=null;}
 function pinErr(t){const e=$('pin-err');e.textContent=t;e.style.display='block';}
 async function pinOk(){
   const o=$('pin-u').selectedOptions[0],uid=Number($('pin-u').value),pin=$('pin-p').value,com=$('pin-c').value.trim();
@@ -656,7 +749,7 @@ async function pinOk(){
     finally{$('pin-btn').disabled=false;}
     return;
   }
-  if(!uid){pinErr('Elige quién '+(PINACC==='AUTORIZAR'?'autoriza':'regresa'));return;}
+  if(!uid){pinErr('Elige quién '+(PINACC==='AUTORIZAR'?'autoriza':PINACC==='AJUSTAR'?'ajusta':'regresa'));return;}
   if(!pin){pinErr('Escribe tu PIN');return;}
   if(PINACC==='REGRESAR'&&!com){pinErr('Escribe por qué se regresa');return;}
   $('pin-btn').disabled=true;
@@ -665,12 +758,14 @@ async function pinOk(){
     if(error)throw new Error(error.message);
     if(!data){pinErr('PIN incorrecto');return;}
     const nombre=o.dataset.n,ahora=new Date().toISOString(),acc=PINACC;pinCerrar();
+    if(acc==='AJUSTAR'){S.rev={id:uid,nombre,folio:S.actual.folio};toast('✏️ Ajustes desbloqueados para '+nombre);pintarFolio();return;}
+    const nAj=S.lineas.filter(ajustada).length,txtAj=nAj?'Con ajustes del autorizante en '+nAj+' clave(s)':'';S.rev=null;
     if(acc==='AUTORIZAR'){
       const V=valorFolio();
-      const ok=await cambiarEstado({estado:'AUTORIZADO',autorizado_por:nombre,autorizado_en:ahora,comentario:[com,'Valor '+mxn(V.total)].filter(Boolean).join(' · ')||null,codigo:await codigoFolio('AUTORIZADO')},'✓ Folio autorizado por '+nombre);
+      const ok=await cambiarEstado({estado:'AUTORIZADO',autorizado_por:nombre,autorizado_en:ahora,comentario:[com,txtAj,'Valor '+mxn(V.total)].filter(Boolean).join(' · ')||null,codigo:await codigoFolio('AUTORIZADO')},'✓ Folio autorizado por '+nombre);
       if(ok){await cerrarAvisos(S.actual.folio);await avisar([S.actual.comprador],'AUTORIZADO',S.actual.folio,'Folio '+S.actual.folio+' autorizado por '+nombre+' · valor '+mxn(V.total)+'. Ya puedes levantar la OC.');await enviarComparativos(true);}
-    }else{const fol=S.actual.folio,comp=S.actual.comprador;const ok=await cambiarEstado({estado:'REGRESADO',comentario:com,autorizado_por:nombre,autorizado_en:ahora},'↩ Folio regresado al comprador');
-      if(ok){await cerrarAvisos(fol);await avisar([comp],'REGRESADO',fol,'Folio '+fol+' regresado por '+nombre+': '+com);}}
+    }else{const fol=S.actual.folio,comp=S.actual.comprador;const ok=await cambiarEstado({estado:'REGRESADO',comentario:[com,txtAj].filter(Boolean).join(' · '),autorizado_por:nombre,autorizado_en:ahora},'↩ Folio regresado al comprador');
+      if(ok){await cerrarAvisos(fol);await avisar([comp],'REGRESADO',fol,'Folio '+fol+' regresado por '+nombre+': '+com+(nAj?' · '+txtAj+': revísalos y acéptalos o ajusta tu plantilla':''));}}
   }catch(e){pinErr('❌ '+(e.message||e));}
   finally{$('pin-btn').disabled=false;}
 }
@@ -800,7 +895,7 @@ async function subirPlantilla(file){
 function excelFolio(){
   const tf=tipoF();
   const rows=S.lineas.map(l=>{const p=l.portal||{},q=pp(l),s=l.surt||{},e=evaluar(l);return{'Folio':S.actual.folio,...(tf?{'Tipo de compra':P.TIPO_L[tf],['Proveedor '+P.TIPO_L[tf].toLowerCase()]:provTipo(l.clave,tf,p.dual)||'','BO nacional':q.boN,'BO importación':q.boI,'Stock proveedor nacional':p.dual&&p.dual.stk!=null?p.dual.stk:null,'Mínimo por contenedor':p.dual&&p.dual.mc||null,'T. entrega hoja Detalle':q.lt0,'Objetivo hoja Detalle':q.pm0}:{}),'Clave':l.clave,'Descripción':p.n,'Marca':p.m,'Origen recolección':oriDe(l.clave),'Proveedor':provNom(l.clave),'Origen del proveedor':(()=>{const x=provDe(l.clave);return x&&x.o!=='MARCA'?PROV_ORG[x.o]:'';})(),'Proveedor última compra':(provDe(l.clave)||{}).oc||'','Fecha última compra':(provDe(l.clave)||{}).ocF||'','Estatus':estTxt(p),'Existencia':p.ex,'Resguardo':p.rs||0,'BO CEDI':p.bo,'Consumo antecedente':p.A,'Consumo pronóstico':p.P,'T. entrega':q.lt,'Objetivo':q.pm,'Con BO':conBO()?'Sí':'No','Base recomendada':baseTxt(e),'Propuesta recomendada':e.sR,'Propuesta antecedente':e.sA,'Propuesta pronóstico':e.sP,'Diferencia vs recomendada (pzs)':e.difR,'Diferencia vs recomendada (meses)':e.dmR,
-    'Pedido':l.pedido,'Pedido autorizado':l.pedido_aut??l.pedido,'Anteo surtimiento':s.anteo,'Pron surtimiento':s.pron,'Redond':s.redond,'Meses antecedente portal':e.mA,'Meses pronóstico portal':e.mP,'Meses al llegar (recomendada)':e.lR,'Diferencia vs antecedente (meses)':e.dmA,'Diferencia vs pronóstico (meses)':e.dmP,'Semáforo':l.semaforo,'Avisos':l.avisos,'Motivo':l.motivo,'Comentario':l.comentario};});
+    'Pedido':l.pedido,'Pedido autorizante':l.pedido_aut,'Pedido final':l.pedido_aut??l.pedido,'Agregada por autorizante':l.agregada_aut?'Sí':'','Motivo autorizante':l.aut_motivo||'','Comentario autorizante':l.aut_comentario||'','Ajustó':l.aut_por||'',...(ajustada(l)?(x=>({'Meses ant. al llegar (final)':x.lA,'Meses pron. al llegar (final)':x.lP,'Semáforo final':x.sem}))(evaluarFinal(l)):{}),'Anteo surtimiento':s.anteo,'Pron surtimiento':s.pron,'Redond':s.redond,'Meses antecedente portal':e.mA,'Meses pronóstico portal':e.mP,'Meses al llegar (recomendada)':e.lR,'Diferencia vs antecedente (meses)':e.dmA,'Diferencia vs pronóstico (meses)':e.dmP,'Semáforo':l.semaforo,'Avisos':l.avisos,'Motivo':l.motivo,'Comentario':l.comentario};});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'Sin datos':''}]),'Folio');XLSX.writeFile(wb,S.actual.folio+'.xlsx');
 }
 
@@ -812,7 +907,7 @@ function imprimir(){
   const c={VERDE:0,AMARILLO:0,ROJO:0,SIN:0};L.forEach(l=>c[l.semaforo&&l.semaforo!=='SIN DATO'?l.semaforo:'SIN']++);
   const base=location.href.replace(/[^/]*$/,'');
   const tf=f.tipo_compra||'';
-  const fila=l=>{const p=l.portal||{},q=pp(l),s=l.surt||{},e=evaluar(l);return '<tr><td><b>'+l.clave+'</b></td><td class="d">'+esc(p.n)+(sinHist(p)?'<div class="av" style="color:#b45309">Sin historial: '+sinHist(p)+'</div>':'')+(provTipo(l.clave,tf,p.dual)||provNom(l.clave)||oriDe(l.clave)?'<div class="av">'+[(provTipo(l.clave,tf,p.dual)||provNom(l.clave))?'Prov.: '+esc(provTipo(l.clave,tf,p.dual)||provNom(l.clave)):'',oriDe(l.clave)?'Origen: '+esc(oriDe(l.clave)):''].filter(Boolean).join(' · ')+'</div>':'')+'</td><td class="n">'+nf(p.ex)+(p.rs>0?'<div style="font-size:8px;color:#0f766e">incl. '+nf(p.rs)+' resguardo</div>':'')+'</td><td class="n">'+nf(q.bo)+(tf&&p.dual&&p.dual.stk!=null?'<div style="font-size:8px;color:#075985">stock prov. nac. '+nf(p.dual.stk)+'</div>':'')+'</td><td class="n">'+nf(q.lt,1)+'</td><td class="n">'+nf(q.pm,1)+'</td><td class="n">'+nf(e.sA)+'</td><td class="n">'+nf(e.sP)+'</td><td class="n"><b>'+nf(e.sR)+'</b><br>'+esc(baseTxt(e))+'</td><td class="n"><b>'+nf(l.pedido_aut??l.pedido)+'</b><br>'+(e.difR==null?'':sg(e.difR)+' pzs · '+sg(e.dmR,1)+' m')+'</td><td class="n">'+nf(s.anteo,1)+' / '+nf(e.mA,1)+' ('+nf(e.lA,1)+')</td><td class="n">'+nf(s.pron,1)+' / '+nf(e.mP,1)+' ('+nf(e.lP,1)+')</td><td class="n">'+sg(e.dmA,1)+' / '+sg(e.dmP,1)+'</td><td><span class="sm '+(l.semaforo||'SIN').split(' ')[0]+'">'+(SEM_L[l.semaforo]||'—')+'</span></td><td class="d">'+(l.motivo?'<b>'+esc(l.motivo)+'</b>':'')+(l.comentario?'<br>'+esc(l.comentario):'')+(l.avisos?'<div class="av">'+esc(l.avisos).split(' | ').join('<br>')+'</div>':'')+'</td></tr>';};
+  const fila=l=>{const p=l.portal||{},q=pp(l),s=l.surt||{},aj=ajustada(l),e=aj?evaluarFinal(l):evaluar(l);return '<tr><td><b>'+l.clave+'</b></td><td class="d">'+esc(p.n)+(sinHist(p)?'<div class="av" style="color:#b45309">Sin historial: '+sinHist(p)+'</div>':'')+(provTipo(l.clave,tf,p.dual)||provNom(l.clave)||oriDe(l.clave)?'<div class="av">'+[(provTipo(l.clave,tf,p.dual)||provNom(l.clave))?'Prov.: '+esc(provTipo(l.clave,tf,p.dual)||provNom(l.clave)):'',oriDe(l.clave)?'Origen: '+esc(oriDe(l.clave)):''].filter(Boolean).join(' · ')+'</div>':'')+'</td><td class="n">'+nf(p.ex)+(p.rs>0?'<div style="font-size:8px;color:#0f766e">incl. '+nf(p.rs)+' resguardo</div>':'')+'</td><td class="n">'+nf(q.bo)+(tf&&p.dual&&p.dual.stk!=null?'<div style="font-size:8px;color:#075985">stock prov. nac. '+nf(p.dual.stk)+'</div>':'')+'</td><td class="n">'+nf(q.lt,1)+'</td><td class="n">'+nf(q.pm,1)+'</td><td class="n">'+nf(e.sA)+'</td><td class="n">'+nf(e.sP)+'</td><td class="n"><b>'+nf(e.sR)+'</b><br>'+esc(baseTxt(e))+'</td><td class="n"><b>'+nf(l.pedido_aut??l.pedido)+'</b>'+(aj?'<div style="font-size:8px;color:#6d28d9">'+(l.agregada_aut?'agregada por autorizante':'comprador '+nf(l.pedido)+' → autorizante')+'</div>':'')+'<br>'+(e.difR==null?'':sg(e.difR)+' pzs · '+sg(e.dmR,1)+' m')+'</td><td class="n">'+nf(s.anteo,1)+' / '+nf(e.mA,1)+' ('+nf(e.lA,1)+')</td><td class="n">'+nf(s.pron,1)+' / '+nf(e.mP,1)+' ('+nf(e.lP,1)+')</td><td class="n">'+sg(e.dmA,1)+' / '+sg(e.dmP,1)+'</td><td><span class="sm '+((aj?e.sem:l.semaforo)||'SIN').split(' ')[0]+'">'+(SEM_L[aj?e.sem:l.semaforo]||'—')+'</span></td><td class="d">'+(aj?'<div style="color:#6d28d9"><b>Autorizante:</b> '+esc(l.aut_motivo||'—')+(l.aut_comentario?' · '+esc(l.aut_comentario):'')+(l.aut_por?' ('+esc(l.aut_por)+')':'')+'</div>':'')+(l.motivo?'<b>'+esc(l.motivo)+'</b>':'')+(l.comentario?'<br>'+esc(l.comentario):'')+(l.avisos?'<div class="av">'+esc(l.avisos).split(' | ').join('<br>')+'</div>':'')+'</td></tr>';};
   const html='<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>'+esc(nombrePDF(f))+'</title><style>@page{size:letter landscape;margin:8mm 10mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:Calibri,"Segoe UI",sans-serif;color:#1a2035;font-size:9.5px;margin:0}'
     +'.top{width:100%;height:auto}.bot{width:100%;height:auto;margin-top:8px}h1{font-size:16px;margin:6px 0 2px;color:#1e3a5f}.meta{font-size:10.5px;margin-bottom:6px}.meta b{color:#1e3a5f}'
     +'table{border-collapse:collapse;width:100%}th{background:#1e3a5f;color:#fff;font-size:8.5px;padding:4px;text-align:left}td{border-bottom:1px solid #d5dce8;padding:3px 4px;vertical-align:top}td.n,th.n{text-align:right;white-space:nowrap}td.d{max-width:220px}.av{color:#6b7a99;font-size:8.5px;margin-top:2px}'
