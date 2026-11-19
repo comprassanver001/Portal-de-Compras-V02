@@ -418,7 +418,7 @@ function estFolio(p){if(!conBO()||!(Number(p.bo)>0))return esc(p.est||'')+P.nivC
 const pp=l=>P.dualP(l.portal||{},tipoF(),{cont:!!(S.actual&&S.actual.min_cont)});
 function evaluar(l){return P.propLinea(pp(l),l.surt||null,{conBO:conBO()});}
 const baseTxt=e=>e.br&&e.br.b?P.BASE_L[e.br.b]:'—';
-// ── Ajustes del autorizante (nov-2026 · plan_tablas_27.sql) ──
+// ── Ajustes del autorizante (nov-2026 · plan_tablas_28.sql) ──
 // En EN REVISION, Jefe, Gerente o Dirección desbloquean con su PIN y ponen su cantidad por clave (pedido_aut) con motivo;
 // también pueden agregar claves del mismo comprador (y del mismo tipo de compra) o quitar con 0. Se autoriza directo o se regresa al comprador.
 const AUT_MOTIVOS=['Sobre inventario','Quedaría corto / faltará','Temporada','Mínimo o empaque del proveedor','Consolidar con otro pedido','Otro'];
@@ -441,7 +441,7 @@ async function ajustarAut(clave,val){
   const antes=l.pedido_aut??l.pedido??null,ahora=new Date().toISOString(),sin=q==null;
   const campos={pedido_aut:q,aut_por:sin?null:S.rev.nombre,aut_en:sin?null:ahora,...(sin?{aut_motivo:null,aut_comentario:null}:{}),actualizado_en:ahora};
   const{error}=await sb.from('plan_propuesta_lineas').update(campos).eq('folio',S.actual.folio).eq('clave',l.clave);
-  if(error){toast('❌ '+error.message+(/aut_/.test(error.message)?' · Falta plan_tablas_27.sql':''));return;}
+  if(error){toast('❌ '+error.message+(/aut_/.test(error.message)?' · Falta plan_tablas_28.sql':''));return;}
   Object.assign(l,campos);await bitacoraAut(l.clave,'AJUSTE',antes,q??l.pedido??null,l.aut_motivo,l.aut_comentario,S.rev.nombre);
   toast(sin?'✓ Sin ajuste (queda la cantidad del comprador)':'✓ Cantidad del autorizante guardada'+(faltaMotAut(l)?' · falta el motivo':''));pintarFolio();
 }
@@ -461,7 +461,7 @@ async function agregarAut(){
   if(f.tipo_compra&&!esDual(k)){toast('El folio es de compra '+P.TIPO_L[f.tipo_compra].toLowerCase()+': la clave '+k+' no está dada de alta como compra nacional e importación');return;}
   const ahora=new Date().toISOString();
   const row={folio:f.folio,clave:k,portal:snap(r),pedido:null,pedido_aut:q,agregada_aut:true,aut_por:S.rev.nombre,aut_en:ahora,semaforo:'SIN DATO',avisos:'Agregada por el autorizante',actualizado_en:ahora};
-  const{error}=await sb.from('plan_propuesta_lineas').insert(row);if(error){toast('❌ '+error.message+(/aut_/.test(error.message)?' · Falta plan_tablas_27.sql':''));return;}
+  const{error}=await sb.from('plan_propuesta_lineas').insert(row);if(error){toast('❌ '+error.message+(/aut_/.test(error.message)?' · Falta plan_tablas_28.sql':''));return;}
   S.lineas.push(row);await bitacoraAut(k,'AGREGADA',null,q,null,null,S.rev.nombre);
   try{const{data}=await sb.from('plan_costos').select('clave,costo').eq('clave',k);(data||[]).forEach(x=>S.costos.set(Number(x.clave),Number(x.costo)));}catch(e){}
   $('aut-k').value='';$('aut-q').value='';toast('✓ Clave '+k+' agregada · elige el motivo');pintarFolio();
