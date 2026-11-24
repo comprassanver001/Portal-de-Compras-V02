@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
-<script src="lab_motor.js?v=20261124a" charset="utf-8"></script>
+<script src="lab_motor.js?v=20261124b" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;font-size:13px;color:#1a2035;background:#f3f5f9}
@@ -153,6 +153,11 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
       <p class="d" id="fam-est"></p>
       <div class="row"><input type="file" id="fam-file" accept=".xlsx,.xls"><button class="sec" onclick="cargarFamilias()">Cargar hoja BASE DE NEGOCIO</button><span class="d" id="fam-msg"></span></div>
     </div>
+    <div class="card">
+      <h2>Venta diaria (para detectar picos)</h2>
+      <p class="d">Plantilla <b>Plantilla_Venta_Diaria.xlsx</b> (hoja VENTA_DIARIA: FECHA, CLAVE, CANTIDAD, ENTREGA_DIRECTA). El laboratorio busca los días que vendieron más de lo normal (ofertas, Buen Fin, ventas grandes), y por clave y mes guarda solo la venta, la venta de los días pico y las alertas. Con esto, los picos de un mes que no se repiten cada año se quitan del ritmo base; sin este archivo se detectan con la venta mensual y solo se reportan. Se pueden subir varios archivos (por ejemplo, uno por año); cada carga reemplaza los meses que trae. Requiere <code>lab_tablas_05.sql</code>.</p>
+      <div class="row"><input type="file" id="dia-file" accept=".xlsx,.xls,.csv"><input id="dia-quien" placeholder="Tu nombre" style="width:160px"><button class="sec" onclick="cargarDiaria()">Cargar venta diaria</button><span class="d" id="dia-msg"></span></div>
+    </div>
   </section>
 
   <section id="t-ape" style="display:none">
@@ -276,8 +281,15 @@ async function cargarDatos(){
       S.dual=P.dualMapa(du,st,(S.ocLin||[]).filter(l=>!l.cerrada_en),est.fecha);}
   }catch(e){S.dualNota='No se pudo leer la lista de compra nacional e importación ('+(e.message||e)+').';}
   await leerExtras();
+  // Venta diaria resumida por mes (lab_venta_dia_mes, tablas 05)
+  // Llegada de cada clave (primera existencia): el ritmo base cuenta los meses desde que llegó, aunque no haya vendido
+  S.lleg=new Map();try{(await todo(()=>sb.from('plan_primera_existencia').select('clave,fecha'))).forEach(r=>{if(r.fecha)S.lleg.set(Number(r.clave),String(r.fecha).slice(0,7));});}catch(e){}
+  S.dd=new Map();S.ddNota=null;
+  try{const dd=await todo(()=>sb.from('lab_venta_dia_mes').select('clave,mes,venta,pico,alerta').order('clave').order('mes'));
+    dd.forEach(r=>{const c=Number(r.clave);let x=S.dd.get(c);if(!x)S.dd.set(c,x={});x[r.mes]=[Number(r.venta)||0,Number(r.pico)||0,r.alerta||null];});
+  }catch(e){S.ddNota=/does not exist|schema cache|42P01/.test(String(e.message||e)+(e.code||''))?'Falta la tabla de venta diaria: corre lab_tablas_05.sql.':null;}
   const AG=new Map();ag.forEach(r=>{const k=Number(r.clave);if(!AG.has(k))AG.set(k,new Set());AG.get(k).add(String(r.mes).slice(0,7));});
-  const FM=new Map(fam.map(r=>[Number(r.clave),r]));
+  const FM=new Map(fam.map(r=>[Number(r.clave),r]));S.FM=FM;
   // Meses: del primero con venta al último mes completo antes de la fecha del cálculo
   const fin=P.ym(String(fecha).slice(0,7),-1);let ini=fin;
   // Mes en curso: la plantilla trae la venta hasta el día anterior al día en que se subió
@@ -306,6 +318,8 @@ async function cargarDatos(){
     if(S.red.ventas&&(RV.has(c)||RI.has(c)))k.red=LAB.red.armar(RV.get(c),RI.get(c),S.red.ventas,meses);
     if(S.dual.has(c))k.dual=S.dual.get(c);
     if(RV.has(c))k.tRef=(RV.get(c)||{}).t||null;
+    if(S.dd&&S.dd.has(c))k.dd=S.dd.get(c);
+    if(S.lleg&&S.lleg.has(c)){const i=meses.indexOf(S.lleg.get(c));k.lleg=i>=0?i:(S.lleg.get(c)<meses[0]?0:null);}
     claves.push(k);
     S.info.set(c,{n:r.n||'',comp,rot,g:r.g||'',m:r.m||'',u:r.u||'',D:r.D,est:r.est});
   });
@@ -487,6 +501,7 @@ function pintarResumen(){
   else cr.innerHTML='<h2>Red: mayoreo y tiendas Mas Ferre</h2><p class="d"><b>Aún no está cargada.</b> El cálculo usa solo la venta total de SANVER. Carga la plantilla de ventas y el archivo de existencias MF en «Variables y escenarios».</p>';
   $('limites').innerHTML='<b>Qué usa este cálculo:</b> venta SANVER del portal'+(S.nED?', con las entregas directas restadas ('+nf(S.nED)+' claves)':'')+(S.nAG?', sin los meses agotados ('+nf(S.nAG)+' claves)':'')+'; existencia, BO, tiempo de entrega, meses objetivo y rotación del cálculo publicado. '+
     (S.fam?'Temporada por sub-subgrupo ('+nf(S.fam)+' claves con familia).':'<b>Sin familias cargadas:</b> la temporada se calcula solo por grupo; carga la hoja BASE DE NEGOCIO en «Variables y escenarios».')+
+    (R.param.REGLA_TEMP?' Regla de temporalidad: ritmo base '+(S.dd&&S.dd.size?'con picos detectados en la venta diaria ('+nf(S.dd.size)+' claves)':'con picos detectados por mes (sin venta diaria: '+(R.param.PICO_SUAVIZA?'se quitan':'solo se reportan')+')')+' × temporada de la familia'+(R.param.CORTE_TEMPORADA?'; la compra no cubre la siguiente temporada alta':'')+'.':'')+(S.ddNota?' '+esc(S.ddNota):'')+
     (S.D.parcial&&!R.param.PARCIAL_ACTIVA?' La venta del mes en curso ('+S.D.parcial.corte+') no se usa: el pronóstico sale solo de meses cerrados.':'')+
     (S.D.parcial&&R.param.PARCIAL_ACTIVA?' Venta del mes en curso al '+S.D.parcial.corte+' ('+Math.round(S.D.parcial.p*100)+'% del mes): ajusta el pronóstico de lo que falta; esta parte no entra en la prueba contra el historial.':(S.parNota?' '+esc(S.parNota):''))+
     (S.nSust?' Incluye el historial de '+nf(S.nSust)+' claves sustituidas (estatus SUSTITUTO).':'')+(S.nProd?' Suma el consumo por producción a '+nf(S.nProd)+' insumos (venta SANVER de sus productos × insumo por unidad, igual que el portal).':(S.prodNota?' '+esc(S.prodNota):''))+
@@ -529,7 +544,7 @@ function ficha(c){
   S.sel=c;const k=S.por.get(c),i=S.info.get(c),d=S.D.claves.find(x=>x.c===c);if(!k||!d)return;
   const M=S.D.meses,T=M.length,a=Math.max(0,T-36),R=S.R;
   const dato=(t,v)=>'<div class="dato"><span>'+t+'</span><b>'+v+'</b></div>';
-  const cb=S.param.CON_BO?' (existencia + BO)':' (sin BO)';
+  const cb=' (existencia + BO)';
   $('ficha').innerHTML='<h2>'+c+' · '+esc(i.n)+'</h2><p class="d">'+esc(i.comp)+' · '+esc(ROTN[i.rot]||i.rot)+' · '+esc(i.g)+(d.ssg?' · '+esc(d.ssg):'')+' · unidad '+esc(i.u)+'</p>'+
     '<div style="height:240px"><canvas id="graf"></canvas></div>'+
     '<h3>Pronóstico</h3>'+
@@ -540,7 +555,7 @@ function ficha(c){
     fichaPar(k)+
     '<h3>Alarma y compra</h3>'+
     dato('Periodo que protege la alarma',nf(k.H,2)+' meses (T. entrega '+(R.param.TE_FUENTE&&k.te?'real '+nf(k.te.q/30.4,2):nf(d.lt,2))+' + '+R.param.DIAS_REACCION+' días para levantar el pedido)')+
-    fichaTE(c,d)+
+    fichaTE(c,d)+fichaRegla(k,d)+
     dato('Venta en ese periodo: baja · esperada · alta',nf(k.bajo)+' · '+nf(k.esperado)+' · '+nf(k.alto))+
     dato('Nivel de servicio',pc(k.servicio,0))+
     dato('Inventario de seguridad',nf(k.seguridad)+(k.temp?(k.temp.est?' · con errores de los mismos meses ('+esc(k.temp.de)+')':' · con errores de todo el año'):'')+(R.param.SEG_MAX>0&&k.Dm>0&&k.seguridad>=R.param.SEG_MAX*k.Dm-0.5?' · <b>en el tope de '+nf(R.param.SEG_MAX,1)+' meses</b>':''))+
@@ -586,6 +601,23 @@ function fichaExtra(k){
     h+=dato('Aperturas que entran al cálculo',nf(e.ap.h)+' en la alarma · '+nf(e.ap.c)+' en la compra'+(e.ap.fa<1?' (el CEDI surte el '+pc(e.ap.fa,0)+')':''));}
   return h;
 }
+function fichaRegla(k,d){
+  const r=k.regla;if(!r)return'';const dato=(x,v)=>'<div class="dato"><span>'+x+'</span><b>'+v+'</b></div>',MESN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const mU=S.D.meses[S.D.meses.length-1],mo0=(Number(mU.slice(5,7)))%12,mes=h=>MESN[(mo0+h+12)%12];
+  const al=[];if(r.alertaMes)al.push(r.alertaMes);if(r.topado)al.push('pronóstico topado a '+nf(S.R.param.TOPE_PRON,1)+' veces el último mes');if(r.variable)al.push('temporalidad variable: se usa el escalón más bajo ('+nf(r.conservador!=null?r.conservador:Math.min(...r.variable),2)+')');
+  if(r.fuente==='familia')al.push('temporalidad de familia');if(r.estrategica>0)al.push('compra estratégica de '+nf(r.estrategica)+' pzs (no entra en la propuesta; la aprueba una persona)');
+  const disp=(Number(d.ex)||0)+(Number(d.bo)||0);
+  return '<h3>Regla de temporalidad</h3>'+
+    dato('1. Venta del último mes cerrado ('+mes(-1)+')',nf(r.ventaMes))+
+    dato('2. Venta de pico detectada',(r.recMes?'pico recurrente (se repite cada año; se queda en la temporada)':r.picoMes>0?nf(r.picoMes)+' pzs'+(S.R.param.PICO_SUAVIZA||k.dd?' (se quitó del ritmo base)':' (solo se reporta)'):'ninguna')+(r.picos12&&r.picos12.meses?' · en 12 meses: '+r.picos12.meses+' meses con pico, '+nf(r.picos12.piezas)+' pzs':''))+
+    dato('3. Ritmo base mensual (sin temporada)',nf(r.ritmo,1)+' · vendió en '+r.conVenta+' de '+r.meses+' meses con inventario: '+(r.regular?'promedio ponderado':'promedio de esos meses (cuenta los ceros)'))+
+    dato('4. Escalón '+mes(0)+' → '+mes(1),nf(r.escalon,2)+' · temporada de '+esc(r.fuente)+(r.anios?' · '+r.anios+' años de historia':''))+
+    dato('5. Fase de la temporada',r.fase+(r.inicio!=null?' · siguiente temporada alta en '+mes(r.inicio):''))+
+    dato('6. Pronóstico '+mes(0)+' · '+mes(1),nf(r.pronMes)+' · <b>'+nf(r.pronSig)+'</b>')+
+    dato('7. Pico recurrente en '+mes(1),r.picoRec!=null?'sí, +'+Math.round(r.picoRec*100)+'% en años anteriores (ya está en la temporada)':'no')+
+    dato('8. Sugerencia de compra','pedir hasta '+nf(k.hasta)+' − existencia '+nf(d.ex)+' − en tránsito (BO) '+nf(d.bo)+' = <b>'+nf(Math.max(0,k.hasta-disp))+'</b> · cubre '+nf(r.cob,1)+' meses'+(r.cob<r.cobOrig?' de '+nf(r.cobOrig,1)+(r.corte!=null?' (hasta antes de la temporada alta)':' (temporada bajando)'):''))+
+    dato('9. Alertas',al.length?al.map(esc).join(' · '):'ninguna');
+}
 function fichaDual(k,d){
   const u=k.dual;if(!u)return'';const dato=(x,v)=>'<div class="dato"><span>'+x+'</span><b>'+v+'</b></div>';let h='<h3>Compra nacional e importación</h3>';
   const disp=Number(d.ex)||0,bo=Number(d.bo)||0,boI=Math.round(bo*(u.fI||0)),boN=bo-boI,cb=!!S.R.param.CON_BO;
@@ -618,7 +650,7 @@ function fichaRed(k){
 }
 function exportar(){
   const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,'Venta mensual portal':k.Dportal,
-    'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,'Errores usados para la seguridad':k.temp?(k.temp.est?'Mismos meses: '+k.temp.de:'Todo el año'):'','Punto de alarma':k.punto,'Alarma actual':k.puntoPortal,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Ofertas en la compra':k.extra&&k.extra.of?k.extra.of.c:null,'Aperturas en la compra':k.extra&&k.extra.ap?k.extra.ap.c:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Propuesta actual':k.propPortal,'Pedir hasta nacional':k.dual&&k.dual.N?k.dual.N.hasta:null,'Pedir hasta importación':k.dual&&k.dual.I?k.dual.I.hasta:null}));
+    'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,'Regla: ritmo base':k.regla?Math.round(k.regla.ritmo*10)/10:'','Regla: base usada':k.regla?(k.regla.regular?'promedio ponderado':'promedio con ceros'):'','Regla: fase':k.regla?k.regla.fase:'','Regla: escalón':k.regla?Math.round(k.regla.escalon*100)/100:'','Regla: venta pico último mes':k.regla?Math.round(k.regla.picoMes):'','Regla: meses que cubre':k.regla?Math.round(k.regla.cob*10)/10:'','Compra estratégica (aprobar aparte)':k.regla&&k.regla.estrategica>0?Math.round(k.regla.estrategica):'','Regla: alertas':k.regla?[k.regla.alertaMes,k.regla.topado?'topado':null,k.regla.variable?'temporalidad variable':null].filter(Boolean).join(' · '):'','Errores usados para la seguridad':k.temp?(k.temp.est?'Mismos meses: '+k.temp.de:'Todo el año'):'','Punto de alarma':k.punto,'Alarma actual':k.puntoPortal,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Ofertas en la compra':k.extra&&k.extra.of?k.extra.of.c:null,'Aperturas en la compra':k.extra&&k.extra.ap?k.extra.ap.c:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Propuesta actual':k.propPortal,'Pedir hasta nacional':k.dual&&k.dual.N?k.dual.N.hasta:null,'Pedir hasta importación':k.dual&&k.dual.I?k.dual.I.hasta:null}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Laboratorio');XLSX.writeFile(wb,'Laboratorio_'+S.fecha+'.xlsx');
 }
 
@@ -628,7 +660,7 @@ const VARS=[
   ['SERVICIO.SAGRADOS','Nivel de servicio · Sagrados (%)',50,99.9,.5,100],['SERVICIO.ALTA ROTACION','Nivel de servicio · Alta (%)',50,99.9,.5,100],['SERVICIO.MEDIA ROTACION','Nivel de servicio · Media (%)',50,99.9,.5,100],
   ['SERVICIO.LENTA ROTACION','Nivel de servicio · Lenta (%)',50,99.9,.5,100],['SERVICIO.NUEVOS','Nivel de servicio · Nuevos (%)',50,99.9,.5,100],
   ['DIAS_REACCION','Días entre la alarma y levantar el pedido',0,60,1],['COBERTURA_MESES','Meses de venta que cubre cada pedido (0 = meses objetivo de la clave)',0,12,.25],
-  ['SEG_MAX','Tope del inventario de seguridad, en meses de venta (0 = sin tope)',0,24,.5],['SEG_TEMPORADA','Seguridad con los errores de los mismos meses del año (1 = sí, 0 = todo el año)',0,1,1],['EST_K','Seguridad por temporada: errores de esos meses para pesar la mitad',10,300,10],['CON_BO','Contar el BO como disponible (1 = sí, 0 = no)',0,1,1],['RED_ACTIVA','Ajustar la compra con el inventario de las tiendas (1 = sí, 0 = no)',0,1,1],
+  ['SEG_MAX','Tope del inventario de seguridad, en meses de venta (0 = sin tope)',0,24,.5],['SEG_TEMPORADA','Seguridad con los errores de los mismos meses del año (1 = sí, 0 = todo el año)',0,1,1],['REGLA_TEMP','Regla de temporalidad (1 = sí, 0 = el método que elija la prueba)',0,1,1],['PICO_SUAVIZA','Quitar del ritmo base los picos que no se repiten, sin venta diaria (1 = sí)',0,1,1],['PICO_VECES','Pico: veces la venta normal',1.5,6,0.1],['PICO_PZAS','Pico: piezas arriba de lo normal',1,50,1],['RITMO_PCT','Ritmo base: parte mínima de meses con venta para usar el promedio ponderado (%)',30,100,5,100],['ESC_PROPIA','Temporada propia de la clave cuando tenga 2 años (1 = sí, 0 = familia)',0,1,1],['ESC_PZAS','Temporada propia: piezas mínimas en ese mes del año anterior',1,500,1],['TOPE_PRON','Tope del pronóstico, veces el último mes (0 = sin tope)',0,5,0.5],['COB_BAJANDO_SEM','Temporada bajando: semanas máximas que cubre la compra',1,26,1],['CORTE_TEMPORADA','No comprar para la siguiente temporada alta (1 = sí)',0,1,1],['EST_K','Seguridad por temporada: errores de esos meses para pesar la mitad',10,300,10],['RED_ACTIVA','Ajustar la compra con el inventario de las tiendas (1 = sí, 0 = no)',0,1,1],
   ['PARCIAL_ACTIVA','Usar la venta del mes en curso (1 = sí, 0 = no)',0,1,1],['PARCIAL_MIN_AVANCE','Mes en curso: avance mínimo del mes para usarlo (%)',5,90,5,100],['PARCIAL_TOPE','Mes en curso: tope del ritmo, en veces el pronóstico',1.2,5,0.1],['TE_FUENTE','Tiempo de entrega: 0 = el del portal, 1 = el real de las recepciones',0,1,1],['OFERTAS_ACTIVA','Sumar la distribución adicional de las ofertas (1 = sí)',0,1,1],['APERTURAS_ACTIVA','Sumar las aperturas de tiendas (1 = sí)',0,1,1],['TE_CUANTIL','Tiempo de entrega real: parte de las OCs que debe cubrir (%)',50,95,5,100],['FACT_ALARMA','Regla actual: alarma con T. entrega × este factor',1,2,.05]]],
  ['Nivel de venta',[
   ['HIST','Meses de historia',6,36,1],['MEDIA_VIDA','Peso de lo reciente: un mes de hace N meses pesa la mitad',1,36,1],['TOPE_PICO','Tope de picos: veces la mediana',2,20,.5],
@@ -774,6 +806,29 @@ async function cargarRedInv(){
 }
 
 // ── Familias (BASE DE NEGOCIO de la plantilla de ventas) ──
+async function cargarDiaria(){
+  const f=$('dia-file').files[0],msg=$('dia-msg'),quien=($('dia-quien').value||'').trim();if(!f){msg.textContent='Elige el archivo.';return;}if(!quien){msg.textContent='Escribe tu nombre.';return;}
+  msg.textContent='Leyendo…';
+  try{
+    const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const hoja=wb.SheetNames.find(n=>P.norm(n).replace(/[_ ]/g,'')==='VENTADIARIA')||wb.SheetNames.find(n=>P.norm(n)!=='INSTRUCCIONES');
+    const aoa=XLSX.utils.sheet_to_json(wb.Sheets[hoja],{header:1,defval:null,raw:true});
+    const h=(aoa[0]||[]).map(x=>P.norm(String(x||'')).replace(/[_ ]/g,''));const iF=h.indexOf('FECHA'),iC=h.findIndex(x=>x==='CLAVE'||x==='IDARTICULO'),iQ=h.indexOf('CANTIDAD'),iE=h.findIndex(x=>x==='ENTREGADIRECTA');
+    if(iF<0||iC<0||iQ<0)throw new Error('No encontré las columnas FECHA, CLAVE y CANTIDAD en la hoja '+hoja+'.');
+    const fecha=x=>{if(x instanceof Date)return new Date(x.getTime()-x.getTimezoneOffset()*6e4).toISOString().slice(0,10);if(typeof x==='number')return new Date(Math.round((x-25569)*864e5)).toISOString().slice(0,10);
+      const m=String(x||'').trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);if(m)return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');const m2=String(x||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m2?m2[0]:null;};
+    const dias=new Map();let n=0,mal=0;
+    for(let i=1;i<aoa.length;i++){const r=aoa[i];if(!r)continue;const c=P.clave(r[iC]),d=fecha(r[iF]);if(!c||!d){if(r[iC]!=null||r[iF]!=null)mal++;continue;}
+      const q=Math.max(0,(P.num(r[iQ])||0)-(iE>=0?(P.num(r[iE])||0):0));let m=dias.get(c);if(!m)dias.set(c,m=new Map());m.set(d,(m.get(d)||0)+q);n++;}
+    if(!n)throw new Error('El archivo no trae renglones con fecha y clave.');
+    msg.textContent='Buscando picos en '+nf(dias.size)+' claves ('+nf(n)+' renglones)…';await new Promise(r=>setTimeout(r,30));
+    const Pm=LAB.params(S.param||{});let res=LAB.diario(dias,Pm);
+    const FMx=S.FM||new Map();res=LAB.diarioFamilia(res,c=>{const x=FMx.get(c);return x&&x.subsubgrupo?x.subsubgrupo:null;});
+    const reg=[],ahora=new Date().toISOString();res.forEach((R,c)=>R.forEach((r,mes)=>reg.push({clave:c,mes,venta:Math.round(r.venta*100)/100,pico:Math.round(r.pico*100)/100,dias_venta:r.dv,dias_pico:r.dp,alerta:r.alerta,cargado_por:quien,cargado_en:ahora})));
+    for(let i=0;i<reg.length;i+=500){const{error}=await sb.from('lab_venta_dia_mes').upsert(reg.slice(i,i+500),{onConflict:'clave,mes'});if(error)throw new Error(error.message+(/does not exist|schema cache/.test(error.message)?' (corre lab_tablas_05.sql)':''));msg.textContent='Guardando '+nf(Math.min(i+500,reg.length))+' de '+nf(reg.length)+'…';}
+    const conPico=reg.filter(r=>r.pico>0).length;
+    msg.textContent=nf(reg.length)+' meses de '+nf(res.size)+' claves guardados · '+nf(conPico)+' con pico'+(mal?' · '+nf(mal)+' renglones sin fecha o clave válidas':'')+'. Recargando…';setTimeout(()=>location.reload(),1500);
+  }catch(e){msg.textContent='No se pudo cargar: '+(e.message||e);}
+}
 async function cargarFamilias(){
   const f=$('fam-file').files[0],msg=$('fam-msg');if(!f){msg.textContent='Elige el archivo de la plantilla.';return;}
   if(!S.tablas){msg.textContent='Primero corre lab_tablas_01.sql en Supabase.';return;}

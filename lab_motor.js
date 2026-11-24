@@ -8,7 +8,7 @@
 //   v  = arreglo 0/1 del mismo largo: 1 = el mes cuenta, 0 = no cuenta (agotado, antes de la primera venta…).
 (function(root){
 'use strict';
-const L={VERSION:'0.7.0'};
+const L={VERSION:'0.8.0'};
 
 // ── Variables del cálculo (todas modificables; estos son los valores sugeridos) ──
 L.PARAM={
@@ -51,9 +51,26 @@ L.PARAM={
   PARCIAL_ACTIVA:0,   // 1 = usar la venta del mes en curso (por omisión no: solo meses cerrados, decisión del 24-nov-2026)
   PARCIAL_MIN_AVANCE:0.2,   // no se usa antes de que haya transcurrido esta parte del mes (pocos días dicen poco)
   PARCIAL_TOPE:2,     // el ritmo del mes no puede proyectar más de TOPE veces (ni menos de 1/TOPE) lo pronosticado
-  CON_BO:0,           // 1 = el BO del CEDI cuenta como disponible
+  CON_BO:1,           // 1 = el BO del CEDI cuenta como disponible (decisión 24-nov-2026: los pedidos en tránsito se restan siempre)
   FACT_ALARMA:1.2,    // regla actual del portal: alarma con menos de T. entrega × este factor
   H_MAX:9,            // horizonte máximo que se puede probar con el historial
+  // Regla de temporalidad y picos (24-nov-2026)
+  REGLA_TEMP:1,       // 1 = todas las claves usan la regla (ritmo base suavizado × temporada); 0 = el método que elija la prueba
+  PICO_SUAVIZA:0,     // 1 = los picos que no se repiten se quitan del ritmo base; 0 = solo se detectan y reportan (la prueba con historial dio pronósticos más cortos al quitarlos)
+  PICO_VECES:2.5,     // un mes es pico si vende más de PICO_VECES × su venta normal…
+  PICO_PZAS:3,        // …y al menos PICO_PZAS piezas más que su venta normal
+  PICO_MESES:6,       // venta normal de un mes = mediana de los PICO_MESES meses anteriores (versión mensual)
+  PICO_DIAS:28,       // venta normal de un día = mediana de los PICO_DIAS días anteriores (versión diaria)
+  PICO_DUR:5,         // con venta diaria: hasta PICO_DUR días seguidos es pico; más es cambio de nivel
+  PICO_ALERTA:0.40,   // alerta «mes dominado por pico» si el pico es más de esta parte de la venta del mes
+  RITMO_PCT:0.70,     // si vendió en al menos esta parte de sus meses con inventario: nivel ponderado; si no, promedio de los meses suavizados
+  ESC_PROPIA:0,       // 1 = usar la temporada propia de la clave cuando tenga 2 años y ESC_PZAS; 0 = siempre la de su familia (la propia aumentó el error en la prueba)
+  ESC_PZAS:30,        // temporada propia de la clave si vendió al menos ESC_PZAS en ese mes del año anterior (y tiene 2 años); si no, la de su familia
+  ESC_DIF:0.15,       // si los escalones de distintos años difieren más de esto: «temporalidad variable» y se compra con el más bajo
+  FASE_BAJA:0.95, FASE_SUBE:1.05, // escalón del mes siguiente: menor = BAJANDO, mayor = SUBIENDO
+  TOPE_PRON:0,        // >0: el pronóstico no pasa de TOPE_PRON × el ritmo del último mes con su temporada (0 = sin tope; con 2 la prueba quedó más corta)
+  COB_BAJANDO_SEM:4,
+  CORTE_TEMPORADA:1,  // 1 = la compra no cubre la siguiente temporada alta (mes con índice ≥ EST_ALTA después de meses bajos): eso va como «compra estratégica»  // si la temporada va BAJANDO, la compra cubre como máximo estas semanas (lo demás es «compra estratégica»)
   SEG_TEMPORADA:1,    // 1 = el inventario de seguridad usa los errores de los mismos meses del año (±1), de la misma familia
   EST_BAJA:0.8,       // periodo de temporada baja: su índice de temporada promedio es menor a esto
   EST_ALTA:1.25,      // periodo de temporada alta: su índice promedio es mayor a esto
@@ -128,9 +145,11 @@ L.METODOS={
   MEZ:'Mezcla nivel + año pasado',
   CMB:'Combinado (nivel con temporada + promedio 12)',
   CM3:'Combinado de tres (nivel, promedio 12, intermitente)',
+  REGLA:'Regla de temporalidad (ritmo base × temporada de la familia)',
   PORTAL:'Método actual del portal'
 };
-L.params=p=>{const o=Object.assign({},L.PARAM,p||{});o.SERVICIO=Object.assign({},L.PARAM.SERVICIO,(p&&p.SERVICIO)||{});return o;};
+L.params=p=>{const o=Object.assign({},L.PARAM,p||{});o.SERVICIO=Object.assign({},L.PARAM.SERVICIO,(p&&p.SERVICIO)||{});o.CON_BO=1;// los pedidos en tránsito se restan siempre, aunque una publicación anterior lo tenga apagado
+  return o;};
 
 // ── Utilidades ──
 const mediana=a=>{if(!a.length)return NaN;const b=Array.from(a).sort((x,y)=>x-y);const n=b.length;return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2;};
@@ -145,9 +164,11 @@ L.acum=(f,H,desde)=>{let t=0;const d=desde||0;for(let k=0;k<Math.ceil(H);k++){co
 // ── Meses que cuentan ──
 // Sin dato de existencia: clave regular (vendió ≥ REGULAR de los 12 meses previos) con una racha de ≥ RACHA meses en cero = sospechoso de agotado.
 // Solo se mira la historia anterior a o (nunca información futura).
-L.validos=(s,o,P,extra)=>{
+L.validos=(s,o,P,extra,lleg)=>{
   const v=new Uint8Array(s.length);let ini=-1;
   for(let t=0;t<o;t++)if(s[t]>0){ini=t;break;}
+  // desde la llegada de la clave (primera existencia): los meses con inventario sin venta también cuentan
+  if(lleg!=null&&lleg>=0&&lleg<o&&(ini<0||lleg<ini))ini=lleg;
   if(ini<0)return v;
   for(let t=ini;t<o;t++){
     v[t]=1;
@@ -219,6 +240,98 @@ const nivel=(s,v,o,I,m0,hist,mv,tope)=>{
   return sw>0?sy/sw:0;
 };
 L.nivel=nivel;
+// ── Picos ──
+// Venta normal de un mes = mediana de los PICO_MESES meses válidos anteriores (incluye ceros).
+// Es pico si vende > PICO_VECES × normal y ≥ PICO_PZAS piezas más. Si el mismo mes del año fue pico en otro año (±1 o ±2 años), es
+// PICO RECURRENTE (temporada, Navidad…): se deja en la historia porque forma parte de la temporada. Los demás se reemplazan por la venta normal.
+// dd (opcional): por mes [venta, venta de pico, alerta] calculado con la venta diaria; manda sobre la versión mensual.
+L.suavizar=(s,v,P,dd)=>{
+  const n=s.length,out=Float64Array.from(s),pico=new Float64Array(n),es=new Uint8Array(n),norm=new Float64Array(n),al=new Array(n).fill(null);
+  for(let t=0;t<n;t++){
+    if(dd&&dd[t]){pico[t]=Math.max(0,Math.min(s[t],dd[t][1]||0));if(pico[t]>0)es[t]=1;al[t]=dd[t][2]||null;norm[t]=s[t]-pico[t];continue;}
+    if(!v[t])continue;const a=[];for(let x=t-1;x>=0&&a.length<P.PICO_MESES;x--)if(v[x])a.push(s[x]);
+    if(a.length<3)continue;const md=mediana(a);norm[t]=md;
+    if(md>0&&s[t]>P.PICO_VECES*md&&s[t]-md>=P.PICO_PZAS){es[t]=1;pico[t]=s[t]-md;}
+  }
+  const rec=new Uint8Array(n);
+  for(let t=0;t<n;t++)if(es[t])for(const d of [-24,-12,12,24]){const x=t+d;if(x>=0&&x<n&&es[x]){rec[t]=1;break;}}
+  for(let t=0;t<n;t++){if(es[t]&&!rec[t]&&(P.PICO_SUAVIZA||(dd&&dd[t])))out[t]=s[t]-pico[t];if(es[t]&&s[t]>0&&pico[t]/s[t]>P.PICO_ALERTA&&!al[t])al[t]='mes dominado por pico';}
+  return{s:out,pico,es,rec,al};
+};
+// ── Venta diaria → resumen por mes (Parte A de la regla) ──
+// dias: Map clave → Map 'AAAA-MM-DD' → piezas (ya sin entregas directas). Devuelve Map clave → Map mes → {venta,pico,dv,dp,alerta}.
+// Venta normal de un día = mediana de los PICO_DIAS días anteriores (incluye ceros). Día pico: > PICO_VECES × normal y ≥ PICO_PZAS más.
+// Días pico seguidos (o separados por 1 día): hasta PICO_DUR días = pico (se quita lo que pasa de lo normal); más = cambio de nivel (se respeta).
+// Más de 2 picos separados en un mes = «mes irregular»: no se quita nada.
+L.diario=(dias,P)=>{
+  const out=new Map(),ds=d=>Date.parse(d+'T00:00:00Z'),iso=x=>new Date(x).toISOString().slice(0,10);
+  dias.forEach((m,c)=>{
+    const ks=[...m.keys()].sort();if(!ks.length)return;const t0=ds(ks[0]),t1=ds(ks[ks.length-1]),n=Math.round((t1-t0)/864e5)+1;
+    const v=new Float64Array(n);m.forEach((q,d)=>{v[Math.round((ds(d)-t0)/864e5)]+=q;});
+    const nor=new Float64Array(n),pk=new Uint8Array(n);
+    for(let i=0;i<n;i++){if(i<7)continue;const a=[];for(let j=Math.max(0,i-P.PICO_DIAS);j<i;j++)a.push(v[j]);const md=mediana(a);nor[i]=md;
+      if(v[i]>P.PICO_VECES*md&&v[i]-md>=P.PICO_PZAS)pk[i]=1;}
+    // episodios de días pico
+    const quita=new Uint8Array(n),cambio=new Uint8Array(n);
+    for(let i=0;i<n;){if(!pk[i]){i++;continue;}let j=i,last=i;while(j+1<n&&(pk[j+1]||(j+2<n&&pk[j+2]&&!pk[j+1]))){j++;if(pk[j])last=j;}
+      let dur=0;for(let x=i;x<=last;x++)if(pk[x])dur++;
+      for(let x=i;x<=last;x++)if(pk[x]){if(dur<=P.PICO_DUR)quita[x]=1;else cambio[x]=1;}
+      i=last+1;}
+    const R=new Map();
+    for(let i=0;i<n;i++){const mes=iso(t0+i*864e5).slice(0,7);let r=R.get(mes);if(!r)R.set(mes,r={venta:0,pico:0,dv:0,dp:0,ep:0,ult:-9,cambio:false,alerta:null});
+      r.venta+=v[i];if(v[i]>0)r.dv++;if(quita[i]){r.dp++;r.pico+=v[i]-nor[i];if(i-r.ult>2)r.ep++;r.ult=i;}if(cambio[i])r.cambio=true;}
+    R.forEach(r=>{if(r.ep>2){r.alerta='mes irregular, revisar';r.pico=0;}else if(r.venta>0&&r.pico/r.venta>P.PICO_ALERTA)r.alerta='mes dominado por pico';else if(r.cambio)r.alerta='cambio de nivel';delete r.ult;delete r.ep;delete r.cambio;});
+    out.set(c,R);
+  });
+  return out;
+};
+// Productos lentos (A5): si la clave vendió en menos de 10 días del mes, se usa el porcentaje de pico de su familia
+L.diarioFamilia=(res,famDe)=>{
+  const F=new Map();res.forEach((R,c)=>{const f=famDe(c);if(!f)return;R.forEach((r,mes)=>{const k=f+'|'+mes;const x=F.get(k)||{v:0,p:0};x.v+=r.venta;x.p+=r.pico;F.set(k,x);});});
+  res.forEach((R,c)=>{const f=famDe(c);R.forEach((r,mes)=>{if(r.dv>=10||!f)return;const x=F.get(f+'|'+mes);if(!x||!(x.v>0))return;const pct=x.p/x.v;r.pico=r.venta*pct;if(pct>0&&!r.alerta)r.alerta='pico de familia';});});
+  return res;
+};
+// ── Temporada propia de la clave (B2/B3) ──
+// Índice por año = venta del mes ÷ promedio de su año (serie suavizada, solo años con 10+ meses válidos). Mediana con 3 años, promedio con 2.
+// Se usa el propio en un mes si hay 2 años y ese mes del año anterior vendió ≥ ESC_PZAS; si no, el de la familia (I).
+L.indicePropio=(sS,v,o,m0,I,P)=>{
+  const anios=[];for(let fin=o;fin-12>=0&&anios.length<3;fin-=12){let t0=0,nv=0;for(let t=fin-12;t<fin;t++)if(v[t]){t0+=sS[t];nv++;}
+    if(nv<10||!(t0>0))break;const prom=t0/nv,r=new Array(12).fill(null);for(let t=fin-12;t<fin;t++)if(v[t])r[(m0+t)%12]=sS[t]/prom;anios.push({r,fin});}
+  const out=Float64Array.from(I),fuente=new Array(12).fill('familia'),varb=new Array(12).fill(false);
+  if(anios.length>=2&&P.ESC_PROPIA){
+    const ult=anios[0];
+    for(let mo=0;mo<12;mo++){
+      const xs=anios.map(a=>a.r[mo]).filter(x=>x!=null);if(xs.length<2)continue;
+      // venta de ese mes en el año anterior
+      let ant=null;for(let t=ult.fin-12;t<ult.fin;t++)if((m0+t)%12===mo)ant=sS[t];
+      if(ant==null||ant<P.ESC_PZAS)continue;
+      out[mo]=xs.length>=3?mediana(xs):xs.reduce((a,b)=>a+b,0)/xs.length;fuente[mo]=xs.length>=3?'clave 3 años':'clave 2 años';
+    }
+    let t=0;for(let i=0;i<12;i++){out[i]=clip(out[i],P.IDX_MIN,P.IDX_MAX);t+=out[i];}t/=12;for(let i=0;i<12;i++)out[i]/=t;
+    // escalones por año (mes ÷ mes anterior) para ver si la temporada es consistente
+    for(let mo=0;mo<12;mo++){const pm=(mo+11)%12,es=anios.map(a=>a.r[mo]!=null&&a.r[pm]>0?a.r[mo]/a.r[pm]:null).filter(x=>x!=null);
+      if(es.length>=2&&Math.max(...es)-Math.min(...es)>P.ESC_DIF)varb[mo]=es;}
+  }
+  return{I:out,fuente,varb,anios:anios.length};
+};
+// ── Ritmo base y pronóstico de la regla ──
+L.regla=(sS,v,o,m0,Ifam,g,P)=>{
+  const IP=L.indicePropio(sS,v,o,m0,Ifam,P),I=IP.I,mo=h=>(m0+o+h)%12;
+  let nv=0,nz=0,sum=0;for(let t=Math.max(0,o-12);t<o;t++)if(v[t]){nv++;if(sS[t]>0)nz++;sum+=sS[t]/I[(m0+t)%12];}
+  const regular=nv>0&&nz/nv>=P.RITMO_PCT;
+  // regular: nivel ponderado de los meses cerrados; si no: promedio de los meses con inventario (cuenta los ceros), sin temporada
+  let base=regular?nivel(sS,v,o,I,m0,P.HIST,P.MEDIA_VIDA,P.TOPE_PICO):(nv?sum/nv:0);base*=g;
+  // tope: no más de TOPE_PRON × el ritmo del último mes con venta (sin temporada), solo en claves regulares
+  let ult=null;for(let t=o-1;t>=Math.max(0,o-3);t--)if(v[t]){ult=sS[t]/I[(m0+t)%12];break;}
+  let topado=false;if(P.TOPE_PRON>0&&regular&&ult!=null&&ult>0&&base>P.TOPE_PRON*ult){base=P.TOPE_PRON*ult;topado=true;}
+  const f=new Float64Array(12);for(let h=0;h<12;h++)f[h]=Math.max(0,base*I[mo(h)]);
+  return{f,I,base,regular,meses:nv,conVenta:nz,topado,fuente:IP.fuente,varb:IP.varb,anios:IP.anios};
+};
+// Fase de la temporada: escalón = índice del mes siguiente ÷ índice del mes actual (mo0 = mes actual)
+L.fase=(I,mo0,P)=>{const e=I[(mo0+1)%12]/I[mo0];const f=e<P.FASE_BAJA?'BAJANDO':e>P.FASE_SUBE?'SUBIENDO':'ESTABLE';
+  // inicio de la siguiente temporada alta: primer mes (desde el siguiente) con índice ≥ EST_ALTA después de un mes con índice < 1
+  let ini=null;for(let h=1;h<12;h++){if(I[(mo0+h)%12]>=P.EST_ALTA&&I[(mo0+h-1)%12]<1){ini=h;break;}}
+  return{escalon:e,fase:f,inicio:ini};};
 L.pronosticar=(c,H,P)=>{
   // c = {s, v, o, m0, I (12), g (crecimiento), portal (venta mensual del método actual, opcional)}
   const {s,v,o,m0,I}=c;const g=c.g||1;const F={};
@@ -254,6 +367,8 @@ L.pronosticar=(c,H,P)=>{
   F.MEZ=new Float64Array(H);for(let h=0;h<H;h++)F.MEZ[h]=(F.EST[h]+F.ANIO[h])/2;
   F.CMB=new Float64Array(H);F.CM3=new Float64Array(H);
   for(let h=0;h<H;h++){F.CMB[h]=(F.EST[h]+F.P12[h])/2;F.CM3[h]=(F.EST[h]+F.P12[h]+F.TSB[h])/3;}
+  // REGLA: ritmo base de la serie suavizada (sin picos que no se repiten) × temporada (propia de la clave o de su familia), con topes
+  {const R=L.regla(c.sS||s,v,o,m0,I,g,P);F.REGLA=R.f;F._I=R.I;F._regla=R;}
   if(c.portal!=null)F.PORTAL=plano(c.portal);
   return F;
 };
@@ -437,7 +552,7 @@ L.ROT_PRUEBA=['SAGRADOS','ALTA ROTACION','MEDIA ROTACION'];
 L.correr=(D,Pin,hooks)=>{
   const P=L.params(Pin),av=(hooks&&hooks.progreso)||(()=>{});
   const MES=D.meses,T=MES.length,m0=Number(MES[0].slice(5))-1,K=D.claves,n=K.length;
-  const MET=['EST','REC','P12','SBA','TSB','TEND','ANIO','MEZ','CMB','CM3'],nM=MET.length,iM={};MET.forEach((m,i)=>iM[m]=i);
+  const MET=['EST','REC','P12','SBA','TSB','TEND','ANIO','MEZ','CMB','CM3','REGLA'],nM=MET.length,iM={};MET.forEach((m,i)=>iM[m]=i);
   const O_MIN=12,nO=T-O_MIN+1,oi=o=>o-O_MIN,TIPOS=L.TIPOS;
   const hb=H=>H<=2?0:H<=4?1:2;
   const F3=new Float32Array(n*nO*nM),FH=new Float32Array(n*nO*nM);
@@ -445,16 +560,18 @@ L.correr=(D,Pin,hooks)=>{
   const TE=K.map(k=>L.teReal(k,D.teProv,P));
   const Hp=K.map((k,i)=>clip((P.TE_FUENTE&&TE[i]?TE[i].q/30.4:(k.lt||0))+P.DIAS_REACCION/30,0.25,P.H_MAX));
   const noAg=K.map(k=>{if(!k.ag)return null;const e=new Uint8Array(T).fill(1);for(let t=0;t<T;t++)if(k.ag[t])e[t]=0;return e;});
-  const vFin=K.map((k,i)=>L.validos(k.s,T,P,noAg[i]));
+  const vFin=K.map((k,i)=>L.validos(k.s,T,P,noAg[i],k.lleg));
   const ll=K.map(k=>[k.g+'|'+(k.sg||'')+'|'+(k.ssg||''),k.g+'|'+(k.sg||''),k.g]);
   const ultimo=new Array(n);
+  // Picos: serie suavizada por clave (con venta diaria si se cargó; si no, versión mensual)
+  const SU=K.map((k,i)=>L.suavizar(k.s,vFin[i],P,k.dd?MES.map(m=>k.dd[m]||null):null));
   // 1. Pronósticos de todos los métodos en todos los meses de origen
   for(let o=O_MIN;o<=T;o++){
-    const items=K.map((k,i)=>({s:k.s,v:L.validos(k.s,o,P,noAg[i]),llaves:ll[i]}));
+    const items=K.map((k,i)=>({s:k.s,v:L.validos(k.s,o,P,noAg[i],k.lleg),llaves:ll[i]}));
     const idx=L.indices(items,o,m0,P),cre=L.crecimiento(items,o,P);
     for(let i=0;i<n;i++){
       const k=K[i],it=items[i],I=idx(it.llaves),g=cre(k.g);
-      const F=L.pronosticar({s:k.s,v:it.v,o,m0,I,g},12,P);const b=i*nO+oi(o);
+      const F=L.pronosticar({s:k.s,sS:SU[i].s,v:it.v,o,m0,I,g},12,P);const b=i*nO+oi(o);
       for(let m=0;m<nM;m++){const f=F[MET[m]];F3[b*nM+m]=L.acum(f,P.H_SEL);FH[b*nM+m]=L.acum(f,Hp[i]);}
       let t=0,c=0;for(let x=Math.max(0,o-12);x<o;x++)if(it.v[x]){t+=k.s[x];c++;}PR[b]=c?t/c:0;
       TP[b]=TIPOS.indexOf(L.tipo(k.s,it.v,o));
@@ -463,7 +580,7 @@ L.correr=(D,Pin,hooks)=>{
       const libre=(a,z)=>{for(let x=a;x<z;x++)if(!vFin[i][x]&&(k.s[x]===0||(noAg[i]&&!noAg[i][x])))return false;return true;};
       if(o+P.H_SEL<=T&&libre(o,o+P.H_SEL)){let a=0;for(let h=0;h<P.H_SEL;h++)a+=k.s[o+h];A3[b]=a;}
       const hc=Math.ceil(Hp[i]);if(o+hc<=T&&libre(o,o+hc))AH[b]=L.acum(k.s,Hp[i],o);
-      if(o===T)ultimo[i]={F,I,g,v:it.v};
+      if(o===T)ultimo[i]={F,I,g,v:it.v,IR:F._I,RG:F._regla};
     }
     av('Pronósticos de prueba · '+(MES[o]||'vigente'),0.5*(o-O_MIN+1)/nO);
   }
@@ -478,7 +595,7 @@ L.correr=(D,Pin,hooks)=>{
     const sel=new Uint8Array(n),propio=new Uint8Array(n),gr=new Uint8Array(n),GR={A:0,B:1,C:2};
     for(let i=0;i<n;i++){
       const e={};for(let m=0;m<nM;m++)e[MET[m]]=err[i*nM+m];
-      const r=L.elegir(e,cnt[i],MET[omi[TP[i*nO+tt]]],P);sel[i]=iM[r.m];propio[i]=r.propio?1:0;
+      const r=P.REGLA_TEMP?{m:'REGLA',propio:false}:L.elegir(e,cnt[i],MET[omi[TP[i*nO+tt]]],P);sel[i]=iM[r.m];propio[i]=r.propio?1:0;
       gr[i]=GR[L.calificar(sumA[i]>0?err[i*nM+sel[i]]/sumA[i]:NaN,cnt[i],P)];
     }
     return{sel,propio,omi,cnt,err,sumA,gr};
@@ -556,6 +673,19 @@ L.correr=(D,Pin,hooks)=>{
   for(let i=0;i<n;i++){
     const k=K[i],u=ultimo[i],b=i*nO+oi(T),m=MET[E.sel[i]],H=Hp[i];let f=u.F[m],par=null;
     const p=P.SERVICIO[k.rot]||P.SERVICIO_DEF,cob=P.COBERTURA_MESES>0?P.COBERTURA_MESES:(k.pm||1);
+    // Regla de temporalidad: fase del mes siguiente, escalón conservador si la temporada es variable, cobertura máxima si va bajando
+    let RG=null,cobC=cob;
+    if(P.REGLA_TEMP&&u.RG){const mo0=(m0+T)%12,I2=u.IR,fs=L.fase(I2,mo0,P),vb=u.RG.varb[(mo0+1)%12];let cons=null;
+      if(fs.fase==='BAJANDO'&&vb){const emin=Math.min(...vb);if(emin<fs.escalon){cons=emin;const fc=emin/fs.escalon;f=Float64Array.from(f,(x,h)=>h>=1?x*fc:x);}}
+      if(fs.fase==='BAJANDO')cobC=Math.min(cob,P.COB_BAJANDO_SEM*7/30.4);
+      // no comprar para la siguiente temporada alta si empieza después de que llegue el pedido: se cubre hasta el mes anterior
+      let corte=null;if(P.CORTE_TEMPORADA&&fs.inicio!=null&&fs.inicio>H&&fs.inicio<H+cobC){corte=fs.inicio;cobC=Math.max(0,fs.inicio-H);}
+      const SUi=SU[i],tu=T-1,mn=(mo0+1)%12;let rec=null;
+      {const rs=[];for(let t=T+1-12;t>=0&&t>=T+1-36;t-=12)if(SUi.rec[t]&&k.s[t]-SUi.pico[t]>0)rs.push(SUi.pico[t]/(k.s[t]-SUi.pico[t]));if(rs.length)rec=mediana(rs);}
+      RG={ventaMes:k.s[tu],picoMes:SUi.es[tu]&&!SUi.rec[tu]?SUi.pico[tu]:0,recMes:!!SUi.rec[tu],alertaMes:SUi.al[tu],ritmo:u.RG.base,regular:u.RG.regular,meses:u.RG.meses,conVenta:u.RG.conVenta,
+        topado:u.RG.topado,fuente:u.RG.fuente[mn],anios:u.RG.anios,variable:vb||null,conservador:cons,escalon:fs.escalon,fase:fs.fase,inicio:fs.inicio,
+        pronMes:f[0],pronSig:f[1],picoRec:rec,cobOrig:cob,cob:cobC,corte,
+        picos12:(()=>{let a=0,c=0;for(let t=Math.max(0,T-12);t<T;t++)if(SUi.es[t]&&!SUi.rec[t]){a+=SUi.pico[t];c++;}return{piezas:a,meses:c};})()};}
     let Fh=L.acum(f,H),Fhc=L.acum(f,Math.min(12,H+cob));
     // Mes en curso: con la venta que lleva el mes se estima su cierre, se actualiza el nivel y el horizonte se cuenta desde hoy
     const pc_=D.parcial;
@@ -588,7 +718,9 @@ L.correr=(D,Pin,hooks)=>{
         dias:Dm>0?Math.max(0,(iv.disp-punto)/(Dm/30)):null});}
       return{iv,rd,eh,ec,ah,ahc,fa};
     };
-    const NV=nivel(H,cob);let inv=NV.iv,red=NV.rd;
+    let NV=nivel(H,cobC);let inv=NV.iv,red=NV.rd;
+    // compra estratégica: lo que se compraría con la cobertura completa y que la regla deja fuera por ir bajando la temporada
+    if(RG&&cobC<cob){const NF=nivel(H,cob);RG.estrategica=Math.max(0,NF.iv.hasta-NV.iv.hasta);RG.hastaCompleto=NF.iv.hasta;}
     // Compra nacional e importación (plan_abasto_dual): mismo cálculo con su tiempo de entrega y sus meses objetivo
     let dual=null;
     if(k.dual){const d=k.dual,hx=lt=>clip((lt||0)+P.DIAS_REACCION/30,0.25,P.H_MAX),cv=pm=>P.COBERTURA_MESES>0?P.COBERTURA_MESES:(pm||1);dual={};
@@ -606,7 +738,7 @@ L.correr=(D,Pin,hooks)=>{
       bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
       punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,
       Dportal:pd,puntoPortal:pd!=null?pd*(k.lt||0)*P.FACT_ALARMA:null,hastaPortal:pd!=null?pd*((k.lt||0)+(k.pm||0)):null,
-      val:Array.from(u.v),red,par,te:TE[i],dual,extra,temp:{cls:['BAJA','NORMAL','ALTA'][ZE.cls],est:ZE.est,de:ZE.de,w:ZE.w,n:pozo.length,np:pr.length}};
+      val:Array.from(u.v),red,par,te:TE[i],dual,extra,regla:RG,temp:{cls:['BAJA','NORMAL','ALTA'][ZE.cls],est:ZE.est,de:ZE.de,w:ZE.w,n:pozo.length,np:pr.length}};
   }
   av('Listo',1);
   return{version:L.VERSION,param:P,meses:MES,pruebas:pruebas.map(t=>MES[t]),resumen,calibracion,

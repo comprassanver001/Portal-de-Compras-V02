@@ -19,7 +19,9 @@
   var emp=function(q,x){if(!q||!(x.inn>0||x.mas>0))return null;if(x.mas>0&&q>=x.mas)return Math.max(x.mas,Math.round(q/x.mas)*x.mas);if(x.inn>0)return Math.ceil(q/x.inn)*x.inn;return x.mas;};
   // con tipo de compra elegido en Propuestas (nacional o importación) se usa el «pedir hasta» del motor con su tiempo de entrega y sus meses objetivo
   A.hasta=function(r){var l=r.lab,e=l.e||{};if(r.tipo==='NACIONAL'&&e.hN!=null)return e.hN;if(r.tipo==='IMPORTACION'&&e.hI!=null)return e.hI;return l.h;};
-  A.prop=function(r,conBO){var l=r.lab;return Math.max(0,P.ceil3(A.hasta(r)-((Number(r.ex)||0)+(conBO?Math.max(0,Number(r.bo)||0):0)+(Number(r.xd)||0))));};
+  // Decisión de Fernando (24-nov): los pedidos en tránsito (BO CEDI) se restan siempre, aunque el portal tenga desactivada la casilla.
+  A.SIEMPRE_BO=true;
+  A.prop=function(r,conBO){conBO=conBO||A.SIEMPRE_BO;var l=r.lab;return Math.max(0,P.ceil3(A.hasta(r)-((Number(r.ex)||0)+(conBO?Math.max(0,Number(r.bo)||0):0)+(Number(r.xd)||0))));};
   A.fila=function(r,x,fecha){
     var ex=Number(r.ex)||0,bo=Math.max(0,Number(r.bo)||0),lt=Number(r.lt)||0,pm=Number(r.pm)||0,r2=function(v){return Math.round(v*100)/100;};
     r.lab={D:r.D,s:r.s,s0:r.s0,est:r.est,h:x.h,p:x.p,cf:x.cf,d:x.d,e:x.e};
@@ -55,6 +57,7 @@
   var celda=function(el,rot){var bs=el.querySelectorAll('.kv > b');for(var i=0;i<bs.length;i++)if(bs[i].textContent.trim()===rot)return bs[i].nextElementSibling;return null;};
   var TIPO={'REGULAR':'venta regular','ERRATICA':'venta errática','INTERMITENTE':'venta intermitente','IRREGULAR':'venta irregular','SIN HISTORIA':'sin historia'};
   A.txtPropuesta=function(r,conBO){
+    conBO=conBO||A.SIEMPRE_BO;
     var l=r.lab,e=l.e,ex=Number(r.ex)||0,bo=Math.max(0,Number(r.bo)||0),s=conBO?r.s:(r.s0!=null?r.s0:r.s),sE=conBO?r.sE:(r.sE0!==undefined?r.sE0:r.sE);
     return 'pedir hasta '+nf(A.hasta(r))+(r.tipo&&A.hasta(r)!==l.h?' ('+(r.tipo==='NACIONAL'?'compra nacional':'importación')+')':'')+' − ('+nf(ex)+' existencia'+(conBO?' + '+nf(bo)+' BO CEDI':'')+(Number(r.xd)>0?' + '+nf(r.xd)+' stock del proveedor nacional':'')+') = <b>'+nf(s)+'</b>'+(sE!=null?' → con empaque <b>'+nf(sE)+'</b>':'')+
       ' <span class="mut">· el portal actual propondría '+nf(conBO?l.s:(l.s0!=null?l.s0:l.s))+'</span>';
