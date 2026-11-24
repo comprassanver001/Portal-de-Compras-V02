@@ -10,6 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
 <script src="lab_motor.js?v=20261124c" charset="utf-8"></script>
+<script src="lab_bo.js?v=20261124a" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;font-size:13px;color:#1a2035;background:#f3f5f9}
@@ -305,6 +306,8 @@ async function cargarDatos(){
   const meses=[];for(let m=ini;m<=fin;m=P.ym(m,1))meses.push(m);
   if(meses.length<24)throw new Error('Hay menos de 24 meses de ventas cargados; el laboratorio necesita al menos 2 años.');
   S.teInfo=new Map();
+  // BO del CEDI completado con las OCs abiertas levantadas desde el día del cálculo (lab_bo.js)
+  paso('Revisando OCs abiertas para el BO…');S.boRes=await LABBO.ajustar(sb,est.claves||[],fecha);
   const claves=[];S.info=new Map();
   (est.claves||[]).forEach(r=>{
     const c=Number(r.c),rot=P.norm(r.rot),comp=P.norm(r.comp);
@@ -497,7 +500,7 @@ function pintarResumen(){
       '<div class="kpis">'+kp('Tiendas con inventario de sobra',nf(sob),'claves donde la compra baja más de ¼ de mes de venta')+kp('Tiendas debajo de su base',nf(fal),'claves donde la compra sube más de ¼ de mes')+kp('Sin cambio',nf(UR.length-sob-fal),'las tiendas están cerca de su número base')+kp('Unidad distinta',nf(ud),'la existencia MF viene en otra unidad: no se ajustan')+'</div>'+
       '<p class="d" style="margin-top:8px"><b>Importante:</b> esta parte no se puede probar contra el pasado porque no hay historial de existencias por tienda; se apoya en la venta y el inventario actuales. El punto de alarma no cambia con este ajuste, solo la cantidad a comprar.</p>';}
   else cr.innerHTML='<h2>Red: mayoreo y tiendas Mas Ferre</h2><p class="d"><b>Aún no está cargada.</b> El cálculo usa solo la venta total de SANVER. Carga la plantilla de ventas y el archivo de existencias MF en «Variables y escenarios».</p>';
-  $('limites').innerHTML='<b>Qué usa este cálculo:</b> venta SANVER del portal'+(S.nED?', con las entregas directas restadas ('+nf(S.nED)+' claves)':'')+(S.nAG?', sin los meses agotados ('+nf(S.nAG)+' claves)':'')+'; existencia, BO, tiempo de entrega, meses objetivo y rotación del cálculo publicado. '+
+  $('limites').innerHTML='<b>Qué usa este cálculo:</b> venta SANVER del portal'+(S.nED?', con las entregas directas restadas ('+nf(S.nED)+' claves)':'')+(S.nAG?', sin los meses agotados ('+nf(S.nAG)+' claves)':'')+'; existencia, BO, tiempo de entrega, meses objetivo y rotación del cálculo publicado'+(S.boRes?' (BO completado con las OCs abiertas: sube en '+nf(S.boRes.sube)+' claves, +'+nf(S.boRes.pzsSube)+' pzs, por OCs levantadas desde el día del cálculo; baja en '+nf(S.boRes.baja)+' claves, −'+nf(S.boRes.pzsBaja)+' pzs, porque su BO pasa de lo pendiente en sus OCs al CEDI de 90 días o menos)':(LABBO.error?' (no se pudieron leer las OCs abiertas: '+esc(LABBO.error)+')':''))+'. '+
     (S.fam?'Temporada por sub-subgrupo ('+nf(S.fam)+' claves con familia).':'<b>Sin familias cargadas:</b> la temporada se calcula solo por grupo; carga la hoja BASE DE NEGOCIO en «Variables y escenarios».')+
     (R.param.REGLA_TEMP?' Regla de temporalidad: ritmo base '+(S.dd&&S.dd.size?'con picos detectados en la venta diaria ('+nf(S.dd.size)+' claves)':'con picos detectados por mes (sin venta diaria: '+(R.param.PICO_SUAVIZA?'se quitan':'solo se reportan')+')')+' × temporada de la familia'+(R.param.CORTE_TEMPORADA?'; la compra no cubre la siguiente temporada alta':'')+'.':'')+(S.ddNota?' '+esc(S.ddNota):'')+
     (S.D.parcial&&!R.param.PARCIAL_ACTIVA?' La venta del mes en curso ('+S.D.parcial.corte+') no se usa: el pronóstico sale solo de meses cerrados.':'')+
@@ -557,7 +560,7 @@ function ficha(c){
     dato('Nivel de servicio',pc(k.servicio,0))+
     dato('Inventario de seguridad',nf(k.seguridad)+(k.temp?(k.temp.est?' · con errores de los mismos meses ('+esc(k.temp.de)+')':' · con errores de todo el año'):'')+(R.param.SEG_MAX>0&&k.Dm>0&&k.seguridad>=R.param.SEG_MAX*k.Dm-0.5?' · <b>en el tope de '+nf(R.param.SEG_MAX,1)+' meses</b>':''))+
     dato('Punto de alarma (pedir al llegar aquí)','<span class="'+(k.pedir?'mal':'')+'">'+nf(k.punto)+'</span>'+'')+
-    dato('Disponible'+cb,nf(k.disp)+' · existencia '+nf(d.ex)+' · BO '+nf(d.bo))+
+    dato('Disponible'+cb,nf(k.disp)+' · existencia '+nf(d.ex)+' · BO '+nf(d.bo)+(d.boArch!=null&&(d.boNuevas>0||Math.abs((Number(d.bo)||0)-d.boArch)>1e-6)?'<br><span class="d">'+LABBO.texto(d)+'</span>':''))+
     dato('¿Toca pedir?',k.pedir?'<span class="mal">Sí, ya está en el punto de alarma</span>':(k.dias!=null?'En unos '+nf(k.dias)+' días':'Sin venta esperada'))+
     dato('Riesgo de agotarse antes de que llegue un pedido de hoy',pc(k.pAgotar,0))+
     dato('Pedir hasta','<b>'+nf(k.hasta)+'</b> (alarma + '+nf(k.cob,1)+' meses de venta'+(k.red&&k.red.aj?(k.red.aj<0?' − ':' + ')+nf(Math.abs(k.red.aj))+' por tiendas':'')+')')+

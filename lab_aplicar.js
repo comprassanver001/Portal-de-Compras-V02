@@ -46,6 +46,7 @@
     if(!A.activo()){avisar('Cálculo del portal actual (motor apagado)',false);return est;}
     var pub=await A.cargar(sb);
     if(!pub){avisar('Sin cálculo publicado del laboratorio: se usa el del portal',false);return est;}
+    if(window.LABBO&&!est.boAjustado){est.boAjustado=true;await window.LABBO.ajustar(sb,est.claves,est.fecha||pub.fecha_calculo);}
     var n=0;est.claves.forEach(function(r){var x=pub.mapa.get(Number(r.c));if(x&&!r.lab){A.fila(r,x,est.fecha);n++;}});
     est.lab={claves:n,publicado:pub.creado_en,por:pub.creado_por,fecha:pub.fecha_calculo};
     var f=String(pub.creado_en||'').slice(0,10).split('-').reverse().join('/');
@@ -65,6 +66,7 @@
   A.txtLab=function(r){
     var l=r.lab,e=l.e;if(!e)return 'Punto de alarma '+nf(l.p)+' · pedir hasta '+nf(l.h)+' · confiabilidad '+esc(l.cf)+' <span class="mut">(vuelve a dar «Aplicar al portal de pruebas» en el laboratorio para ver el desglose completo)</span>';
     var H=e.H||0,esp=l.d*H,cic=(e.hs!=null?e.hs:l.h)-l.p,t=[];
+    if(window.LABBO&&r.boArch!=null&&(r.boNuevas>0||Math.abs((Number(r.bo)||0)-r.boArch)>1e-6))t.push(window.LABBO.texto(r));
     t.push('Venta esperada <b>'+nf(l.d,1)+'</b> / mes'+' · '+(TIPO[e.tipo]||'')+' · confiabilidad <b>'+esc(l.cf)+'</b>'+(e.err!=null?' (error '+Math.round(e.err*100)+'%)':''));
     if(e.parV!=null)t.push('Mes en curso: lleva '+nf(e.parV)+' · cierre estimado '+nf(e.parC)+' (el pronóstico era '+nf(e.parA)+')');
     var exH=(e.ofH||0)+(e.apH||0);
