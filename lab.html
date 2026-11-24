@@ -712,8 +712,16 @@ function pintarEsc(){
   let h='<tr><th class="l">Escenario</th><th class="l">Quién · cuándo</th><th class="l">Variables cambiadas</th><th>Error</th><th>Alarma a tiempo</th><th>Punto de alarma (meses)</th><th>Toca pedir</th><th></th></tr>';
   if(!S.esc.length)h+='<tr><td class="l d" colspan="8">Aún no hay escenarios guardados.</td></tr>';
   S.esc.forEach((e,i)=>{const r=e.resumen||{},p=e.parametros||{};const cam=[];Object.keys(p).forEach(k=>{if(k==='SERVICIO')Object.keys(p[k]).forEach(x=>cam.push('Servicio '+(ROTN[x]||x)+' '+pc(p[k][x],1)));else cam.push(k+' = '+p[k]);});
-    h+='<tr><td class="l"><b>'+esc(e.nombre)+'</b>'+(e.nota?'<br><span class="d">'+esc(e.nota)+'</span>':'')+'</td><td class="l">'+esc(e.creado_por||'')+' · '+esc(String(e.creado_en||'').slice(0,10))+'</td><td class="l w">'+(cam.length?esc(cam.join(' · ')):'Valores sugeridos')+'</td><td>'+pc(r.error)+'</td><td>'+pc(r.cubre)+'</td><td>'+nf(r.meses,2)+'</td><td>'+nf(r.pedir)+'</td><td><button class="sec" onclick="usarEsc('+i+')">Usar</button></td></tr>';});
+    h+='<tr><td class="l"><b>'+esc(e.nombre)+'</b>'+(e.nota?'<br><span class="d">'+esc(e.nota)+'</span>':'')+'</td><td class="l">'+esc(e.creado_por||'')+' · '+esc(String(e.creado_en||'').slice(0,10))+'</td><td class="l w">'+(cam.length?esc(cam.join(' · ')):'Valores sugeridos')+'</td><td>'+pc(r.error)+'</td><td>'+pc(r.cubre)+'</td><td>'+nf(r.meses,2)+'</td><td>'+nf(r.pedir)+'</td><td style="white-space:nowrap"><button class="sec" onclick="usarEsc('+i+')">Usar</button> <button class="sec" style="color:#b91c1c;border-color:#fca5a5" title="Borrar este escenario" onclick="borrarEsc('+i+')">Borrar</button></td></tr>';});
   $('tb-esc').innerHTML=h;
+}
+async function borrarEsc(i){
+  const e=S.esc[i];if(!e)return;const quien=$('esc-quien').value.trim();if(!quien){toast('Escribe tu nombre en el campo de quién guarda, para registrar quién borra.');return;}
+  if(!confirm('¿Borrar el escenario «'+e.nombre+'» de '+(e.creado_por||'')+' ('+String(e.creado_en||'').slice(0,10)+')? Se quita para todos. Queda una copia de sus variables en la bitácora del laboratorio.'))return;
+  if(S.escBD){const{error}=await sb.from('lab_escenarios').delete().eq('id',e.id);if(error){toast('No se pudo borrar: '+error.message);return;}
+    await sb.from('lab_bitacora').insert({usuario:quien,accion:'BORRAR_ESCENARIO',detalle:{id:e.id,nombre:e.nombre,nota:e.nota,creado_por:e.creado_por,creado_en:e.creado_en,parametros:e.parametros,resumen:e.resumen}});}
+  else{S.esc.splice(i,1);try{localStorage.setItem(LS,JSON.stringify(S.esc));}catch(_){}}
+  toast('Escenario «'+e.nombre+'» borrado.');await cargarEsc();
 }
 function usarEsc(i){S.param=JSON.parse(JSON.stringify(S.esc[i].parametros||{}));pintarVars();recalcular();toast('Recalculando con «'+S.esc[i].nombre+'»…');}
 
