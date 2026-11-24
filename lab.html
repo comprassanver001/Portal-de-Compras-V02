@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
-<script src="lab_motor.js?v=20261124b" charset="utf-8"></script>
+<script src="lab_motor.js?v=20261124c" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;font-size:13px;color:#1a2035;background:#f3f5f9}
@@ -155,7 +155,7 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
     </div>
     <div class="card">
       <h2>Venta diaria (para detectar picos)</h2>
-      <p class="d">Plantilla <b>Plantilla_Venta_Diaria.xlsx</b> (hoja VENTA_DIARIA: FECHA, CLAVE, CANTIDAD, ENTREGA_DIRECTA). El laboratorio busca los días que vendieron más de lo normal (ofertas, Buen Fin, ventas grandes), y por clave y mes guarda solo la venta, la venta de los días pico y las alertas. Con esto, los picos de un mes que no se repiten cada año se quitan del ritmo base; sin este archivo se detectan con la venta mensual y solo se reportan. Se pueden subir varios archivos (por ejemplo, uno por año); cada carga reemplaza los meses que trae. Requiere <code>lab_tablas_05.sql</code>.</p>
+      <p class="d">Plantilla <b>Plantilla_Venta_Diaria.xlsx</b> (hoja VENTA_DIARIA: FECHA, CLAVE, CANTIDAD y, si la tienes, ENTREGA_DIRECTA; sin esa columna, la entrega directa de cada mes se resta de la carga de compras ED empezando por los días más grandes). El laboratorio busca los días que vendieron más de lo normal (ofertas, Buen Fin, ventas grandes), y por clave y mes guarda solo la venta, la venta de los días pico y las alertas. Con esto, los picos de un mes que no se repiten cada año se quitan del ritmo base; sin este archivo se detectan con la venta mensual y solo se reportan. Se pueden subir varios archivos (por ejemplo, uno por año); cada carga reemplaza los meses que trae. Requiere <code>lab_tablas_05.sql</code>.</p>
       <div class="row"><input type="file" id="dia-file" accept=".xlsx,.xls,.csv"><input id="dia-quien" placeholder="Tu nombre" style="width:160px"><button class="sec" onclick="cargarDiaria()">Cargar venta diaria</button><span class="d" id="dia-msg"></span></div>
     </div>
   </section>
@@ -238,7 +238,7 @@ async function cargarDatos(){
     if(S.red.inv){paso('Leyendo existencias por tienda…');(await todo(()=>sb.from('lab_red_inv').select('clave,datos').order('clave'))).forEach(r=>RI.set(Number(r.clave),r.datos));}
   }catch(e){S.red.ok=false;}
   const V=new Map(ven.map(r=>[Number(r.clave),r.meses||{}]));
-  const ED=new Map();ed.forEach(r=>{const k=Number(r.clave);if(!ED.has(k))ED.set(k,{});ED.get(k)[String(r.mes).slice(0,7)]=Number(r.cantidad)||0;});
+  const ED=new Map();ed.forEach(r=>{const k=Number(r.clave);if(!ED.has(k))ED.set(k,{});ED.get(k)[String(r.mes).slice(0,7)]=Number(r.cantidad)||0;});S.ED=ED;
   // Claves sustituidas (estatus SUSTITUTO): la vigente suma la venta y las entregas directas de sus claves originales, igual que el
   // Cálculo diario del portal. EQUIVALENTE y REVISAR no se suman; BAJA no se guarda.
   S.nSust=0;S.sustOmit=0;
@@ -821,12 +821,13 @@ async function cargarDiaria(){
       const q=Math.max(0,(P.num(r[iQ])||0)-(iE>=0?(P.num(r[iE])||0):0));let m=dias.get(c);if(!m)dias.set(c,m=new Map());m.set(d,(m.get(d)||0)+q);n++;}
     if(!n)throw new Error('El archivo no trae renglones con fecha y clave.');
     msg.textContent='Buscando picos en '+nf(dias.size)+' claves ('+nf(n)+' renglones)…';await new Promise(r=>setTimeout(r,30));
-    const Pm=LAB.params(S.param||{});let res=LAB.diario(dias,Pm);
+    const Pm=LAB.params(S.param||{});let res=LAB.diario(dias,Pm,iE>=0?null:(S.ED||null));
     const FMx=S.FM||new Map();res=LAB.diarioFamilia(res,c=>{const x=FMx.get(c);return x&&x.subsubgrupo?x.subsubgrupo:null;});
-    const reg=[],ahora=new Date().toISOString();res.forEach((R,c)=>R.forEach((r,mes)=>reg.push({clave:c,mes,venta:Math.round(r.venta*100)/100,pico:Math.round(r.pico*100)/100,dias_venta:r.dv,dias_pico:r.dp,alerta:r.alerta,cargado_por:quien,cargado_en:ahora})));
+    const reg=[],ahora=new Date().toISOString();let edTot=0,edCl=0;res.forEach(R=>{if(R.edQuitada){edTot+=R.edQuitada;edCl++;}});
+    res.forEach((R,c)=>R.forEach((r,mes)=>reg.push({clave:c,mes,venta:Math.round(r.venta*100)/100,pico:Math.round(r.pico*100)/100,dias_venta:r.dv,dias_pico:r.dp,alerta:r.alerta,cargado_por:quien,cargado_en:ahora})));
     for(let i=0;i<reg.length;i+=500){const{error}=await sb.from('lab_venta_dia_mes').upsert(reg.slice(i,i+500),{onConflict:'clave,mes'});if(error)throw new Error(error.message+(/does not exist|schema cache/.test(error.message)?' (corre lab_tablas_05.sql)':''));msg.textContent='Guardando '+nf(Math.min(i+500,reg.length))+' de '+nf(reg.length)+'…';}
     const conPico=reg.filter(r=>r.pico>0).length;
-    msg.textContent=nf(reg.length)+' meses de '+nf(res.size)+' claves guardados · '+nf(conPico)+' con pico'+(mal?' · '+nf(mal)+' renglones sin fecha o clave válidas':'')+'. Recargando…';setTimeout(()=>location.reload(),1500);
+    msg.textContent=nf(reg.length)+' meses de '+nf(res.size)+' claves guardados · '+nf(conPico)+' con pico'+(edTot>0?' · entrega directa restada por mes (plan de compras ED): '+nf(edTot)+' pzs en '+nf(edCl)+' claves':'')+(mal?' · '+nf(mal)+' renglones sin fecha o clave válidas':'')+'. Recargando…';setTimeout(()=>location.reload(),1500);
   }catch(e){msg.textContent='No se pudo cargar: '+(e.message||e);}
 }
 async function cargarFamilias(){

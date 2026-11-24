@@ -263,11 +263,21 @@ L.suavizar=(s,v,P,dd)=>{
 // Venta normal de un día = mediana de los PICO_DIAS días anteriores (incluye ceros). Día pico: > PICO_VECES × normal y ≥ PICO_PZAS más.
 // Días pico seguidos (o separados por 1 día): hasta PICO_DUR días = pico (se quita lo que pasa de lo normal); más = cambio de nivel (se respeta).
 // Más de 2 picos separados en un mes = «mes irregular»: no se quita nada.
-L.diario=(dias,P)=>{
+// ed (opcional): Map clave → {'AAAA-MM': piezas de entrega directa del mes}. La venta diaria no trae la entrega directa por separado,
+// así que se quita del mes empezando por los días más grandes (bajándolos a la venta normal del mes) y, si sobra, de todos los días en proporción.
+L.quitarED=(v,t0,iso,edC)=>{
+  if(!edC)return 0;const porMes=new Map();for(let i=0;i<v.length;i++){const m=iso(t0+i*864e5).slice(0,7);if(edC[m]>0)(porMes.get(m)||porMes.set(m,[]).get(m)).push(i);}
+  let tot=0;porMes.forEach((ix,m)=>{let rest=edC[m];const con=ix.filter(i=>v[i]>0),md=mediana(con.map(i=>v[i]));
+    con.sort((a,b)=>v[b]-v[a]);for(const i of con){if(rest<=0)break;const q=Math.min(rest,Math.max(0,v[i]-md));v[i]-=q;rest-=q;tot+=q;}
+    if(rest>0){const sum=con.reduce((a,i)=>a+v[i],0);if(sum>0){const f=Math.min(1,rest/sum);con.forEach(i=>{const q=v[i]*f;v[i]-=q;tot+=q;});}}});
+  return tot;
+};
+L.diario=(dias,P,ed)=>{
   const out=new Map(),ds=d=>Date.parse(d+'T00:00:00Z'),iso=x=>new Date(x).toISOString().slice(0,10);
   dias.forEach((m,c)=>{
     const ks=[...m.keys()].sort();if(!ks.length)return;const t0=ds(ks[0]),t1=ds(ks[ks.length-1]),n=Math.round((t1-t0)/864e5)+1;
     const v=new Float64Array(n);m.forEach((q,d)=>{v[Math.round((ds(d)-t0)/864e5)]+=q;});
+    const edQ=L.quitarED(v,t0,iso,ed&&ed.get(c));
     const nor=new Float64Array(n),pk=new Uint8Array(n);
     for(let i=0;i<n;i++){if(i<7)continue;const a=[];for(let j=Math.max(0,i-P.PICO_DIAS);j<i;j++)a.push(v[j]);const md=mediana(a);nor[i]=md;
       if(v[i]>P.PICO_VECES*md&&v[i]-md>=P.PICO_PZAS)pk[i]=1;}
@@ -281,7 +291,7 @@ L.diario=(dias,P)=>{
     for(let i=0;i<n;i++){const mes=iso(t0+i*864e5).slice(0,7);let r=R.get(mes);if(!r)R.set(mes,r={venta:0,pico:0,dv:0,dp:0,ep:0,ult:-9,cambio:false,alerta:null});
       r.venta+=v[i];if(v[i]>0)r.dv++;if(quita[i]){r.dp++;r.pico+=v[i]-nor[i];if(i-r.ult>2)r.ep++;r.ult=i;}if(cambio[i])r.cambio=true;}
     R.forEach(r=>{if(r.ep>2){r.alerta='mes irregular, revisar';r.pico=0;}else if(r.venta>0&&r.pico/r.venta>P.PICO_ALERTA)r.alerta='mes dominado por pico';else if(r.cambio)r.alerta='cambio de nivel';delete r.ult;delete r.ep;delete r.cambio;});
-    out.set(c,R);
+    out.set(c,R);if(edQ>0)R.edQuitada=edQ;
   });
   return out;
 };
