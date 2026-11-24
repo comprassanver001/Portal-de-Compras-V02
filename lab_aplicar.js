@@ -13,7 +13,7 @@
   A.cargar=async function(sb){
     if(A.pub!==undefined)return A.pub;
     try{var r=await sb.from('lab_publicacion').select('*').eq('id','vigente').maybeSingle();A.pub=r.error||!r.data?null:r.data;}catch(e){A.pub=null;}
-    if(A.pub){var m=new Map();(A.pub.datos||[]).forEach(function(x){m.set(Number(x[0]),{d:x[1],p:x[2],h:x[3],cf:x[4],inn:x[5]||0,mas:x[6]||0,e:x.length>7?{seg:x[7],H:x[8],cob:x[9],serv:x[10],aj:x[11],tipo:x[12],err:x[13],pa:x[14],parV:x[15],parC:x[16],parA:x[17],hs:x[18],pN:x[19],hN:x[20],pI:x[21],hI:x[22],ofC:x[23],apC:x[24],ofH:x[25],apH:x[26]}:null});});A.pub.mapa=m;}
+    if(A.pub){var m=new Map();(A.pub.datos||[]).forEach(function(x){m.set(Number(x[0]),{d:x[1],p:x[2],h:x[3],cf:x[4],inn:x[5]||0,mas:x[6]||0,e:x.length>7?{seg:x[7],H:x[8],cob:x[9],serv:x[10],aj:x[11],tipo:x[12],err:x[13],pa:x[14],parV:x[15],parC:x[16],parA:x[17],hs:x[18],pN:x[19],hN:x[20],pI:x[21],hI:x[22],ofC:x[23],apC:x[24],ofH:x[25],apH:x[26],cm:x[27]||null}:null});});A.pub.mapa=m;}
     return A.pub;
   };
   // Redondeo a empaque con la misma regla del portal (P.empaque); inn y mas ya vienen en la unidad de la clave
@@ -69,6 +69,9 @@
   A.txtLab=function(r){
     var l=r.lab,e=l.e;if(!e)return 'Punto de alarma '+nf(l.p)+' · pedir hasta '+nf(l.h)+' · confiabilidad '+esc(l.cf)+' <span class="mut">(vuelve a dar «Aplicar al portal de pruebas» en el laboratorio para ver el desglose completo)</span>';
     var H=e.H||0,esp=l.d*H,cic=(e.hs!=null?e.hs:l.h)-l.p,t=[];
+    if(e.cm&&e.cm.length){var MN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'],nm=function(m){return MN[Number(String(m).slice(5,7))-1]+' '+String(m).slice(2,4);},tc=0,te=0,pe=[];
+      var pc=e.cm.filter(function(z){return z[1]>0;}).map(function(z){tc+=z[1];return nm(z[0])+' '+nf(z[1]);});e.cm.forEach(function(z){if(z[2]>0){te+=z[2];pe.push(nm(z[0])+' '+nf(z[2]));}});
+      t.push('Venta que cubre la compra, mes por mes: '+pc.join(' · ')+' = <b>'+nf(tc)+'</b>'+(pe.length?' · fuera, como compra estratégica (se aprueba aparte): '+pe.join(' · ')+' = '+nf(te):''));}
     if(window.LABBO&&r.boArch!=null&&(r.boNuevas>0||Math.abs((Number(r.bo)||0)-r.boArch)>1e-6))t.push(window.LABBO.texto(r));
     t.push('Venta esperada <b>'+nf(l.d,1)+'</b> / mes'+' · '+(TIPO[e.tipo]||'')+' · confiabilidad <b>'+esc(l.cf)+'</b>'+(e.err!=null?' (error '+Math.round(e.err*100)+'%)':''));
     if(e.parV!=null)t.push('Mes en curso: lleva '+nf(e.parV)+' · cierre estimado '+nf(e.parC)+' (el pronóstico era '+nf(e.parA)+')');

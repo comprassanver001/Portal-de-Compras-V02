@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
-<script src="lab_motor.js?v=20261124c" charset="utf-8"></script>
+<script src="lab_motor.js?v=20261124d" charset="utf-8"></script>
 <script src="lab_bo.js?v=20261124a" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
@@ -601,6 +601,13 @@ function fichaExtra(k){
     h+=dato('Aperturas que entran al cálculo',nf(e.ap.h)+' en la alarma · '+nf(e.ap.c)+' en la compra'+(e.ap.fa<1?' (el CEDI surte el '+pc(e.ap.fa,0)+')':''));}
   return h;
 }
+function desgloseCob(k){
+  const cm=k.cm||[];if(!cm.length)return'';const MESN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const nom=j=>{const m=P.ym(S.mes0,j);return MESN[Number(m.slice(5,7))-1]+' '+m.slice(2,4);};let t=0,te=0;
+  const parts=cm.filter(z=>z[1]>0).map(z=>{t+=z[1];return nom(z[0])+' '+nf(z[1]);});cm.forEach(z=>te+=z[2]);
+  const pe=cm.filter(z=>z[2]>0).map(z=>nom(z[0])+' '+nf(z[2]));
+  return '<div class="dato"><span>Venta que cubre la compra, mes por mes</span><b>'+parts.join(' · ')+' = '+nf(t)+(pe.length?'<br><span class="d">fuera, como compra estratégica: '+pe.join(' · ')+' = '+nf(te)+'</span>':'')+'</b></div>';
+}
 function fichaRegla(k,d){
   const r=k.regla;if(!r)return'';const dato=(x,v)=>'<div class="dato"><span>'+x+'</span><b>'+v+'</b></div>',MESN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
   const mU=S.D.meses[S.D.meses.length-1],mo0=(Number(mU.slice(5,7)))%12,mes=h=>MESN[(mo0+h+12)%12];
@@ -616,7 +623,7 @@ function fichaRegla(k,d){
     dato('6. Pronóstico '+mes(0)+' · '+mes(1),nf(r.pronMes)+' · <b>'+nf(r.pronSig)+'</b>')+
     dato('7. Pico recurrente en '+mes(1),r.picoRec!=null?'sí, +'+Math.round(r.picoRec*100)+'% en años anteriores (ya está en la temporada)':'no')+
     dato('8. Sugerencia de compra','pedir hasta '+nf(k.hasta)+' − existencia '+nf(d.ex)+' − en tránsito (BO) '+nf(d.bo)+' = <b>'+nf(Math.max(0,k.hasta-disp))+'</b> · cubre '+nf(r.cob,1)+' meses'+(r.cob<r.cobOrig?' de '+nf(r.cobOrig,1)+(r.corte!=null?' (hasta antes de la temporada alta)':' (temporada bajando)'):''))+
-    dato('9. Alertas',al.length?al.map(esc).join(' · '):'ninguna');
+    dato('9. Alertas',al.length?al.map(esc).join(' · '):'ninguna')+desgloseCob(k);
 }
 function fichaDual(k,d){
   const u=k.dual;if(!u)return'';const dato=(x,v)=>'<div class="dato"><span>'+x+'</span><b>'+v+'</b></div>';let h='<h3>Compra nacional e importación</h3>';
@@ -741,7 +748,7 @@ async function publicar(){
     const datos=S.R.claves.map(k=>{const e=E.get(k.c),i=S.info.get(k.c);let inn=0,mas=0;
       if(e&&e.validacion==='VALIDO'){let f=1;if(P.norm(e.uni_compra)!==P.norm(i.u))f=e.factor_conv||0;inn=(e.inner_cant||0)*f;mas=(e.master_cant||0)*f;}
       const n3=x=>x==null||isNaN(x)?null:r1(x);
-      return[k.c,r1(k.Dm),r1(k.punto),r1(k.hasta),k.conf,r1(inn),r1(mas),n3(k.seguridad),n3(k.H),n3(k.cob),k.servicio,k.red?n3(k.red.aj):null,k.tipo,n3(k.errRel),n3(k.pAgotar),k.par?n3(k.par.v):null,k.par?n3(k.par.cierre):null,k.par?n3(k.par.antes):null,k.red?n3(k.red.hastaSin):null,k.dual&&k.dual.N?n3(k.dual.N.punto):null,k.dual&&k.dual.N?n3(k.dual.N.hasta):null,k.dual&&k.dual.I?n3(k.dual.I.punto):null,k.dual&&k.dual.I?n3(k.dual.I.hasta):null,k.extra&&k.extra.of?n3(k.extra.of.c):null,k.extra&&k.extra.ap?n3(k.extra.ap.c):null,k.extra&&k.extra.of?n3(k.extra.of.h):null,k.extra&&k.extra.ap?n3(k.extra.ap.h):null];});
+      return[k.c,r1(k.Dm),r1(k.punto),r1(k.hasta),k.conf,r1(inn),r1(mas),n3(k.seguridad),n3(k.H),n3(k.cob),k.servicio,k.red?n3(k.red.aj):null,k.tipo,n3(k.errRel),n3(k.pAgotar),k.par?n3(k.par.v):null,k.par?n3(k.par.cierre):null,k.par?n3(k.par.antes):null,k.red?n3(k.red.hastaSin):null,k.dual&&k.dual.N?n3(k.dual.N.punto):null,k.dual&&k.dual.N?n3(k.dual.N.hasta):null,k.dual&&k.dual.I?n3(k.dual.I.punto):null,k.dual&&k.dual.I?n3(k.dual.I.hasta):null,k.extra&&k.extra.of?n3(k.extra.of.c):null,k.extra&&k.extra.ap?n3(k.extra.ap.c):null,k.extra&&k.extra.of?n3(k.extra.of.h):null,k.extra&&k.extra.ap?n3(k.extra.ap.h):null,(k.cm||[]).map(z=>[P.ym(S.mes0,z[0]),z[1],z[2]])];});
     msg.textContent='Guardando…';
     const{error}=await sb.from('lab_publicacion').upsert({id:'vigente',fecha_calculo:S.fecha,parametros:S.param,resumen:resumenAct(),datos,creado_por:quien,creado_en:new Date().toISOString()},{onConflict:'id'});
     if(error)throw error;

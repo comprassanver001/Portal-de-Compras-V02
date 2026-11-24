@@ -685,11 +685,14 @@ L.correr=(D,Pin,hooks)=>{
     const p=P.SERVICIO[k.rot]||P.SERVICIO_DEF,cob=P.COBERTURA_MESES>0?P.COBERTURA_MESES:(k.pm||1);
     // Regla de temporalidad: fase del mes siguiente, escalón conservador si la temporada es variable, cobertura máxima si va bajando
     let RG=null,cobC=cob;
+    // parte del mes en curso que ya pasó: si se usa la venta del mes en curso, el horizonte se cuenta desde hoy (igual que más abajo)
+    const pcX=D.parcial,off=(pcX&&P.PARCIAL_ACTIVA&&pcX.p>=P.PARCIAL_MIN_AVANCE&&pcX.p<1&&k.par!=null&&(k.ex||0)>0)?Math.max(0,Math.min(1,pcX.pHoy!=null?pcX.pHoy:pcX.p)):0;
     if(P.REGLA_TEMP&&u.RG){const mo0=(m0+T)%12,I2=u.IR,fs=L.fase(I2,mo0,P),vb=u.RG.varb[(mo0+1)%12];let cons=null;
       if(fs.fase==='BAJANDO'&&vb){const emin=Math.min(...vb);if(emin<fs.escalon){cons=emin;const fc=emin/fs.escalon;f=Float64Array.from(f,(x,h)=>h>=1?x*fc:x);}}
       if(fs.fase==='BAJANDO')cobC=Math.min(cob,P.COB_BAJANDO_SEM*7/30.4);
       // no comprar para la siguiente temporada alta si empieza después de que llegue el pedido: se cubre hasta el mes anterior
-      let corte=null;if(P.CORTE_TEMPORADA&&fs.inicio!=null&&fs.inicio>H&&fs.inicio<H+cobC){corte=fs.inicio;cobC=Math.max(0,fs.inicio-H);}
+      // inicio y horizonte en la misma escala: meses desde hoy (inicio cuenta desde el primer día del mes en curso)
+      let corte=null;const iniR=fs.inicio!=null?fs.inicio-off:null;if(P.CORTE_TEMPORADA&&iniR!=null&&iniR>H&&iniR<H+cobC){corte=fs.inicio;cobC=Math.max(0,iniR-H);}
       const SUi=SU[i],tu=T-1,mn=(mo0+1)%12;let rec=null;
       {const rs=[];for(let t=T+1-12;t>=0&&t>=T+1-36;t-=12)if(SUi.rec[t]&&k.s[t]-SUi.pico[t]>0)rs.push(SUi.pico[t]/(k.s[t]-SUi.pico[t]));if(rs.length)rec=mediana(rs);}
       RG={ventaMes:k.s[tu],picoMes:SUi.es[tu]&&!SUi.rec[tu]?SUi.pico[tu]:0,recMes:!!SUi.rec[tu],alertaMes:SUi.al[tu],ritmo:u.RG.base,regular:u.RG.regular,meses:u.RG.meses,conVenta:u.RG.conVenta,
@@ -731,6 +734,9 @@ L.correr=(D,Pin,hooks)=>{
     let NV=nivel(H,cobC);let inv=NV.iv,red=NV.rd;
     // compra estratégica: lo que se compraría con la cobertura completa y que la regla deja fuera por ir bajando la temporada
     if(RG&&cobC<cob){const NF=nivel(H,cob);RG.estrategica=Math.max(0,NF.iv.hasta-NV.iv.hasta);RG.hastaCompleto=NF.iv.hasta;}
+    // Desglose por mes de la venta que cubre la compra (de que llega el pedido a que se acaba la cobertura); [mes desde el actual, piezas, piezas que quedan como compra estratégica]
+    const cm=[];{const s0=off+H,e0=s0+cobC,eF=s0+cob;for(let j=0;j<12;j++){const a=Math.max(0,Math.min(j+1,e0)-Math.max(j,s0)),b=Math.max(0,Math.min(j+1,eF)-Math.max(j,e0,s0));
+      if(a>0||b>0)cm.push([j,Math.round(a*(f[j]||0)*10)/10,Math.round(b*(f[j]||0)*10)/10]);}}
     // Compra nacional e importación (plan_abasto_dual): mismo cálculo con su tiempo de entrega y sus meses objetivo
     let dual=null;
     if(k.dual){const d=k.dual,hx=lt=>clip((lt||0)+P.DIAS_REACCION/30,0.25,P.H_MAX),cv=pm=>P.COBERTURA_MESES>0?P.COBERTURA_MESES:(pm||1);dual={};
@@ -743,12 +749,12 @@ L.correr=(D,Pin,hooks)=>{
     if(base&&esc>0){const lim=(inv.disp-Fh)/esc;let lo=0,hi=base.length;while(lo<hi){const md=(lo+hi)>>1;if(base[md]<=lim)lo=md+1;else hi=md;}pa=1-lo/base.length;}
     const eRel=E.sumA[i]>0?E.err[i*nM+E.sel[i]]/E.sumA[i]:null,pd=D.portal?D.portal(i,T):null;
     const r3=x=>Math.round(x*1000)/1000;
-    claves[i]={c:k.c,tipo:TIPOS[TP[b]],metodo:m,propio:!!E.propio[i],pruebas:E.cnt[i],errRel:eRel,conf:GN[E.gr[i]],servicio:p,H,cob,Dm,
+    claves[i]={c:k.c,tipo:TIPOS[TP[b]],metodo:m,propio:!!E.propio[i],pruebas:E.cnt[i],errRel:eRel,conf:GN[E.gr[i]],servicio:p,H,cob:cobC,cobOrig:cob,Dm,
       f:Array.from(f,r3),idx:Array.from(u.I,r3),crec:u.g,q10:q(0.10)*(Fh>0?esc/Fh:0),q90:q(0.90)*(Fh>0?esc/Fh:0),
       bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
       punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,
       Dportal:pd,puntoPortal:pd!=null?pd*(k.lt||0)*P.FACT_ALARMA:null,hastaPortal:pd!=null?pd*((k.lt||0)+(k.pm||0)):null,
-      val:Array.from(u.v),red,par,te:TE[i],dual,extra,regla:RG,temp:{cls:['BAJA','NORMAL','ALTA'][ZE.cls],est:ZE.est,de:ZE.de,w:ZE.w,n:pozo.length,np:pr.length}};
+      val:Array.from(u.v),red,par,te:TE[i],dual,extra,regla:RG,cm,temp:{cls:['BAJA','NORMAL','ALTA'][ZE.cls],est:ZE.est,de:ZE.de,w:ZE.w,n:pozo.length,np:pr.length}};
   }
   av('Listo',1);
   return{version:L.VERSION,param:P,meses:MES,pruebas:pruebas.map(t=>MES[t]),resumen,calibracion,
