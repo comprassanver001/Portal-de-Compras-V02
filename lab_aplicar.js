@@ -21,7 +21,7 @@
   // con tipo de compra elegido en Propuestas (nacional o importación) se usa el «pedir hasta» del motor con su tiempo de entrega y sus meses objetivo
   A.hasta=function(r){var l=r.lab,e=l.e||{};if(r.tipo==='NACIONAL'&&e.hN!=null)return e.hN;if(r.tipo==='IMPORTACION'&&e.hI!=null)return e.hI;return l.h;};
   // Decisión de Fernando (24-nov): los pedidos en tránsito (BO CEDI) se restan siempre, aunque el portal tenga desactivada la casilla.
-  A.SIEMPRE_BO=true;
+  A.SIEMPRE_BO=false;   // 24-nov: Fernando pidió que el botón Con BO / Sin BO de Planeación sí cambie la propuesta
   A.prop=function(r,conBO){conBO=conBO||A.SIEMPRE_BO;var l=r.lab;return Math.max(0,P.ceil3(A.hasta(r)-((Number(r.ex)||0)+(conBO?Math.max(0,Number(r.bo)||0):0)+(Number(r.xd)||0))));};
   A.fila=function(r,x,fecha){
     var ex=Number(r.ex)||0,bo=Math.max(0,Number(r.bo)||0),lt=Number(r.lt)||0,pm=Number(r.pm)||0,r2=function(v){return Math.round(v*100)/100;};
