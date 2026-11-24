@@ -816,12 +816,12 @@ async function cargarDiaria(){
     if(iF<0||iC<0||iQ<0)throw new Error('No encontré las columnas FECHA, CLAVE y CANTIDAD en la hoja '+hoja+'.');
     const fecha=x=>{if(x instanceof Date)return new Date(x.getTime()-x.getTimezoneOffset()*6e4).toISOString().slice(0,10);if(typeof x==='number')return new Date(Math.round((x-25569)*864e5)).toISOString().slice(0,10);
       const m=String(x||'').trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);if(m)return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');const m2=String(x||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m2?m2[0]:null;};
-    const dias=new Map();let n=0,mal=0;
+    const dias=new Map();let n=0,mal=0,sumE=0;
     for(let i=1;i<aoa.length;i++){const r=aoa[i];if(!r)continue;const c=P.clave(r[iC]),d=fecha(r[iF]);if(!c||!d){if(r[iC]!=null||r[iF]!=null)mal++;continue;}
-      const q=Math.max(0,(P.num(r[iQ])||0)-(iE>=0?(P.num(r[iE])||0):0));let m=dias.get(c);if(!m)dias.set(c,m=new Map());m.set(d,(m.get(d)||0)+q);n++;}
+      const e=iE>=0?(P.num(r[iE])||0):0;sumE+=e;const q=Math.max(0,(P.num(r[iQ])||0)-e);let m=dias.get(c);if(!m)dias.set(c,m=new Map());m.set(d,(m.get(d)||0)+q);n++;}
     if(!n)throw new Error('El archivo no trae renglones con fecha y clave.');
     msg.textContent='Buscando picos en '+nf(dias.size)+' claves ('+nf(n)+' renglones)…';await new Promise(r=>setTimeout(r,30));
-    const Pm=LAB.params(S.param||{});let res=LAB.diario(dias,Pm,iE>=0?null:(S.ED||null));
+    const Pm=LAB.params(S.param||{});let res=LAB.diario(dias,Pm,sumE>0?null:(S.ED||null));
     const FMx=S.FM||new Map();res=LAB.diarioFamilia(res,c=>{const x=FMx.get(c);return x&&x.subsubgrupo?x.subsubgrupo:null;});
     const reg=[],ahora=new Date().toISOString();let edTot=0,edCl=0;res.forEach(R=>{if(R.edQuitada){edTot+=R.edQuitada;edCl++;}});
     res.forEach((R,c)=>R.forEach((r,mes)=>reg.push({clave:c,mes,venta:Math.round(r.venta*100)/100,pico:Math.round(r.pico*100)/100,dias_venta:r.dv,dias_pico:r.dp,alerta:r.alerta,cargado_por:quien,cargado_en:ahora})));
