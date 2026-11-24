@@ -2,12 +2,13 @@
 // El laboratorio publica por clave (tabla lab_publicacion): venta mensual esperada, punto de alarma y «pedir hasta».
 // Aquí se sustituyen, en el cálculo publicado que lee cada página, la demanda, los meses de inventario, el estatus
 // de riesgo y la propuesta de compra. Las claves que no vienen en lo publicado conservan el cálculo del portal.
-// Se apaga desde la franja naranja («Cálculo: Portal actual») para comparar.
+// Siempre activo en el portal de pruebas.
 (function(){
   'use strict';
   var A=window.LABAPL={pub:undefined,info:null};
   var top_=function(){try{return window.top;}catch(e){return window;}};
-  A.activo=function(){try{return localStorage.getItem('lab_calc')!=='0';}catch(e){return true;}};
+  // El portal de pruebas siempre usa el cálculo del laboratorio (como funcionaría en productivo); ya no hay opción de ver el cálculo actual.
+  A.activo=function(){return true;};
   var avisar=function(t,ok){A.info={texto:t,ok:!!ok};try{var w=top_();if(w.PRUEBAS&&w.PRUEBAS.modo)w.PRUEBAS.modo(t,!!ok);}catch(e){}};
   A.cargar=async function(sb){
     if(A.pub!==undefined)return A.pub;
@@ -59,13 +60,12 @@
   A.txtPropuesta=function(r,conBO){
     conBO=conBO||A.SIEMPRE_BO;
     var l=r.lab,e=l.e,ex=Number(r.ex)||0,bo=Math.max(0,Number(r.bo)||0),s=conBO?r.s:(r.s0!=null?r.s0:r.s),sE=conBO?r.sE:(r.sE0!==undefined?r.sE0:r.sE);
-    return 'pedir hasta '+nf(A.hasta(r))+(r.tipo&&A.hasta(r)!==l.h?' ('+(r.tipo==='NACIONAL'?'compra nacional':'importación')+')':'')+' − ('+nf(ex)+' existencia'+(conBO?' + '+nf(bo)+' BO CEDI':'')+(Number(r.xd)>0?' + '+nf(r.xd)+' stock del proveedor nacional':'')+') = <b>'+nf(s)+'</b>'+(sE!=null?' → con empaque <b>'+nf(sE)+'</b>':'')+
-      ' <span class="mut">· el portal actual propondría '+nf(conBO?l.s:(l.s0!=null?l.s0:l.s))+'</span>';
+    return 'pedir hasta '+nf(A.hasta(r))+(r.tipo&&A.hasta(r)!==l.h?' ('+(r.tipo==='NACIONAL'?'compra nacional':'importación')+')':'')+' − ('+nf(ex)+' existencia'+(conBO?' + '+nf(bo)+' BO CEDI':'')+(Number(r.xd)>0?' + '+nf(r.xd)+' stock del proveedor nacional':'')+') = <b>'+nf(s)+'</b>'+(sE!=null?' → con empaque <b>'+nf(sE)+'</b>':'');
   };
   A.txtLab=function(r){
     var l=r.lab,e=l.e;if(!e)return 'Punto de alarma '+nf(l.p)+' · pedir hasta '+nf(l.h)+' · confiabilidad '+esc(l.cf)+' <span class="mut">(vuelve a dar «Aplicar al portal de pruebas» en el laboratorio para ver el desglose completo)</span>';
     var H=e.H||0,esp=l.d*H,cic=(e.hs!=null?e.hs:l.h)-l.p,t=[];
-    t.push('Venta esperada <b>'+nf(l.d,1)+'</b> / mes'+(l.D!=null?' (portal actual '+nf(l.D,1)+')':'')+' · '+(TIPO[e.tipo]||'')+' · confiabilidad <b>'+esc(l.cf)+'</b>'+(e.err!=null?' (error '+Math.round(e.err*100)+'%)':''));
+    t.push('Venta esperada <b>'+nf(l.d,1)+'</b> / mes'+' · '+(TIPO[e.tipo]||'')+' · confiabilidad <b>'+esc(l.cf)+'</b>'+(e.err!=null?' (error '+Math.round(e.err*100)+'%)':''));
     if(e.parV!=null)t.push('Mes en curso: lleva '+nf(e.parV)+' · cierre estimado '+nf(e.parC)+' (el pronóstico era '+nf(e.parA)+')');
     var exH=(e.ofH||0)+(e.apH||0);
     t.push('Punto de alarma <b>'+nf(l.p)+'</b> = venta de '+nf(H,2)+' meses ('+nf(esp)+') + seguridad '+nf(e.seg)+(exH?' + '+nf(exH)+' planeado (ofertas y aperturas)':'')+' · servicio '+Math.round((e.serv||0)*100)+'%');

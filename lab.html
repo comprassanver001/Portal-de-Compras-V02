@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<script src="pruebas_guard.js?v=20261113c" charset="utf-8"></script>
+<script src="pruebas_guard.js?v=20261124a" charset="utf-8"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Laboratorio de pronóstico y compra</title>
@@ -81,7 +81,7 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
     <div class="kpis" id="kpis"></div>
     <div class="card" style="margin-top:12px">
       <h2>¿La alarma avisa a tiempo?</h2>
-      <p class="d">En cada mes de la prueba se calculó el punto de alarma con la información que había en ese momento, y se revisó si la venta real del tiempo de entrega (más los días de reacción) cupo en ese inventario. «Regla actual» = alarma con menos de T. entrega × <span id="fa"></span> de la demanda del portal.</p>
+      <p class="d">En cada mes de la prueba se calculó el punto de alarma con la información que había en ese momento, y se revisó si la venta real del tiempo de entrega (más los días de reacción) cupo en ese inventario.</p>
       <div class="scroll" style="max-height:none"><table id="tb-cal"></table></div>
     </div>
     <div class="card">
@@ -106,7 +106,7 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
       <div class="row">
         <select id="f-comp"></select><select id="f-rot"></select>
         <select id="f-conf"><option value="">Confiabilidad: todas</option><option>A</option><option>B</option><option>C</option></select>
-        <select id="f-ped"><option value="">Todas</option><option value="1">Toca pedir hoy</option><option value="30">Tocará pedir en 30 días</option><option value="dif">Alarma del motor antes que la del portal</option></select>
+        <select id="f-ped"><option value="">Todas</option><option value="1">Toca pedir hoy</option><option value="30">Tocará pedir en 30 días</option></select>
         <input id="f-q" placeholder="Buscar clave o nombre" style="width:210px">
         <span class="d" id="n-fil"></span><span style="flex:1"></span>
         <button class="sec" onclick="exportar()">Descargar Excel</button>
@@ -126,7 +126,6 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
       <div class="row" style="margin-top:12px">
         <button onclick="recalcular()" id="b-rec">Recalcular</button>
         <button class="sec" onclick="restablecer()">Volver a los valores sugeridos</button>
-        <label class="row" style="gap:4px"><input type="checkbox" id="comparar" checked> Comparar contra el método actual (tarda más)</label>
       </div>
     </div>
     <div class="card">
@@ -137,7 +136,7 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
     </div>
     <div class="card">
       <h2>Aplicar al portal de pruebas</h2>
-      <p class="d">Pasa el cálculo que está en pantalla (con las variables actuales) al portal de pruebas: Propuestas de compra, Planeación, Calendario de pedidos y Mi Resumen usarán la venta esperada, el punto de alarma y el «pedir hasta» del motor. En la franja naranja se puede regresar a «Cálculo: Portal actual» para comparar. No toca el portal de producción. <span id="pub-est"></span></p>
+      <p class="d">Pasa el cálculo que está en pantalla (con las variables actuales) al portal de pruebas: Propuestas de compra, Planeación, Calendario de pedidos y Mi Resumen usarán la venta esperada, el punto de alarma y el «pedir hasta» del motor. No toca el portal de producción. <span id="pub-est"></span></p>
       <div class="row"><input id="pub-quien" placeholder="Tu nombre" style="width:160px"><button onclick="publicar()">Aplicar este cálculo al portal de pruebas</button><span class="d" id="pub-msg"></span></div>
     </div>
     <div class="card">
@@ -457,7 +456,7 @@ W.onmessage=e=>{const m=e.data;
 };
 W.onerror=e=>{$('carga-err').textContent='Error en el cálculo: '+(e.message||'no se pudo iniciar');$('estado-carga').style.display='block';};
 function recalcular(){leerVars();$('b-rec').disabled=true;$('msg').textContent='Calculando y probando contra el historial…';$('avance').textContent='Iniciando…';$('barra').style.display='block';$('barra').firstElementChild.style.width='0';
-  W.postMessage({tipo:'correr',param:S.param,comparar:$('comparar').checked});}
+  W.postMessage({tipo:'correr',param:S.param,comparar:false});}
 
 // ── Pestañas ──
 document.querySelectorAll('#tabs div').forEach(d=>d.onclick=()=>ver(d.dataset.t));
@@ -471,22 +470,21 @@ function pintarResumen(){
   const n=x=>U.filter(x).length,vs=(x,y,menor)=>y==null?'':' <span class="c">· actual '+pc(y)+'</span>';
   const kp=(t,v,cc,cls)=>'<div class="kpi"><div class="t">'+t+'</div><div class="v '+(cls||'')+'">'+v+'</div><div class="c">'+cc+'</div></div>';
   $('kpis').innerHTML=!m?'<div class="kpi">No hay suficientes meses para la prueba.</div>':
-    kp('Error del pronóstico',pc(m.error),a?'Método actual del portal: '+pc(a.error):'Sin comparación con el método actual',a&&m.error<a.error?'ok':'')+
-    kp('Le atina (±30%)',pc(m.atina30),a?'Método actual: '+pc(a.atina30):'')+
-    kp('Se queda muy corto',pc(m.muyCorto),(a?'Método actual: '+pc(a.muyCorto)+' · ':'')+'pronosticó menos del 70% de la venta')+
-    kp('La alarma avisó a tiempo',c?pc(c.cubreMotor):'—',c?('Objetivo '+pc(c.objetivo)+(c.cubreActual!=null?' · regla actual '+pc(c.cubreActual):'')):'',c&&c.cubreActual!=null&&c.cubreMotor>c.cubreActual?'ok':'')+
+    kp('Error del pronóstico',pc(m.error),'diferencia promedio contra la venta real')+
+    kp('Le atina (±30%)',pc(m.atina30),'pronóstico dentro de ±30% de la venta real')+
+    kp('Se queda muy corto',pc(m.muyCorto),'pronosticó menos del 70% de la venta')+
+    kp('La alarma avisó a tiempo',c?pc(c.cubreMotor):'—',c?'Objetivo '+pc(c.objetivo):'',c&&c.cubreMotor>=c.objetivo?'ok':'')+
     kp('Toca pedir hoy',nf(n(k=>k.pedir)),nf(n(k=>!k.pedir&&k.dias!=null&&k.dias<=30))+' más en los próximos 30 días')+
     kp('Confiabilidad de las claves','<span class="ok">'+nf(n(k=>k.conf==='A'))+' A</span> · <span class="med">'+nf(n(k=>k.conf==='B'))+' B</span> · <span class="mal">'+nf(n(k=>k.conf==='C'))+' C</span>','Sagrados, Alta y Media');
-  $('fa').textContent=R.param.FACT_ALARMA;
-  let h='<tr><th class="l">Rotación</th><th>Casos</th><th>Objetivo</th><th>Motor: avisó a tiempo</th><th>Regla actual: avisó a tiempo</th><th>Motor: piezas surtidas</th><th>Regla actual: piezas surtidas</th><th>Motor: punto de alarma (meses de venta)</th><th>Regla actual (meses de venta)</th></tr>';
+  let h='<tr><th class="l">Rotación</th><th>Casos</th><th>Objetivo</th><th>Avisó a tiempo</th><th>Piezas surtidas</th><th>Punto de alarma (meses de venta)</th></tr>';
   ['Todas'].concat(LAB.ROT_PRUEBA).forEach(g=>{const x=R.calibracion[g];if(!x)return;
-    h+='<tr><td class="l">'+(ROTN[g]||g)+'</td><td>'+nf(x.n)+'</td><td>'+pc(x.objetivo,0)+'</td><td><b>'+pc(x.cubreMotor)+'</b></td><td>'+pc(x.cubreActual)+'</td><td><b>'+pc(x.surtidoMotor)+'</b></td><td>'+pc(x.surtidoActual)+'</td><td><b>'+nf(x.mesesMotor,2)+'</b></td><td>'+nf(x.mesesActual,2)+'</td></tr>';});
+    h+='<tr><td class="l">'+(ROTN[g]||g)+'</td><td>'+nf(x.n)+'</td><td>'+pc(x.objetivo,0)+'</td><td><b>'+pc(x.cubreMotor)+'</b></td><td>'+pc(x.surtidoMotor)+'</td><td>'+nf(x.mesesMotor,2)+'</td></tr>';});
   $('tb-cal').innerHTML=h;
   $('npr').textContent=R.pruebas.length?'Meses de prueba: '+R.pruebas[0]+' a '+R.pruebas[R.pruebas.length-1]+'.':'';
   h='<tr><th class="l">Grupo</th><th class="l">Método</th><th>Comparaciones</th><th>Error</th><th>Sesgo (− = corto)</th><th>Le atina ±30%</th><th>Muy corto</th><th>Se pasa mucho</th></tr>';
   const fila=(g,nm,x,b)=>x?'<tr><td class="l">'+esc(g)+'</td><td class="l">'+(b?'<b>':'')+esc(nm)+(b?'</b>':'')+'</td><td>'+nf(x.n)+'</td><td>'+pc(x.error)+'</td><td>'+pc(x.sesgo)+'</td><td>'+pc(x.atina30)+'</td><td>'+pc(x.muyCorto)+'</td><td>'+pc(x.sePasa)+'</td></tr>':'';
   ['Todas'].concat(LAB.ROT_PRUEBA,LAB.TIPOS.slice(0,4)).forEach(g=>{const G=ROTN[g]||(g==='Todas'?g:'Venta '+g.toLowerCase());
-    h+=fila(G,'Motor',(R.resumen['Motor']||{})[g],1)+fila(G,'Método actual del portal',(R.resumen['Método actual del portal']||{})[g]);});
+    h+=fila(G,'Motor',(R.resumen['Motor']||{})[g],1)+'';});
   Object.keys(R.resumen).filter(k=>k!=='Motor'&&k!=='Método actual del portal').forEach(k=>h+=fila('Cada método por separado',k,R.resumen[k].Todas));
   $('tb-err').innerHTML=h;
   h='<tr><th class="l">Calificación</th><th class="l">Regla</th><th>Claves hoy</th><th>Error en la prueba</th><th>Le atina ±30%</th><th>Muy corto</th></tr>';
@@ -519,14 +517,13 @@ function pintarFiltros(){
   $('f-rot').innerHTML='<option value="">Rotación: todas</option>'+rs.map(c=>'<option>'+esc(c)+'</option>').join('');
   ['f-comp','f-rot','f-conf','f-ped'].forEach(i=>$(i).onchange=pintarClaves);$('f-q').oninput=()=>{clearTimeout(pintarFiltros.t);pintarFiltros.t=setTimeout(pintarClaves,250);};
 }
-const COLS=[['c','Clave',0,'l'],['n','Descripción',0,'l w'],['comp','Comprador',0,'l'],['rot','Rot.',0,'l'],['conf','Conf.',0,'l'],['disp','Disponible'],['Dm','Venta mensual esperada'],['punto','Punto de alarma'],['puntoPortal','Alarma actual'],['dias','Días para la alarma'],['pAgotar','Riesgo de agotarse'],['ajRed','Ajuste por tiendas'],['propuesta','Propuesta'],['propPortal','Propuesta actual']];
+const COLS=[['c','Clave',0,'l'],['n','Descripción',0,'l w'],['comp','Comprador',0,'l'],['rot','Rot.',0,'l'],['conf','Conf.',0,'l'],['disp','Disponible'],['Dm','Venta mensual esperada'],['punto','Punto de alarma'],['dias','Días para la alarma'],['pAgotar','Riesgo de agotarse'],['ajRed','Ajuste por tiendas'],['propuesta','Propuesta']];
 function filtradas(){
   const fc=$('f-comp').value,fr=$('f-rot').value,ff=$('f-conf').value,fp=$('f-ped').value,q=P.norm($('f-q').value);
   const out=[];
   S.R.claves.forEach(k=>{const i=S.info.get(k.c);
     if(fc&&i.comp!==fc||fr&&i.rot!==fr||ff&&k.conf!==ff)return;
     if(fp==='1'&&!k.pedir||fp==='30'&&!(k.dias!=null&&k.dias<=30))return;
-    if(fp==='dif'&&!(k.pedir&&k.puntoPortal!=null&&k.disp>k.puntoPortal))return;
     if(q&&String(k.c).indexOf(q)<0&&P.norm(i.n).indexOf(q)<0)return;
     out.push(Object.assign({n:i.n,comp:i.comp,rot:ROTN[i.rot]||i.rot,ajRed:k.red?k.red.aj:null,propPortal:k.hastaPortal!=null?Math.max(0,k.hastaPortal-k.disp):null},k));});
   const o=S.orden;out.sort((a,b)=>{const x=a[o.k],y=b[o.k];return(x==null?1:y==null?-1:x<y?-1:x>y?1:0)*o.d||a.c-b.c;});
@@ -536,7 +533,7 @@ function pintarClaves(){
   const L_=filtradas();S.lista=L_;$('n-fil').textContent=nf(L_.length)+' claves'+(L_.length>300?' (se muestran 300)':'');
   let h='<tr>'+COLS.map(c=>'<th class="'+(c[3]||'')+'" onclick="ordenar(\''+c[0]+'\')" style="cursor:pointer">'+c[1]+(S.orden.k===c[0]?(S.orden.d>0?' ▲':' ▼'):'')+'</th>').join('')+'</tr>';
   L_.slice(0,300).forEach(k=>{
-    h+='<tr class="clk'+(S.sel===k.c?' sel':'')+'" onclick="ficha('+k.c+')"><td class="l">'+k.c+'</td><td class="l w">'+esc(k.n)+'</td><td class="l">'+esc(k.comp)+'</td><td class="l">'+esc(k.rot)+'</td><td class="l"><span class="chip c'+k.conf+'">'+k.conf+'</span></td><td>'+nf(k.disp)+'</td><td>'+nf(k.Dm)+'</td><td>'+nf(k.punto)+'</td><td>'+nf(k.puntoPortal)+'</td><td class="'+(k.pedir?'mal':k.dias<=30?'med':'')+'">'+(k.pedir?'<b>Ya</b>':nf(k.dias))+'</td><td>'+pc(k.pAgotar,0)+'</td><td class="'+(k.ajRed<0?'ok':k.ajRed>0?'med':'')+'">'+(k.ajRed?nf(k.ajRed):'—')+'</td><td>'+(k.pedir?'<b>'+nf(k.propuesta)+'</b>':nf(k.propuesta))+'</td><td>'+nf(k.propPortal)+'</td></tr>';});
+    h+='<tr class="clk'+(S.sel===k.c?' sel':'')+'" onclick="ficha('+k.c+')"><td class="l">'+k.c+'</td><td class="l w">'+esc(k.n)+'</td><td class="l">'+esc(k.comp)+'</td><td class="l">'+esc(k.rot)+'</td><td class="l"><span class="chip c'+k.conf+'">'+k.conf+'</span></td><td>'+nf(k.disp)+'</td><td>'+nf(k.Dm)+'</td><td>'+nf(k.punto)+'</td><td class="'+(k.pedir?'mal':k.dias<=30?'med':'')+'">'+(k.pedir?'<b>Ya</b>':nf(k.dias))+'</td><td>'+pc(k.pAgotar,0)+'</td><td class="'+(k.ajRed<0?'ok':k.ajRed>0?'med':'')+'">'+(k.ajRed?nf(k.ajRed):'—')+'</td><td>'+(k.pedir?'<b>'+nf(k.propuesta)+'</b>':nf(k.propuesta))+'</td></tr>';});
   $('tb-cla').innerHTML=h;
 }
 function ordenar(k){S.orden=S.orden.k===k?{k,d:-S.orden.d}:{k,d:1};pintarClaves();}
@@ -550,7 +547,7 @@ function ficha(c){
     '<h3>Pronóstico</h3>'+
     dato('Tipo de venta','Venta '+k.tipo.toLowerCase())+dato('Método',esc(LAB.METODOS[k.metodo])+(k.propio?' (propio de la clave)':''))+
     dato('Confiabilidad','<span class="chip c'+k.conf+'">'+k.conf+'</span> error '+pc(k.errRel,0)+' en '+k.pruebas+' pruebas')+
-    dato('Venta mensual esperada',nf(k.Dm,1)+(k.Dportal!=null?' · portal hoy '+nf(k.Dportal,1):'')+prodTxt(c))+
+    dato('Venta mensual esperada',nf(k.Dm,1)+prodTxt(c))+
     dato('Crecimiento del grupo aplicado',pc(k.crec-1))+
     fichaPar(k)+
     '<h3>Alarma y compra</h3>'+
@@ -559,12 +556,12 @@ function ficha(c){
     dato('Venta en ese periodo: baja · esperada · alta',nf(k.bajo)+' · '+nf(k.esperado)+' · '+nf(k.alto))+
     dato('Nivel de servicio',pc(k.servicio,0))+
     dato('Inventario de seguridad',nf(k.seguridad)+(k.temp?(k.temp.est?' · con errores de los mismos meses ('+esc(k.temp.de)+')':' · con errores de todo el año'):'')+(R.param.SEG_MAX>0&&k.Dm>0&&k.seguridad>=R.param.SEG_MAX*k.Dm-0.5?' · <b>en el tope de '+nf(R.param.SEG_MAX,1)+' meses</b>':''))+
-    dato('Punto de alarma (pedir al llegar aquí)','<span class="'+(k.pedir?'mal':'')+'">'+nf(k.punto)+'</span>'+(k.puntoPortal!=null?' · regla actual '+nf(k.puntoPortal):''))+
+    dato('Punto de alarma (pedir al llegar aquí)','<span class="'+(k.pedir?'mal':'')+'">'+nf(k.punto)+'</span>'+'')+
     dato('Disponible'+cb,nf(k.disp)+' · existencia '+nf(d.ex)+' · BO '+nf(d.bo))+
     dato('¿Toca pedir?',k.pedir?'<span class="mal">Sí, ya está en el punto de alarma</span>':(k.dias!=null?'En unos '+nf(k.dias)+' días':'Sin venta esperada'))+
     dato('Riesgo de agotarse antes de que llegue un pedido de hoy',pc(k.pAgotar,0))+
     dato('Pedir hasta','<b>'+nf(k.hasta)+'</b> (alarma + '+nf(k.cob,1)+' meses de venta'+(k.red&&k.red.aj?(k.red.aj<0?' − ':' + ')+nf(Math.abs(k.red.aj))+' por tiendas':'')+')')+
-    dato('Propuesta de compra','<b>'+nf(k.propuesta)+'</b>'+(k.hastaPortal!=null?' · portal hoy '+nf(Math.max(0,k.hastaPortal-k.disp)):''))+
+    dato('Propuesta de compra','<b>'+nf(k.propuesta)+'</b>'+'')+
     fichaExtra(k)+fichaDual(k,d)+fichaRed(k)+
     '<p class="d" style="margin-top:8px">El rango y el inventario de seguridad salen de los errores reales del pronóstico en esta clave y en claves parecidas (mismo tipo de venta y confiabilidad). El área sombreada de la gráfica es un rango aproximado por mes.</p>';
   const lab=[],hist=[],ago=[],pro=[],lo=[],hi=[];
@@ -649,8 +646,8 @@ function fichaRed(k){
   return h;
 }
 function exportar(){
-  const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,'Venta mensual portal':k.Dportal,
-    'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,'Regla: ritmo base':k.regla?Math.round(k.regla.ritmo*10)/10:'','Regla: base usada':k.regla?(k.regla.regular?'promedio ponderado':'promedio con ceros'):'','Regla: fase':k.regla?k.regla.fase:'','Regla: escalón':k.regla?Math.round(k.regla.escalon*100)/100:'','Regla: venta pico último mes':k.regla?Math.round(k.regla.picoMes):'','Regla: meses que cubre':k.regla?Math.round(k.regla.cob*10)/10:'','Compra estratégica (aprobar aparte)':k.regla&&k.regla.estrategica>0?Math.round(k.regla.estrategica):'','Regla: alertas':k.regla?[k.regla.alertaMes,k.regla.topado?'topado':null,k.regla.variable?'temporalidad variable':null].filter(Boolean).join(' · '):'','Errores usados para la seguridad':k.temp?(k.temp.est?'Mismos meses: '+k.temp.de:'Todo el año'):'','Punto de alarma':k.punto,'Alarma actual':k.puntoPortal,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Ofertas en la compra':k.extra&&k.extra.of?k.extra.of.c:null,'Aperturas en la compra':k.extra&&k.extra.ap?k.extra.ap.c:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Propuesta actual':k.propPortal,'Pedir hasta nacional':k.dual&&k.dual.N?k.dual.N.hasta:null,'Pedir hasta importación':k.dual&&k.dual.I?k.dual.I.hasta:null}));
+  const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,
+    'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,'Regla: ritmo base':k.regla?Math.round(k.regla.ritmo*10)/10:'','Regla: base usada':k.regla?(k.regla.regular?'promedio ponderado':'promedio con ceros'):'','Regla: fase':k.regla?k.regla.fase:'','Regla: escalón':k.regla?Math.round(k.regla.escalon*100)/100:'','Regla: venta pico último mes':k.regla?Math.round(k.regla.picoMes):'','Regla: meses que cubre':k.regla?Math.round(k.regla.cob*10)/10:'','Compra estratégica (aprobar aparte)':k.regla&&k.regla.estrategica>0?Math.round(k.regla.estrategica):'','Regla: alertas':k.regla?[k.regla.alertaMes,k.regla.topado?'topado':null,k.regla.variable?'temporalidad variable':null].filter(Boolean).join(' · '):'','Errores usados para la seguridad':k.temp?(k.temp.est?'Mismos meses: '+k.temp.de:'Todo el año'):'','Punto de alarma':k.punto,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Ofertas en la compra':k.extra&&k.extra.of?k.extra.of.c:null,'Aperturas en la compra':k.extra&&k.extra.ap?k.extra.ap.c:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Pedir hasta nacional':k.dual&&k.dual.N?k.dual.N.hasta:null,'Pedir hasta importación':k.dual&&k.dual.I?k.dual.I.hasta:null}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Laboratorio');XLSX.writeFile(wb,'Laboratorio_'+S.fecha+'.xlsx');
 }
 
