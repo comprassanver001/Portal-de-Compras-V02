@@ -46,7 +46,10 @@
     if(!A.activo()){avisar('Cálculo del portal actual (motor apagado)',false);return est;}
     var pub=await A.cargar(sb);
     if(!pub){avisar('Sin cálculo publicado del laboratorio: se usa el del portal',false);return est;}
-    if(window.LABBO&&!est.boAjustado){est.boAjustado=true;await window.LABBO.ajustar(sb,est.claves,est.fecha||pub.fecha_calculo);}
+    if(window.LABBO&&!est.boAjustado){est.boAjustado=true;await window.LABBO.ajustar(sb,est.claves,est.fecha||pub.fecha_calculo);
+      // las propuestas con antecedente y pronóstico vienen calculadas con el BO del archivo: se recalculan con el BO completado
+      est.claves.forEach(function(r){if(r.boArch==null||Math.abs((Number(r.bo)||0)-r.boArch)<1e-6||!P.sugX)return;
+        if(r.A!=null)r.sA=P.sugX(r,r.A,true);if(r.P!=null)r.sP=P.sugX(r,r.P,true);});}
     var n=0;est.claves.forEach(function(r){var x=pub.mapa.get(Number(r.c));if(x&&!r.lab){A.fila(r,x,est.fecha);n++;}});
     est.lab={claves:n,publicado:pub.creado_en,por:pub.creado_por,fecha:pub.fecha_calculo};
     var f=String(pub.creado_en||'').slice(0,10).split('-').reverse().join('/');
