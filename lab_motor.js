@@ -8,7 +8,7 @@
 //   v  = arreglo 0/1 del mismo largo: 1 = el mes cuenta, 0 = no cuenta (agotado, antes de la primera venta…).
 (function(root){
 'use strict';
-const L={VERSION:'0.6.0'};
+const L={VERSION:'0.7.0'};
 
 // ── Variables del cálculo (todas modificables; estos son los valores sugeridos) ──
 L.PARAM={
@@ -48,12 +48,17 @@ L.PARAM={
   RED_MESES:24,       // meses para medir qué parte de la venta de tiendas surte el CEDI
   RED_MESES_MALOS:['2026-03','2026-08'],   // meses con venta MF incompleta: no se usan
   // Mes en curso: usar la venta que ya lleva el mes para ajustar el pronóstico
-  PARCIAL_ACTIVA:1,   // 1 = usar la venta del mes en curso
+  PARCIAL_ACTIVA:0,   // 1 = usar la venta del mes en curso (por omisión no: solo meses cerrados, decisión del 24-nov-2026)
   PARCIAL_MIN_AVANCE:0.2,   // no se usa antes de que haya transcurrido esta parte del mes (pocos días dicen poco)
   PARCIAL_TOPE:2,     // el ritmo del mes no puede proyectar más de TOPE veces (ni menos de 1/TOPE) lo pronosticado
   CON_BO:0,           // 1 = el BO del CEDI cuenta como disponible
   FACT_ALARMA:1.2,    // regla actual del portal: alarma con menos de T. entrega × este factor
   H_MAX:9,            // horizonte máximo que se puede probar con el historial
+  SEG_TEMPORADA:1,    // 1 = el inventario de seguridad usa los errores de los mismos meses del año (±1), de la misma familia
+  EST_BAJA:0.8,       // periodo de temporada baja: su índice de temporada promedio es menor a esto
+  EST_ALTA:1.25,      // periodo de temporada alta: su índice promedio es mayor a esto
+  EST_K:60,           // peso de los errores de esos meses contra los de todo el año: con EST_K errores pesan la mitad
+  EST_MIN_POZO:30,    // mínimo de errores de esos meses en la familia; si no alcanza, subgrupo, tipo de venta y al final todo el año
   K_MEZCLA:8,         // con K_MEZCLA pruebas pesa la mitad el error propio y la mitad el del tipo
   SEG_MAX:6,          // el inventario de seguridad no pasa de SEG_MAX meses de venta esperada (0 = sin tope)
   PISO_ESCALA:0.25,   // el error se mide contra al menos 25% de la venta promedio
@@ -294,6 +299,8 @@ L.cuantilMezcla=(propiosOrd,tipoOrd,p,P)=>{
   const qp=cuantilOrd(propiosOrd,p);if(isNaN(qt))return qp;
   const w=n/(n+P.K_MEZCLA);return w*qp+(1-w)*qt;
 };
+// Temporada del periodo que empieza en el mes mo0 y dura H meses: 0 baja, 1 normal, 2 alta (índice de temporada promedio del periodo)
+L.temporada=(I,mo0,H,P)=>{let t=0,w=0;for(let h=0;h<Math.ceil(H);h++){const f=Math.min(1,H-h);t+=I[(mo0+h)%12]*f;w+=f;}const x=w?t/w:1;return x<P.EST_BAJA?0:x>P.EST_ALTA?2:1;};
 L.escala=(F,prom12,H,P)=>Math.max(F,P.PISO_ESCALA*prom12*H,0);   // 0 = sin venta ni pronóstico: no hay con qué medir
 
 // ── Niveles de inventario ──
@@ -434,7 +441,7 @@ L.correr=(D,Pin,hooks)=>{
   const O_MIN=12,nO=T-O_MIN+1,oi=o=>o-O_MIN,TIPOS=L.TIPOS;
   const hb=H=>H<=2?0:H<=4?1:2;
   const F3=new Float32Array(n*nO*nM),FH=new Float32Array(n*nO*nM);
-  const A3=new Float32Array(n*nO).fill(NaN),AH=new Float32Array(n*nO).fill(NaN),PR=new Float32Array(n*nO),TP=new Uint8Array(n*nO);
+  const A3=new Float32Array(n*nO).fill(NaN),AH=new Float32Array(n*nO).fill(NaN),PR=new Float32Array(n*nO),TP=new Uint8Array(n*nO),CL=new Uint8Array(n*nO).fill(1);
   const TE=K.map(k=>L.teReal(k,D.teProv,P));
   const Hp=K.map((k,i)=>clip((P.TE_FUENTE&&TE[i]?TE[i].q/30.4:(k.lt||0))+P.DIAS_REACCION/30,0.25,P.H_MAX));
   const noAg=K.map(k=>{if(!k.ag)return null;const e=new Uint8Array(T).fill(1);for(let t=0;t<T;t++)if(k.ag[t])e[t]=0;return e;});
@@ -451,6 +458,7 @@ L.correr=(D,Pin,hooks)=>{
       for(let m=0;m<nM;m++){const f=F[MET[m]];F3[b*nM+m]=L.acum(f,P.H_SEL);FH[b*nM+m]=L.acum(f,Hp[i]);}
       let t=0,c=0;for(let x=Math.max(0,o-12);x<o;x++)if(it.v[x]){t+=k.s[x];c++;}PR[b]=c?t/c:0;
       TP[b]=TIPOS.indexOf(L.tipo(k.s,it.v,o));
+      CL[b]=L.temporada(I,(m0+o)%12,Hp[i],P);
       // venta real posterior: no se usa si en esos meses la clave estuvo agotada
       const libre=(a,z)=>{for(let x=a;x<z;x++)if(!vFin[i][x]&&(k.s[x]===0||(noAg[i]&&!noAg[i][x])))return false;return true;};
       if(o+P.H_SEL<=T&&libre(o,o+P.H_SEL)){let a=0;for(let h=0;h<P.H_SEL;h++)a+=k.s[o+h];A3[b]=a;}
@@ -477,15 +485,32 @@ L.correr=(D,Pin,hooks)=>{
   };
   // Errores pasados del método elegido, al periodo de protección; se juntan entre claves parecidas (tipo, horizonte, confiabilidad)
   const erroresEn=(t,E)=>{
-    const propios=new Array(n),pozo=TIPOS.map(()=>[0,1,2].map(()=>[[],[],[]]));const tt=oi(Math.min(t,T));
+    // Errores pasados por grupo. Con SEG_TEMPORADA se guardan también por mes del año en que empieza el periodo, para
+    // usar los de los mismos meses (±1) de la misma familia: así diciembre se compara con noviembre-enero de otros años.
+    const propios=new Array(n),propiosM=new Array(n),pozo=TIPOS.map(()=>[0,1,2].map(()=>[0,1,2].map(()=>[[],[],[],[]])));const tt=oi(Math.min(t,T));
+    const fam=new Map(),fp=(key,x)=>{let a=fam.get(key);if(!a)fam.set(key,a=[]);a.push(x);};
     for(let i=0;i<n;i++){
-      const hc=Math.ceil(Hp[i]),a=Math.max(O_MIN,t-hc-P.ORIGENES-6),bf=t-hc;const u=[];
-      for(let o=a;o<=bf;o++){const b=i*nO+oi(o);const A=AH[b];if(isNaN(A))continue;const F=FH[b*nM+E.sel[i]];const e=L.escala(F,PR[b],Hp[i],P);if(e>1e-6)u.push(Math.min(20,(A-F)/e));}
-      u.sort((x,y)=>x-y);propios[i]=u;
-      if(L.ROT_PRUEBA.indexOf(K[i].rot)>=0){const z=pozo[TP[i*nO+tt]][hb(Hp[i])][E.gr[i]];for(const x of u)z.push(x);}
+      const hc=Math.ceil(Hp[i]),a=Math.max(O_MIN,t-hc-P.ORIGENES-6),bf=t-hc;const u=[],um=[[],[],[],[],[],[],[],[],[],[],[],[]];
+      for(let o=a;o<=bf;o++){const b=i*nO+oi(o);const A=AH[b];if(isNaN(A))continue;const F=FH[b*nM+E.sel[i]];const e=L.escala(F,PR[b],Hp[i],P);
+        if(e>1e-6){const x=Math.min(20,(A-F)/e),mo=(m0+o)%12;u.push(x);um[mo].push(x);
+          if(L.ROT_PRUEBA.indexOf(K[i].rot)>=0){const z=pozo[TP[i*nO+tt]][hb(Hp[i])][E.gr[i]];z[CL[b]].push(x);z[3].push(x);
+            if(P.SEG_TEMPORADA){const hh=hb(Hp[i]);fp('f|'+ll[i][0]+'|'+hh+'|'+mo,x);fp('s|'+ll[i][1]+'|'+hh+'|'+mo,x);fp('t|'+TP[i*nO+tt]+'|'+hh+'|'+E.gr[i]+'|'+mo,x);}}}}
+      u.sort((x,y)=>x-y);propios[i]=u;propiosM[i]=um;
     }
-    pozo.forEach(a=>a.forEach(b=>b.forEach(z=>z.sort((x,y)=>x-y))));
-    return{propios,pozo};
+    pozo.forEach(a=>a.forEach(b=>b.forEach(c=>c.forEach(z=>z.sort((x,y)=>x-y)))));
+    const JC=new Map(),junta=(pre,mo)=>{const key=pre+'#'+mo;let r=JC.get(key);if(r)return r;r=[];for(const d of [-1,0,1]){const z=fam.get(pre+'|'+((mo+d+12)%12));if(z)for(const x of z)r.push(x);}r.sort((x,y)=>x-y);JC.set(key,r);return r;};
+    // para el periodo que empieza en t: mismos meses (±1) de la misma familia; si no alcanza, del subgrupo; luego del mismo tipo de venta; si no, todo el año
+    const de=(i,tipo,hx)=>{const c=pozo[tipo][hb(hx)][E.gr[i]],cT=CL[i*nO+tt],hh=hb(hx),mo=(m0+Math.min(t,T))%12,pa=propios[i],pt=c[3];
+      const todo=p=>L.cuantilMezcla(pa,pt,p,P);
+      if(!P.SEG_TEMPORADA)return{pr:pa,pz:pt,cls:cT,est:false,de:'todo el año',w:0,q:todo};
+      // errores de los mismos meses (±1) por niveles, como los índices de temporada: familia → subgrupo → tipo de venta → todo el año.
+      // Cada nivel pesa n ÷ (n + EST_K) y el resto lo pone el nivel de arriba.
+      const pm=[];for(const d of [-1,0,1])for(const x of propiosM[i][(mo+d+12)%12])pm.push(x);pm.sort((x,y)=>x-y);
+      const niv=[['f|'+ll[i][0]+'|'+hh,'familia'],['s|'+ll[i][1]+'|'+hh,'subgrupo'],['t|'+tipo+'|'+hh+'|'+E.gr[i],'tipo de venta']].map(([pre,nom])=>({z:junta(pre,mo),nom})).filter(x=>x.z.length>=P.EST_MIN_POZO);
+      if(!niv.length)return{pr:pa,pz:pt,cls:cT,est:false,de:'todo el año',w:0,q:todo};
+      const q=p=>{let v=todo(p);for(let k=niv.length-1;k>=0;k--){const z=niv[k].z,w=z.length/(z.length+P.EST_K);v=w*L.cuantilMezcla(k===0?pm:[],z,p,P)+(1-w)*v;}return v;};
+      const z0=niv[0].z;return{pr:pm,pz:z0,cls:cT,est:true,de:niv.map(x=>x.nom+' '+x.z.length).join(', '),w:z0.length/(z0.length+P.EST_K),q};};
+    return{propios,pozo,de};
   };
   // 3. Prueba
   const enU=i=>L.ROT_PRUEBA.indexOf(K[i].rot)>=0;
@@ -514,7 +539,7 @@ L.correr=(D,Pin,hooks)=>{
       const AHt=AH[b];
       if(!isNaN(AHt)){
         const p=P.SERVICIO[K[i].rot]||P.SERVICIO_DEF,F=FH[b*nM+E.sel[i]],esc=L.escala(F,PR[b],Hp[i],P);
-        const q=L.cuantilMezcla(er.propios[i],er.pozo[TP[b]][hb(Hp[i])][E.gr[i]],p,P);
+        const q=er.de(i,TP[b],Hp[i]).q(p);
         const punto=L.inventario({Fh:F,Dm:F/Hp[i],esc,qServ:q},P).punto;
         const pA=pd!=null?pd*(K[i].lt||0)*P.FACT_ALARMA:null,em=escC[i]/P.H_SEL;
         for(const g of ['Todas',K[i].rot]){const c=accC(g);c.n++;c.obj+=p;if(AHt<=punto+1e-9)c.cN++;c.mN+=punto/em;c.aN.push(punto/em);c.dem+=AHt/em;c.fN+=Math.max(0,AHt-punto)/em;
@@ -543,7 +568,7 @@ L.correr=(D,Pin,hooks)=>{
       f=Float64Array.from([z.cierre].concat(Array.from(f2).slice(0,11)));
     }
     const esc=L.escala(Fh,PR[b],H,P),Dm=Fh/H;
-    const pozo=er.pozo[TP[b]][hb(H)][E.gr[i]],pr=er.propios[i],q=x=>L.cuantilMezcla(pr,pozo,x,P);
+    const ZE=er.de(i,TP[b],H),pozo=ZE.pz,pr=ZE.pr,q=ZE.q;
     // Demanda adicional ya planeada (ofertas y aperturas de tiendas), por mes a partir del mes en curso
     const p0=par?Math.max(0,Math.min(1,pc_.pHoy!=null?pc_.pHoy:pc_.p)):0;
     const EX=L.extras(k,f,u.I,(m0+T)%12,P);
@@ -553,7 +578,7 @@ L.correr=(D,Pin,hooks)=>{
       if(Hx!==H||cx!==cob){if(par){const q_=Math.max(0,1-(pc_.pHoy!=null?pc_.pHoy:pc_.p));Fx=L.acumHoy(par.resto,q_,Float64Array.from(f.slice(1)),Hx);Fxc=L.acumHoy(par.resto,q_,Float64Array.from(f.slice(1)),Math.min(12,Hx+cx));}
         else{Fx=L.acum(f,Hx);Fxc=L.acum(f,Math.min(12,Hx+cx));}}
       const eh=L.extraIni(EX.m,p0,Hx),ec=L.extraIni(EX.m,p0,Math.min(12,Hx+cx));
-      const ex_=Hx===H?esc:L.escala(Fx,PR[b],Hx,P),pz=Hx===H?pozo:er.pozo[TP[b]][hb(Hx)][E.gr[i]],qq=x=>L.cuantilMezcla(pr,pz,x,P);
+      const ex_=Hx===H?esc:L.escala(Fx,PR[b],Hx,P),qq=Hx===H?q:er.de(i,TP[b],Hx).q;
       let iv=L.inventario({Fh:Fx+eh,Dm:Fx/Hx,esc:ex_,qServ:qq(p),Fcic:Math.max(0,(Fxc+ec)-(Fx+eh)),ex:k.ex,bo:k.bo,conBO:!!P.CON_BO},P),rd=null;
       if(k.red){rd=L.red.calcular(k.red,{s:k.s,f,I:u.I,mo0:(m0+T)%12,meses:MES,H:Hx,cob:cx,hasta:iv.hasta,punto:iv.punto},P);
         rd.hastaSin=iv.hasta;iv=Object.assign({},iv,{hasta:rd.hasta,propuesta:Math.max(0,rd.hasta-iv.disp)});}
@@ -581,7 +606,7 @@ L.correr=(D,Pin,hooks)=>{
       bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
       punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,
       Dportal:pd,puntoPortal:pd!=null?pd*(k.lt||0)*P.FACT_ALARMA:null,hastaPortal:pd!=null?pd*((k.lt||0)+(k.pm||0)):null,
-      val:Array.from(u.v),red,par,te:TE[i],dual,extra};
+      val:Array.from(u.v),red,par,te:TE[i],dual,extra,temp:{cls:['BAJA','NORMAL','ALTA'][ZE.cls],est:ZE.est,de:ZE.de,w:ZE.w,n:pozo.length,np:pr.length}};
   }
   av('Listo',1);
   return{version:L.VERSION,param:P,meses:MES,pruebas:pruebas.map(t=>MES[t]),resumen,calibracion,

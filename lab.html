@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
-<script src="lab_motor.js?v=20261118c" charset="utf-8"></script>
+<script src="lab_motor.js?v=20261124a" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:"Segoe UI",Arial,sans-serif;font-size:13px;color:#1a2035;background:#f3f5f9}
@@ -487,7 +487,8 @@ function pintarResumen(){
   else cr.innerHTML='<h2>Red: mayoreo y tiendas Mas Ferre</h2><p class="d"><b>Aún no está cargada.</b> El cálculo usa solo la venta total de SANVER. Carga la plantilla de ventas y el archivo de existencias MF en «Variables y escenarios».</p>';
   $('limites').innerHTML='<b>Qué usa este cálculo:</b> venta SANVER del portal'+(S.nED?', con las entregas directas restadas ('+nf(S.nED)+' claves)':'')+(S.nAG?', sin los meses agotados ('+nf(S.nAG)+' claves)':'')+'; existencia, BO, tiempo de entrega, meses objetivo y rotación del cálculo publicado. '+
     (S.fam?'Temporada por sub-subgrupo ('+nf(S.fam)+' claves con familia).':'<b>Sin familias cargadas:</b> la temporada se calcula solo por grupo; carga la hoja BASE DE NEGOCIO en «Variables y escenarios».')+
-    (S.D.parcial?' Venta del mes en curso al '+S.D.parcial.corte+' ('+Math.round(S.D.parcial.p*100)+'% del mes): ajusta el pronóstico de lo que falta; esta parte no entra en la prueba contra el historial.':(S.parNota?' '+esc(S.parNota):''))+
+    (S.D.parcial&&!R.param.PARCIAL_ACTIVA?' La venta del mes en curso ('+S.D.parcial.corte+') no se usa: el pronóstico sale solo de meses cerrados.':'')+
+    (S.D.parcial&&R.param.PARCIAL_ACTIVA?' Venta del mes en curso al '+S.D.parcial.corte+' ('+Math.round(S.D.parcial.p*100)+'% del mes): ajusta el pronóstico de lo que falta; esta parte no entra en la prueba contra el historial.':(S.parNota?' '+esc(S.parNota):''))+
     (S.nSust?' Incluye el historial de '+nf(S.nSust)+' claves sustituidas (estatus SUSTITUTO).':'')+(S.nProd?' Suma el consumo por producción a '+nf(S.nProd)+' insumos (venta SANVER de sus productos × insumo por unidad, igual que el portal).':(S.prodNota?' '+esc(S.prodNota):''))+
     (S.teN?' Tiempo de entrega real medido en '+nf(S.teN)+' OCs completas ('+nf(R.claves.filter(k=>k.te).length)+' claves con dato propio o de su proveedor): '+(R.param.TE_FUENTE?'<b>se usa en lugar del T. entrega del portal</b>':'se muestra en la ficha; el cálculo usa el T. entrega del portal')+'.':(S.teNota?' '+esc(S.teNota):''))+
     (S.dual&&S.dual.size?' Compra nacional e importación: '+nf(S.dual.size)+' claves con su tiempo de entrega, sus meses objetivo y el stock del proveedor nacional (en la ficha y al elegir el tipo de compra en Propuestas).':'')+
@@ -542,7 +543,7 @@ function ficha(c){
     fichaTE(c,d)+
     dato('Venta en ese periodo: baja · esperada · alta',nf(k.bajo)+' · '+nf(k.esperado)+' · '+nf(k.alto))+
     dato('Nivel de servicio',pc(k.servicio,0))+
-    dato('Inventario de seguridad',nf(k.seguridad))+
+    dato('Inventario de seguridad',nf(k.seguridad)+(k.temp?(k.temp.est?' · con errores de los mismos meses ('+esc(k.temp.de)+')':' · con errores de todo el año'):'')+(R.param.SEG_MAX>0&&k.Dm>0&&k.seguridad>=R.param.SEG_MAX*k.Dm-0.5?' · <b>en el tope de '+nf(R.param.SEG_MAX,1)+' meses</b>':''))+
     dato('Punto de alarma (pedir al llegar aquí)','<span class="'+(k.pedir?'mal':'')+'">'+nf(k.punto)+'</span>'+(k.puntoPortal!=null?' · regla actual '+nf(k.puntoPortal):''))+
     dato('Disponible'+cb,nf(k.disp)+' · existencia '+nf(d.ex)+' · BO '+nf(d.bo))+
     dato('¿Toca pedir?',k.pedir?'<span class="mal">Sí, ya está en el punto de alarma</span>':(k.dias!=null?'En unos '+nf(k.dias)+' días':'Sin venta esperada'))+
@@ -617,7 +618,7 @@ function fichaRed(k){
 }
 function exportar(){
   const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,'Venta mensual portal':k.Dportal,
-    'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,'Punto de alarma':k.punto,'Alarma actual':k.puntoPortal,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Ofertas en la compra':k.extra&&k.extra.of?k.extra.of.c:null,'Aperturas en la compra':k.extra&&k.extra.ap?k.extra.ap.c:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Propuesta actual':k.propPortal,'Pedir hasta nacional':k.dual&&k.dual.N?k.dual.N.hasta:null,'Pedir hasta importación':k.dual&&k.dual.I?k.dual.I.hasta:null}));
+    'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,'Errores usados para la seguridad':k.temp?(k.temp.est?'Mismos meses: '+k.temp.de:'Todo el año'):'','Punto de alarma':k.punto,'Alarma actual':k.puntoPortal,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Ofertas en la compra':k.extra&&k.extra.of?k.extra.of.c:null,'Aperturas en la compra':k.extra&&k.extra.ap?k.extra.ap.c:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Propuesta actual':k.propPortal,'Pedir hasta nacional':k.dual&&k.dual.N?k.dual.N.hasta:null,'Pedir hasta importación':k.dual&&k.dual.I?k.dual.I.hasta:null}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Laboratorio');XLSX.writeFile(wb,'Laboratorio_'+S.fecha+'.xlsx');
 }
 
@@ -627,7 +628,7 @@ const VARS=[
   ['SERVICIO.SAGRADOS','Nivel de servicio · Sagrados (%)',50,99.9,.5,100],['SERVICIO.ALTA ROTACION','Nivel de servicio · Alta (%)',50,99.9,.5,100],['SERVICIO.MEDIA ROTACION','Nivel de servicio · Media (%)',50,99.9,.5,100],
   ['SERVICIO.LENTA ROTACION','Nivel de servicio · Lenta (%)',50,99.9,.5,100],['SERVICIO.NUEVOS','Nivel de servicio · Nuevos (%)',50,99.9,.5,100],
   ['DIAS_REACCION','Días entre la alarma y levantar el pedido',0,60,1],['COBERTURA_MESES','Meses de venta que cubre cada pedido (0 = meses objetivo de la clave)',0,12,.25],
-  ['SEG_MAX','Tope del inventario de seguridad, en meses de venta (0 = sin tope)',0,24,.5],['CON_BO','Contar el BO como disponible (1 = sí, 0 = no)',0,1,1],['RED_ACTIVA','Ajustar la compra con el inventario de las tiendas (1 = sí, 0 = no)',0,1,1],
+  ['SEG_MAX','Tope del inventario de seguridad, en meses de venta (0 = sin tope)',0,24,.5],['SEG_TEMPORADA','Seguridad con los errores de los mismos meses del año (1 = sí, 0 = todo el año)',0,1,1],['EST_K','Seguridad por temporada: errores de esos meses para pesar la mitad',10,300,10],['CON_BO','Contar el BO como disponible (1 = sí, 0 = no)',0,1,1],['RED_ACTIVA','Ajustar la compra con el inventario de las tiendas (1 = sí, 0 = no)',0,1,1],
   ['PARCIAL_ACTIVA','Usar la venta del mes en curso (1 = sí, 0 = no)',0,1,1],['PARCIAL_MIN_AVANCE','Mes en curso: avance mínimo del mes para usarlo (%)',5,90,5,100],['PARCIAL_TOPE','Mes en curso: tope del ritmo, en veces el pronóstico',1.2,5,0.1],['TE_FUENTE','Tiempo de entrega: 0 = el del portal, 1 = el real de las recepciones',0,1,1],['OFERTAS_ACTIVA','Sumar la distribución adicional de las ofertas (1 = sí)',0,1,1],['APERTURAS_ACTIVA','Sumar las aperturas de tiendas (1 = sí)',0,1,1],['TE_CUANTIL','Tiempo de entrega real: parte de las OCs que debe cubrir (%)',50,95,5,100],['FACT_ALARMA','Regla actual: alarma con T. entrega × este factor',1,2,.05]]],
  ['Nivel de venta',[
   ['HIST','Meses de historia',6,36,1],['MEDIA_VIDA','Peso de lo reciente: un mes de hace N meses pesa la mitad',1,36,1],['TOPE_PICO','Tope de picos: veces la mediana',2,20,.5],
