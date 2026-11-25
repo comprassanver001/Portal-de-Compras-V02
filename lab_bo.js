@@ -2,17 +2,19 @@
 // El BO del cálculo diario sale de la columna BACK ORDER del archivo; las OCs levantadas el día del corte o después aún no vienen ahí.
 // BO usado = mínimo( BO del archivo (ya sin entregas directas) + pendiente de OCs válidas levantadas el día del cálculo o después ,
 //                     pendiente de todas las OCs válidas )
-// OC válida: abierta, no cancelada, sin entrega directa, sin destino de tienda (van directo a la tienda) y con máximo 90 días de levantada.
+// OC válida: abierta, no cancelada, sin entrega directa y sin destino de tienda (van directo a la tienda).
+// 25-nov-2026 (Fernando): se quita el límite de 90 días de levantada; las OCs de importación tardan muchos meses y sí van a llegar.
+// DIAS_MAX=null = sin límite de antigüedad (si se vuelve a poner un número, se aplica otra vez).
 // La cantidad de la OC se pasa a la unidad de la clave con el factor del RP03-08 (plan_unidades.f_compra); sin factor, misma unidad.
 (function(){
   'use strict';
-  var B=window.LABBO={DIAS_MAX:90,cache:null};
+  var B=window.LABBO={DIAS_MAX:null,cache:null};
   var todo=async function(q){var out=[];for(var i=0;i<200000;i+=1000){var r=await q().range(i,i+999);if(r.error)throw r.error;out=out.concat(r.data||[]);if(!r.data||r.data.length<1000)break;}return out;};
   B.cargar=function(sb){
     if(B.cache)return B.cache;
     B.cache=(async function(){
-      var lim=new Date(Date.now()-B.DIAS_MAX*864e5).toISOString().slice(0,10);
-      var ocs=await todo(function(){return sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_pend,destino').is('cerrada_en',null).not('cancelada','is',true).not('entrega_directa','is',true).gte('fecha_oc',lim).gt('cantidad_pend',0).order('folio').order('clave');});
+      var lim=B.DIAS_MAX>0?new Date(Date.now()-B.DIAS_MAX*864e5).toISOString().slice(0,10):null;
+      var ocs=await todo(function(){var q=sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,cantidad_pend,destino').is('cerrada_en',null).not('cancelada','is',true).not('entrega_directa','is',true);if(lim)q=q.gte('fecha_oc',lim);return q.gt('cantidad_pend',0).order('folio').order('clave');});
       var U=new Map();try{(await todo(function(){return sb.from('plan_unidades').select('clave,f_compra').order('clave');})).forEach(function(x){var f=Number(x.f_compra);if(f>0)U.set(Number(x.clave),f);});}catch(e){}
       var M=new Map();ocs.forEach(function(o){if(o.destino&&String(o.destino).trim())return;var c=Number(o.clave),q=(Number(o.cantidad_pend)||0)*(U.get(c)||1);
         var x=M.get(c);if(!x)M.set(c,x=[]);x.push({folio:o.folio,fecha:String(o.fecha_oc).slice(0,10),q:q});});
