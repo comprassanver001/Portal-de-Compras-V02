@@ -84,7 +84,7 @@
       +(r?grafica(sv,d.agot.SANVER,d.sust&&d.sust.parte.SANVER,d.prod&&d.prod.parte):'<div style="color:#64748b;font-size:12px;padding:10px">La clave no está en el último cálculo del portal.</div>')
       +(mf.length?'<details><summary style="font-size:12px;color:#1d4ed8;cursor:pointer">Ventas MF (antecedente '+n(r.mfA,1)+' · pronóstico '+n(r.mfP,1)+' · existencia '+n(r.mfI)+')</summary>'+grafica(mf,d.agot.MF,d.sust&&d.sust.parte.MF)+'</details>':'');
     const kv=(k,v)=>'<b style="color:#64748b;font-weight:600">'+k+'</b><span style="overflow-wrap:anywhere;min-width:0">'+v+'</span>';
-    const der=r?'<div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px">'
+    const der=r?'<div class="kv" style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px">'
       +kv('Antecedente',n(r.A,1)+' / mes · '+usados('ANT'))+kv('Pronóstico',n(r.P,1)+' / mes · '+usados('PRON'))
       +(d.sust?kv('Claves sustituidas','<span style="color:#c2410c">suma la venta de '+d.sust.lst.map(x=>'<b>'+x.o+'</b>'+(x.f<1?' ('+Math.round(x.f*100)+'%)':'')+(x.d?' '+esc(x.d.slice(0,40)):'')).join(' · ')+'</span>'):'')
       +(d.equiv&&d.equiv.length?kv('Equivalentes','<span style="color:#475569">'+d.equiv.map(x=>'<b>'+x.o+'</b>'+(x.d?' '+esc(x.d.slice(0,40)):'')+(x.e==='REVISAR'?' (por revisar)':'')).join(' · ')+' · <i>no se suma su venta</i></span>'):'')

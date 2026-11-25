@@ -14,8 +14,10 @@ window.idbPut=function(key,val){return new Promise((res,rej)=>{const r=indexedDB
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
+<script src="lab_bo.js?v=20261125b" charset="utf-8"></script>
+<script src="lab_aplicar.js?v=20261125b" charset="utf-8"></script>
 <script src="plan_fotos.js?v=20261105a" charset="utf-8"></script>
-<script src="plan_ficha.js?v=20261113u" charset="utf-8"></script>
+<script src="plan_ficha.js?v=20261125b" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#f5f6fa;color:#1a2035;font-family:'Segoe UI',system-ui,sans-serif;padding:20px}
@@ -1869,7 +1871,8 @@ async function cargarPlan(){
     if(error||!pub)throw new Error(error?error.message:'sin cálculo publicado');
     const{data:blob,error:e2}=await sb.storage.from('respaldos').download(pub.ruta);if(e2)throw e2;
     const txt=pub.ruta.endsWith('.gz')?await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text():await blob.text();
-    const js=JSON.parse(txt);
+    // ambiente de pruebas: misma demanda, estatus y propuesta que Planeación (cálculo del laboratorio y BO con OCs abiertas)
+    let js=JSON.parse(txt);if(window.LABAPL)js=await LABAPL.aplicar(sb,js);
     PLAN={fecha:js.fecha,byClave:new Map((js.claves||[]).map(r=>[String(r.c),r])),ocs:js.ocs||{},ventasHasta:js.ventas_hasta||{},ventasDesde:js.ventas_desde||{}};
   }catch(e){PLAN={err:e.message||String(e),byClave:new Map(),ocs:{}};}
   return PLAN;
@@ -2065,6 +2068,7 @@ async function pintarFicha(c){
     const w=Math.max(320,(document.getElementById('cq-tw').clientWidth||900)-40);
     el.style.width=w+'px';
     el.innerHTML=FICHA.html(r,d,{fecha:plan.fecha||G.uf,ventasHasta:plan.ventasHasta,ventasDesde:plan.ventasDesde,ocs:plan.ocs[Number(c)]||plan.ocs[c]||[],conHist:true});
+    if(window.LABAPL)LABAPL.detalle(sbc(),el,r,plan.ocs[Number(c)]||plan.ocs[c]||[],true);   // mismo detalle del laboratorio que en Planeación
     if(r&&r.bp&&r.bp.length){const vp=await P.ventasProductos(sbc(),r.bp);el.insertAdjacentHTML('beforeend',P.produccionHTML(r,k=>plan.byClave.get(String(k)),vp,(plan.fecha||G.uf||'').slice(0,7)));}
   }catch(e){el.innerHTML='<span style="color:#c0392b">No se pudo cargar la ficha: '+escH2(e.message||e)+'</span>';}
 }
