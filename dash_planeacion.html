@@ -308,7 +308,14 @@ const nBO=v=>Number(v).toLocaleString('es-MX',{maximumFractionDigits:Math.abs(v)
 // Existencia: CEDI + resguardo con proveedores (si hay, se marca +RG)
 const rgDet=r=>(r.rsD||[]).map(x=>x[0]+' '+nBO(x[1])+' (corte '+x[2]+(x[3]?', descontado del BO':'')+')').join(' · ');
 const exTxt=r=>r.rs>0?'<span title="CEDI '+nBO(r.exC)+' + resguardo '+nBO(r.rs)+': '+esc(rgDet(r))+'">'+fmtN(r.ex)+' <span style="color:#0f766e;font-size:11px">+RG</span></span>':fmtN(r.ex);
-const boTxt=r=>{const ed=(r.boT!=null?r.boT:r.bo)-(r.bo||0)-(r.rsBo||0);return ed>0.0001?'<span title="BO total '+nBO(r.boT)+' · entrega directa '+nBO(ed)+' (no cuenta para el CEDI)">'+nBO(r.bo)+' <span style="color:#7c3aed;font-size:11px">+ED</span></span>':(r.bo?nBO(r.bo):'<span class="cero">0</span>');};
+// boArch = BO antes del ajuste de OCs abiertas del laboratorio (lab_bo.js). Lo que se quita ahí NO es entrega directa:
+// son OCs con más de LABBO.DIAS_MAX días de levantadas, canceladas o cerradas.
+const boBase=r=>r.boArch!=null?Number(r.boArch):(Number(r.bo)||0);
+const boVieja=r=>r.boArch!=null?Math.max(0,Number(r.boArch)-(Number(r.bo)||0)):0;
+const boED=r=>Math.max(0,(r.boT!=null?Number(r.boT):boBase(r))-boBase(r)-(r.rsBo||0));
+const boTxt=r=>{const ed=boED(r),vj=boVieja(r);if(ed<=0.0001&&vj<=0.0001)return r.bo?nBO(r.bo):'<span class="cero">0</span>';
+  const tit='BO total '+nBO(r.boT!=null?r.boT:boBase(r))+(ed>0.0001?' · entrega directa '+nBO(ed)+' (no cuenta para el CEDI)':'')+(vj>0.0001?' · OCs sin respaldo vigente '+nBO(vj)+' (más de '+((window.LABBO&&window.LABBO.DIAS_MAX)||90)+' días de levantadas, no cuentan)':'');
+  return '<span title="'+tit+'">'+nBO(r.bo)+(ed>0.0001?' <span style="color:#7c3aed;font-size:11px">+ED</span>':'')+(vj>0.0001?' <span style="color:#b45309;font-size:11px">+OC vieja</span>':'')+'</span>';};
 const pctTxt=x=>x==null?'—':(x*100).toFixed(1)+'%';
 /*DASH-END*/
 
@@ -597,7 +604,7 @@ async function pintarExplicacion(c){
       +(d.prod?'<b>Producción</b><span style="color:#be185d">la venta incluye el consumo de '+d.prod.lst.map(x=>'<b>'+x[0]+'</b> ('+esc(P.recetaTxt(x))+')').join(' · ')+'</span>':'')+'<b>Demanda portal</b><span>'+fmtN(r.D,1)+' / mes · '+esc(r.bD)+(r.bDx?' <span class="mut">('+esc(r.bDx)+')</span>':'')+'</span><b>Meses objetivo (N)</b><span>'+r.N+' · objetivo '+fmtN(r.pm,1)+' · entrega '+fmtN(r.lt,1)+'</span>'
       +'<b>Límites</b><span>riesgo entra con menos de '+fmtN(r.lt*P.R.FACT_ENTRA_RIESGO,1)+' y sale con '+fmtN(r.lt*P.R.FACT_ENTREGA,1)+' meses · sobre inventario con más de '+fmtN(r.pm*P.R.FACT_MAX,1)+' · hoy '+fmtN(r.mi,1)+' meses ('+fmtN(r.miB,1)+' con BO)</span><b>Propuesta</b><span>'+fmtN(r.D,1)+' × ('+fmtN(r.lt,1)+' + '+fmtN(r.pm,1)+') − ('+fmtN(r.ex)+(r.rs>0?' existencia, incluye '+fmtN(r.rs)+' en resguardo':'')+' + '+fmtN(r.bo)+' BO CEDI) = <b>'+fmtN(r.s)+'</b>'+(r.sE!=null?' → '+r.eT+' <b>'+fmtN(r.sE)+'</b>':'')+'</span>'
       +(r.rs>0?'<b>Resguardo</b><span>CEDI '+fmtN(r.exC)+' + resguardo '+fmtN(r.rs)+' = '+fmtN(r.ex)+' · '+esc(rgDet(r))+'</span>':'')
-      +((r.boT||0)>(r.bo||0)?'<b>BO</b><span>total '+fmtN(r.boT)+((r.boT-r.bo-(r.rsBo||0))>0.0001?' · entrega directa '+fmtN(r.boT-r.bo-(r.rsBo||0))+' (no cuenta)':'')+(r.rsBo?' · en resguardo '+fmtN(r.rsBo)+' (ya contado en existencia)':'')+' · CEDI '+fmtN(r.bo)+'</span>':'')+(r.nt?'<b>Notas</b><span>'+esc(r.nt)+'</span>':'')
+      +((r.boT||0)>(r.bo||0)?'<b>BO</b><span>total '+fmtN(r.boT)+(boED(r)>0.0001?' · entrega directa '+fmtN(boED(r))+' (no cuenta)':'')+(boVieja(r)>0.0001?' · OCs con más de '+((window.LABBO&&window.LABBO.DIAS_MAX)||90)+' días de levantadas '+fmtN(boVieja(r))+' (no cuentan)':'')+(r.rsBo?' · en resguardo '+fmtN(r.rsBo)+' (ya contado en existencia)':'')+' · CEDI '+fmtN(r.bo)+'</span>':'')+(r.nt?'<b>Notas</b><span>'+esc(r.nt)+'</span>':'')
       +(r.mfI!=null?'<b>Mas Ferre</b><span>existencia '+fmtN(r.mfI)+' · '+fmtN(r.mfM,1)+' meses'+(r.mfB!=null?' · número base '+fmtN(r.mfB):' · sin número base')+(r.mfF?' · <b style="color:#b45309">revisar con gerencia (devolución estratégica): excedente '+fmtN(r.mfX)+'</b>':'')+(r.mfFalta?' · <b style="color:#2563eb">faltan '+fmtN(r.mfFalta)+' por distribuir a tiendas</b>':'')+'</span>':'')
       +'<b>OCs abiertas</b><span>'+(ocs.length?P.ocAviso(UO,r,fmtN)+ocs.map(o=>P.ocRenglon(o,UO,fmtN,fmtF,esc)).slice(0,6).join('<br>')+(ocs.length>6?'<br><span class="mut">… y '+(ocs.length-6)+' más</span>':''):'ninguna')+'</span>'
       +'<b>Alarmas</b><span>'+(d.alarmas.length?d.alarmas.slice(0,5).map(a=>fmtF(P.d10(a.fecha_alarma))+' '+(a.tipo==='FALTANTE_DIRECTO'?'faltante directo':'riesgo')+' → '+(a.resultado_target||'en plazo')+(a.oc_folio?' (OC '+a.oc_folio+', '+(a.dias_dif>0?'+':'')+a.dias_dif+' días)':'')+(a.fecha_fin?' · salió '+fmtF(P.d10(a.fecha_fin)):'')).join('<br>'):'ninguna')+'</span></div></div></div></div>';
