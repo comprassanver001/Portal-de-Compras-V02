@@ -1890,6 +1890,10 @@ async function diaDetalle(f){
   const rows=cl.map(x=>({fecha:f,clave:String(x.c),nombre:x.n||'',marca:x.m||'',unidad:x.u||'',clasificacion:String(x.abc||'').trim(),existencias:+x.ex||0,grupo:String(x.g||'').trim(),
       comprador:String(x.comp||'').trim().toUpperCase(),clmov:ROTX(x.rot),t_entrega:x.lt==null?null:+x.lt,obj_meses:x.pm==null?null:+x.pm,meses_inv:x.mi==null?null:+x.mi,mib:x.miB==null?null:+x.miB,
       estatus:x.est||'',bo:x.boT!=null?+x.boT:+x.bo||0,_f:x})).filter(r=>r.comprador&&!EXCL.includes(r.comprador));
+  // Ambiente de pruebas: el día del último cálculo se muestra con el cálculo del laboratorio (igual que Planeación y la ficha).
+  // Los días anteriores se quedan con lo que salió ese día.
+  if(window.LABAPL){try{const plan=await cargarPlan();if(plan&&plan.fecha===f)rows.forEach(r=>{const q=plan.byClave.get(String(Number(r.clave)))||plan.byClave.get(r.clave);if(!q||!q.lab)return;
+    r._f=q;r.meses_inv=q.mi==null?r.meses_inv:+q.mi;r.mib=q.miB==null?r.mib:+q.miB;r.estatus=q.est||r.estatus;r.bo=q.boT!=null?+q.boT:(+q.bo||0);});}catch(e){}}
   rows.forEach(r=>{r.semaforo=getSem(r);});
   DIA.set(f,rows);return rows;
 }
