@@ -387,9 +387,23 @@ async function crearFolio(){
 
 // ── Folio ──
 // Folio abierto: vuelve a tomar los datos del portal con el cálculo publicado más reciente (BO, existencia, consumo, estatus)
+// Claves del folio cuyo cálculo del portal cambió después de crear el folio (mismo día de cálculo o uno más nuevo):
+// tiempo de entrega, meses objetivo, existencia, consumo o propuesta. Pasa cuando se vuelve a cargar el Excel del día con datos corregidos.
+function cambiosCalc(){
+  const out=[];const dif=(a,b,t)=>Math.abs((Number(a)||0)-(Number(b)||0))>t;
+  (S.lineas||[]).forEach(l=>{const o=l.portal,r=S.byClave.get(Number(l.clave));if(!o||!r)return;const c=[];
+    if(dif(o.lt,r.lt,0.001))c.push('T. entrega '+nf(o.lt,1)+' → '+nf(r.lt,1));
+    if(dif(o.pm,r.pm,0.001))c.push('objetivo '+nf(o.pm,1)+' → '+nf(r.pm,1)+' meses');
+    if(dif(o.ex,r.ex,0.5))c.push('existencia '+nf(o.ex)+' → '+nf(r.ex));
+    if(dif(o.D,r.D,Math.max(0.5,Math.abs(Number(r.D)||0)*0.01)))c.push('consumo '+nf(o.D,1)+' → '+nf(r.D,1));
+    if(dif(o.s,r.s,0.5))c.push('recomendada '+nf(o.s)+' → '+nf(r.s));
+    if(c.length)out.push({clave:l.clave,c});});
+  return out;
+}
+const puedeRefrescar=()=>S.actual&&(editable()||S.actual.estado==='EN REVISION');
 async function refrescarFolio(){
-  const f=S.actual;if(!f||!editable())return;
-  if(!confirm('¿Actualizar el folio '+f.folio+' con el cálculo del portal del '+fF(S.fecha)+'? Lo pegado de surtimiento y los motivos se conservan.'))return;
+  const f=S.actual;if(!f||!puedeRefrescar())return;
+  if(!confirm('¿Actualizar el folio '+f.folio+' con el cálculo del portal del '+fF(S.fecha)+'? Lo pegado de surtimiento, los motivos y los ajustes del autorizante se conservan; cambian la existencia, BO, consumo, tiempo de entrega, objetivo, estatus y la cantidad recomendada.'))return;
   const ahora=new Date().toISOString();let n=0,falt=0;
   for(const l of S.lineas){const r=S.byClave.get(Number(l.clave));if(!r){falt++;continue;}l.portal=snap(r);
     const e=l.surt?evaluar(l):null;if(e){l.semaforo=e.sem;l.avisos=e.avisos.join(' | ')||null;}
@@ -515,7 +529,8 @@ function pintarFolio(){
   if(ed&&f.estado==='REGRESADO'&&hayAjustes())acc+='<button class="ok" onclick="aceptarAjustes()" title="Tu cantidad se cambia por la del autorizante en las claves ajustadas">✓ Aceptar ajustes del autorizante</button>';
   if(f.estado==='AUTORIZADO'&&!f.cmp_id)acc+='<button onclick="enviarComparativos()">➜ Enviar a comparativos</button>';
   acc+='<button class="sec" onclick="imprimir()">🖨 Imprimir</button><button class="sec" onclick="excelFolio()">⬇ Excel</button>';
-  if(ed&&S.fecha&&S.fecha!==f.fecha_calculo)acc+='<button class="sec" onclick="refrescarFolio()" title="Vuelve a tomar existencia, BO, consumo y estatus del cálculo del portal más reciente ('+fF(S.fecha)+'); lo pegado de surtimiento y los motivos se conservan">↻ Actualizar al cálculo del '+fF(S.fecha)+'</button>';
+  const CC=cambiosCalc();
+  if(puedeRefrescar()&&S.fecha&&(S.fecha!==f.fecha_calculo||CC.length))acc+='<button class="sec" onclick="refrescarFolio()" title="Vuelve a tomar existencia, BO, consumo, tiempo de entrega, objetivo y estatus del cálculo del portal más reciente ('+fF(S.fecha)+'); lo pegado de surtimiento y los motivos se conservan">↻ Actualizar al cálculo '+(S.fecha!==f.fecha_calculo?'del '+fF(S.fecha):'vigente')+'</button>';
   if(ed)acc+='<button class="sec" onclick="cancelarFolio()" title="Cancelar el folio (pide motivo)">✕</button>';
   else if(f.estado==='EN REVISION'||f.estado==='AUTORIZADO')acc+='<button class="sec" style="color:var(--err)" onclick="cancelarFolio()" title="Cancelar el folio con PIN de administrador y motivo">⛔ Cancelar folio</button>';
   $('f-acc').innerHTML=acc;
@@ -525,7 +540,8 @@ function pintarFolio(){
   const barraRev=modoRev()?'<div class="card" style="background:#f5f3ff;border-color:#c4b5fd;margin:0 0 10px"><b>✏️ Ajustando como '+esc(S.rev.nombre)+'</b> · pon tu cantidad en la columna «Autorizante» (vacío = la del comprador; 0 = quitar) y elige el motivo; «Otro» pide comentario. Los meses al llegar y el semáforo se recalculan con tu cantidad.'
       +'<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">Agregar clave de '+esc(f.comprador)+(f.tipo_compra?' ('+P.TIPO_L[f.tipo_compra].toLowerCase()+')':'')+': <input id="aut-k" placeholder="Clave" style="width:90px" inputmode="numeric"> <input id="aut-q" type="number" min="0" placeholder="Cantidad" style="width:100px" onkeydown="if(event.key===\'Enter\')agregarAut()"> <button onclick="agregarAut()">➕ Agregar</button> <button class="sec" style="margin-left:auto" onclick="terminarRev()">Terminar ajustes</button></div></div>':'';
   const avAut=!modoRev()&&hayAjustes()?'<div class="card" style="background:#f5f3ff;border-color:#c4b5fd;margin:0 0 10px"><b>✏️ Ajustes del autorizante:</b> '+S.lineas.filter(ajustada).length+' clave(s)'+([...new Set(S.lineas.filter(ajustada).map(l=>l.aut_por).filter(Boolean))].length?' por '+esc([...new Set(S.lineas.filter(ajustada).map(l=>l.aut_por).filter(Boolean))].join(', ')):'')+'. Ver columna «Autorizante».'+(f.estado==='REGRESADO'?' Si estás de acuerdo da clic en «✓ Aceptar ajustes del autorizante»; si no, ajusta tu plantilla y vuelve a enviar.':'')+'</div>':'';
-  $('f-aviso').innerHTML=barraRev+avAut+(f.estado==='REGRESADO'&&f.comentario?'<div class="card" style="background:var(--warnbg);border-color:#f0d58a;margin:0 0 10px"><b>Regresado:</b> '+esc(f.comentario)+'</div>':f.estado==='EN REVISION'?'<p class="d" style="margin-bottom:8px">En revisión. Lo autoriza el Jefe o el Gerente de Compras (o Dirección) con su nombre y PIN; con «✏️ Ajustar cantidades» pueden poner su propia cantidad por clave con motivo.</p>':'');
+  const avCalc=CC.length&&f.estado!=='AUTORIZADO'&&f.estado!=='CANCELADO'?'<div class="card" style="background:var(--warnbg);border-color:#f0d58a;margin:0 0 10px"><b>⚠️ El cálculo del portal cambió después de crear este folio en '+CC.length+' clave(s).</b> El folio todavía muestra los datos de cuando se creó'+(puedeRefrescar()?'; da clic en «↻ Actualizar al cálculo» para tomar los nuevos.':'.')+'<br>'+CC.slice(0,8).map(x=>'<b>'+esc(x.clave)+'</b>: '+esc(x.c.join(' · '))).join('<br>')+(CC.length>8?'<br>… y '+(CC.length-8)+' más':'')+'</div>':'';
+  $('f-aviso').innerHTML=barraRev+avAut+avCalc+(f.estado==='REGRESADO'&&f.comentario?'<div class="card" style="background:var(--warnbg);border-color:#f0d58a;margin:0 0 10px"><b>Regresado:</b> '+esc(f.comentario)+'</div>':f.estado==='EN REVISION'?'<p class="d" style="margin-bottom:8px">En revisión. Lo autoriza el Jefe o el Gerente de Compras (o Dirección) con su nombre y PIN; con «✏️ Ajustar cantidades» pueden poner su propia cantidad por clave con motivo.</p>':'');
   pintarCmp();
   const tp=f.tipo_compra||'',VA=verAut(),MR=modoRev();
   const opsA=sel=>'<option value="">— Motivo —</option>'+AUT_MOTIVOS.map(m=>'<option'+(m===sel?' selected':'')+'>'+esc(m)+'</option>').join('');
