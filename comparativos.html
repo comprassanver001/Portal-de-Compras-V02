@@ -2307,7 +2307,10 @@ const CP1252 = {0x20AC:128,0x201A:130,0x0192:131,0x201E:132,0x2026:133,0x2020:13
 const aCp1252 = (s) => [...String(s ?? '')].map(ch => { const c = ch.codePointAt(0); if (c < 128 || (c >= 160 && c < 256)) return c; return CP1252[c] ?? 63; });
 
 class MiniPDF {
-  constructor(w = 792, h = 612){ this.w = w; this.h = h; this.paginas = []; }
+  constructor(w = 792, h = 612){ this.w = w; this.h = h; this.paginas = []; this.imgs = []; }
+  // img = {jpg:Uint8Array, w, h} (de cargarJPEG); se dibuja en x,y (arriba-izquierda) con ancho/alto en puntos
+  imagen(img, x, y, w, h){ if (!img) return; let k = this.imgs.indexOf(img); if (k < 0) { this.imgs.push(img); k = this.imgs.length - 1; }
+    this.cur.push(`q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${(this.h - y - h).toFixed(2)} cm /Im${k + 1} Do Q`); }
   pagina(){ this.cur = []; this.paginas.push(this.cur); return this; }
   ancho(txt, size, bold){ const t = HELV_W[bold ? 1 : 0]; return aCp1252(txt).reduce((s, c) => s + (c >= 32 ? t[c - 32] : 500), 0) * size / 1000; }
   color(rgb){ return rgb.map(v => (v / 255).toFixed(3)).join(' '); }
@@ -2338,8 +2341,11 @@ class MiniPDF {
     const catalogo = add(null), paginas = add(null);
     const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
     const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+    const ims = this.imgs.map(im => { let b = ''; for (let i = 0; i < im.jpg.length; i++) b += String.fromCharCode(im.jpg[i]);
+      return add(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.jpg.length} >>\nstream\n${b}\nendstream`); });
+    const xo = ims.length ? ` /XObject << ${ims.map((o, i) => `/Im${i + 1} ${o} 0 R`).join(' ')} >>` : '';
     const kids = this.paginas.map(cont => { const s = cont.join('\n'); const c = add(`<< /Length ${s.length} >>\nstream\n${s}\nendstream`);
-      return add(`<< /Type /Page /Parent ${paginas} 0 R /MediaBox [0 0 ${this.w} ${this.h}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${c} 0 R >>`); });
+      return add(`<< /Type /Page /Parent ${paginas} 0 R /MediaBox [0 0 ${this.w} ${this.h}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >>${xo} >> /Contents ${c} 0 R >>`); });
     objs[catalogo - 1] = `<< /Type /Catalog /Pages ${paginas} 0 R >>`;
     objs[paginas - 1] = `<< /Type /Pages /Kids [${kids.map(k => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`;
     let out = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'; const off = [];
@@ -2350,6 +2356,17 @@ class MiniPDF {
     const b = new Uint8Array(out.length); for (let i = 0; i < out.length; i++) b[i] = out.charCodeAt(i) & 255; return b;
   }
 }
+
+// Imagen del membrete pasada a JPEG (fondo blanco) para incrustarla en el PDF
+async function cargarJPEG(url){
+  try { const r = await fetch(url, {cache:'force-cache'}); if (!r.ok) return null; const bmp = await createImageBitmap(await r.blob());
+    const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height; const g = cv.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(bmp, 0, 0);
+    const b = await new Promise(ok => cv.toBlob(ok, 'image/jpeg', 0.92)); return {jpg:new Uint8Array(await b.arrayBuffer()), w:cv.width, h:cv.height}; }
+  catch(e) { return null; }
+}
+// Formato declarado en el SIG de SANVER: encabezado fijo; cambiar aquí SOLO cuando se publique una nueva versión del formato
+const FORMATO_SIG = {empresa:'Sanver Forte', titulo:'Cuadro Comparativo de precios.', fecha:'26/10/26', codigo:'F-CO-06', revision:'00'};
 
 async function huellaComparativo(c){
   const datos = JSON.stringify({folio:c.folio, aprobado_por:c.aprobado_por, aprobado_en:c.aprobado_en,
@@ -2368,18 +2385,28 @@ async function constanciaPDF(){
   const aprob = (S.usuarios || []).find(u => u.nombre === c.aprobado_por) || {};
   const pdf = new MiniPDF(); const M = 36, W = pdf.w - 2 * M, AZUL = [29, 93, 143], GRIS = [91, 104, 118], VERDE = [31, 122, 74], ROJO = [179, 38, 30];
   const anulado = c.estatus === 'ANULADO';
+  const base = location.href.replace(/[^/]*$/, ''), [mSup, mInf] = await Promise.all([cargarJPEG(base + 'membrete_sup.png'), cargarJPEG(base + 'membrete_inf.png')]);
+  const hSup = mSup ? W * mSup.h / mSup.w : 0, hInf = mInf ? W * mInf.h / mInf.w : 0, PIE = 30 + (hInf ? hInf + 8 : 0);   // espacio reservado abajo
   let y = 0;
   const encabezado = () => {
-    pdf.pagina(); y = M;
-    pdf.caja(0, 0, pdf.w, 6, {relleno: anulado ? ROJO : AZUL});
-    pdf.texto(M, y + 10, (CFG.EMPRESA || 'Departamento de Compras').toUpperCase(), {size:8, bold:true, color:GRIS});
-    pdf.texto(M, y + 27, anulado ? 'CONSTANCIA DE COMPARATIVO — APROBACIÓN ANULADA' : 'CONSTANCIA DE AUTORIZACIÓN DE COMPARATIVO', {size:14, bold:true, color: anulado ? ROJO : AZUL});
-    pdf.texto(pdf.w - M, y + 10, 'FOLIO', {size:8, bold:true, color:GRIS, align:'right'});
-    pdf.texto(pdf.w - M, y + 27, c.folio || '', {size:15, bold:true, align:'right'});
-    pdf.linea(M, y + 36, pdf.w - M, y + 36, {color:[213, 220, 227], grosor:1});
-    y += 50;
+    pdf.pagina(); y = 14;
+    if (mSup) { pdf.imagen(mSup, M, y, W, hSup); y += hSup + 6; }
+    // Recuadro del formato SIG (fijo)
+    const F = FORMATO_SIG, hb = 40, wd = 150;
+    pdf.caja(M, y, W, hb, {borde:[150, 160, 170], grosor:0.7}); pdf.linea(M + W - wd, y, M + W - wd, y + hb, {color:[150, 160, 170], grosor:0.7});
+    pdf.texto(M + (W - wd) / 2, y + 15, F.empresa, {size:13, bold:true, align:'center'});
+    pdf.texto(M + 10, y + 33, F.titulo, {size:12, bold:true, color:[68, 84, 106]});
+    pdf.texto(M + W - 8, y + 12, `Fecha de revisión: ${F.fecha}`, {size:7.5, align:'right'});
+    pdf.texto(M + W - 8, y + 23, `Código: ${F.codigo}`, {size:7.5, align:'right'});
+    pdf.texto(M + W - 8, y + 34, `Número de revisión: ${F.revision}`, {size:7.5, align:'right'});
+    y += hb + 8;
+    pdf.texto(M, y + 14, anulado ? 'CONSTANCIA DE COMPARATIVO — APROBACIÓN ANULADA' : 'CONSTANCIA DE AUTORIZACIÓN DE COMPARATIVO', {size:12, bold:true, color: anulado ? ROJO : AZUL});
+    pdf.texto(pdf.w - M, y + 6, 'FOLIO', {size:7.5, bold:true, color:GRIS, align:'right'});
+    pdf.texto(pdf.w - M, y + 19, c.folio || '', {size:13, bold:true, align:'right'});
+    pdf.linea(M, y + 25, pdf.w - M, y + 25, {color: anulado ? ROJO : [213, 220, 227], grosor:1});
+    y += 36;
   };
-  const espacio = (h) => { if (y + h > pdf.h - 48) { encabezado(); return true; } return false; };
+  const espacio = (h) => { if (y + h > pdf.h - PIE - 10) { encabezado(); return true; } return false; };
   const titulo = (txt) => { espacio(30); pdf.texto(M, y + 10, txt.toUpperCase(), {size:9, bold:true, color:AZUL}); y += 18; };
   encabezado();
 
@@ -2453,8 +2480,10 @@ async function constanciaPDF(){
 
   // Pie de página en todas las hojas
   const gen = `Generado el ${fmtFH(new Date().toISOString())} por ${S.user.nombre} · Huella de verificación ${huella}`;
-  pdf.paginas.forEach((pg, i) => { pdf.cur = pg; pdf.linea(M, pdf.h - 30, pdf.w - M, pdf.h - 30, {color:[213, 220, 227]});
-    pdf.texto(M, pdf.h - 18, `${c.folio} · ${gen}`, {size:7, color:GRIS}); pdf.texto(pdf.w - M, pdf.h - 18, `Página ${i + 1} de ${pdf.paginas.length}`, {size:7, color:GRIS, align:'right'}); });
+  pdf.paginas.forEach((pg, i) => { pdf.cur = pg; const yp = pdf.h - PIE;
+    pdf.linea(M, yp + 4, pdf.w - M, yp + 4, {color:[213, 220, 227]});
+    pdf.texto(M, yp + 15, `${c.folio} · ${gen}`, {size:7, color:GRIS}); pdf.texto(pdf.w - M, yp + 15, `${FORMATO_SIG.codigo} rev. ${FORMATO_SIG.revision} · Página ${i + 1} de ${pdf.paginas.length}`, {size:7, color:GRIS, align:'right'});
+    if (mInf) pdf.imagen(mInf, M, pdf.h - 10 - hInf, W, hInf); });
 
   const blob = new Blob([pdf.bytes()], {type:'application/pdf'});
   const nombre = `Constancia ${c.folio} ${c.titulo || ''}`.replace(/[\\/:*?"<>|]/g, '').slice(0, 90) + '.pdf';
