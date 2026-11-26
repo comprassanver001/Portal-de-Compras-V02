@@ -243,7 +243,7 @@ function estDe(r,b){if(b==='D')return r.est;const v=estBase(r,b);return v||(r.ro
 function consDe(r,b){return b==='A'?r.A:b==='P'?r.P:r.D;}
 function mesesDe(r,b){const c=consDe(r,b);return c>0?(r.ex+(r.boU||0))/c:null;}
 // ── Con o sin BO (default sin BO). Tablero, Detalle y Pedidos siguen la opción; Target, OTIF y precisión siempre sin BO ──
-function aplicarBO(){if(!S.raw)return;S.claves=P.aplicarBO(S.raw,!!S.conBO,S.fecha);}
+function aplicarBO(){if(!S.raw)return;S.claves=P.aplicarBO(S.raw,!!S.conBO,S.fecha);S.prodC=S.prodRaw&&S.prodRaw.length?P.aplicarBO(S.prodRaw,!!S.conBO,S.fecha):[];}
 function avisoBO(){const x=$('bo-desc');if(!x)return;const c=!!S.conBO;x.style.background=c?'#dbeafe':'#f1f5f9';x.style.color=c?'#1e40af':'#334155';
   x.innerHTML=c?'🚚 <b>Considerando el BO actual del CEDI</b>: estatus, nivel de riesgo, meses y propuestas suman lo que viene en camino; un faltante con BO sale como <b>cubierto con BO</b>. La tendencia, Target y OTIF siguen sin BO.'
     :'📦 <b>Sin BO</b> (solo existencia), como se miden las alarmas, Target y el bono. Cambia a <b>Con BO</b> para ver si el BO alcanza o hay que pedir más.';}
@@ -381,7 +381,7 @@ async function recargar(){
     // Claves restringidas vigentes (activas, menos de 30 días): no cuentan al comprador en Mi Resumen ni en Histórico de Inventarios
     S.restr=new Map();try{const{data}=await sb.from('claves_restringidas').select('clave,comprador,motivo,autorizado_en,activa').eq('activa',true);
       (data||[]).forEach(x=>{const b=x.autorizado_en?new Date(String(x.autorizado_en).slice(0,10)+'T12:00:00'):null;if(b&&!isNaN(b)&&Math.floor((Date.now()-b.getTime())/864e5)>=30)return;
-        S.restr.set(String(x.clave).trim()+'||'+String(x.comprador||'').trim().toUpperCase(),{motivo:x.motivo||'',hasta:b?new Date(b.getTime()+30*864e5).toISOString().slice(0,10):null});});}catch(e){}/* producción: solo se consulta desde la ficha del insumo */S.ocs=js.ocs||{};S.fecha=js.fecha;S.raw=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));aplicarBO();S.ventasHasta=js.ventas_hasta||{};S.ventasDesde=js.ventas_desde||{};S.resumen=pub.resumen||{};
+        S.restr.set(String(x.clave).trim()+'||'+String(x.comprador||'').trim().toUpperCase(),{motivo:x.motivo||'',hasta:b?new Date(b.getTime()+30*864e5).toISOString().slice(0,10):null});});}catch(e){}/* producción: solo se consulta desde la ficha del insumo */S.ocs=js.ocs||{};S.fecha=js.fecha;S.raw=(js.claves||[]).filter(r=>!r.pr&&!P.esProd(r));S.prodRaw=(js.claves||[]).filter(r=>!r.pr&&P.esProd(r));aplicarBO();S.ventasHasta=js.ventas_hasta||{};S.ventasDesde=js.ventas_desde||{};S.resumen=pub.resumen||{};
     $('corte').textContent='Cálculo al '+fmtF(S.fecha)+' · '+fmtN(S.claves.length)+' claves';
     try{const cs=await todo(()=>sb.from('plan_costos').select('clave,costo,mes').order('clave'));S.costos=new Map(cs.map(x=>[Number(x.clave),{c:Number(x.costo),mes:String(x.mes||'').slice(0,7)}]));S.costoErr=null;}
     catch(e){S.costos=new Map();S.costoErr=e.message||String(e);}
@@ -544,10 +544,13 @@ function pintarDetalle(){
   sincComp(DF);const DFx=lq?DF.filter(([id])=>!esComp(id)):DF;
   MS.cascada(base0,DFx,DFL,DFO);
   const rows=base0.filter(r=>MS.pasa(r,DFx));const{k,d}=S.sort;
+  // Claves de producción (comprador PRODUCCION): solo consulta, aparecen al buscarlas por clave o descripción; no cuentan en indicadores ni propuestas
+  const qP=String(S.f.q||'').trim().toUpperCase();let nProd=0;
+  if(qP&&S.prodC&&S.prodC.length){const ls=lq?new Set(lq):null;S.prodC.forEach(r=>{const cs=String(r.c);if(ls?ls.has(cs):(cs.startsWith(qP)||String(r.n||'').toUpperCase().includes(qP))){rows.push(Object.assign({},r,{_prod:1}));nProd++;}});}
   rows.sort((a,b)=>{let x=valorOrden(a,k),y=valorOrden(b,k);if(x==null)x=-Infinity;if(y==null)y=-Infinity;if(typeof x==='string'||typeof y==='string')return String(x).localeCompare(String(y),'es')*d;return(x-y)*d||((a.mi??1e9)-(b.mi??1e9));});
   if(lq){const hay=new Set(rows.map(r=>String(r.c))),todas=new Set(S.claves.map(r=>String(r.c)));const noEx=lq.filter(c=>!todas.has(c)),oc=lq.filter(c=>todas.has(c)&&!hay.has(c));
     $('d-count').innerHTML=fmtN(rows.length)+' de '+fmtN(lq.length)+' claves buscadas'+(noEx.length?' · <span style="color:#c0392b" title="No están en el cálculo del portal">no existen: '+esc(noEx.join(', '))+'</span>':'')+(oc.length?' · <span style="color:#b45309" title="Quita los demás filtros para verlas">ocultas por filtros: '+esc(oc.join(', '))+'</span>':'');}
-  else $('d-count').textContent=fmtN(rows.length)+' de '+fmtN(misClaves().length)+' claves';
+  else $('d-count').textContent=fmtN(rows.length-nProd)+' de '+fmtN(misClaves().length)+' claves'+(nProd?' · '+fmtN(nProd)+' de producción (solo consulta)':'');
   const B=S.base,act=g=>B===g?' act':'';
   const gspan=g=>DCOLS.filter(c=>c.g===g).length;
   const pre=DCOLS.findIndex(c=>c.g==='A');const mid=DCOLS.filter((c,i)=>!c.g&&i>DCOLS.findIndex(c=>c.g==='D')&&i<DCOLS.findIndex(c=>c.g==='Pr')).length;
@@ -558,14 +561,15 @@ function pintarDetalle(){
   const cp=v=>v==null?'—':v>0?'<b class="comprar">'+fmtN(v)+'</b>':'<span class="cero">0</span>';
   let html='';
   rows.slice(0,S.limite).forEach(r=>{
+    const cpR=r._prod?(()=>'<span class="mut sm" title="Clave de producción: no se compra">—</span>'):cp;
     const ch=cambia(r),em=empeora(r);const mk=ch?'<span class="cambia'+(em?' bad':'')+'" title="'+(em?'Empeora con el pronóstico':'Cambia de estatus')+': '+(EST[estDe(r,'A')]||{}).l+' → '+(EST[estDe(r,'P')]||{}).l+'">⇄</span>':'';
     const ocs=S.ocs[r.c]||[];
-    html+='<tr data-c="'+r.c+'" style="cursor:pointer"><td><span class="lk">'+r.c+'</span></td><td class="desc">'+esc(r.n)+restrTxt(r)+(r.nt?'<div class="mut sm" title="'+esc(r.nt)+'">ⓘ '+esc(r.nt.length>60?r.nt.slice(0,60)+'…':r.nt)+'</div>':'')+'</td><td class="num">'+exTxt(r)+'</td><td class="num">'+boTxt(r)+'</td><td class="sm mut">'+esc(r.u)+'</td>'
+    html+='<tr data-c="'+r.c+'" style="cursor:pointer"><td><span class="lk">'+r.c+'</span></td><td class="desc">'+esc(r.n)+(r._prod?'<div class="sm" style="color:#be185d" title="Comprador PRODUCCION: se ve para seguir su venta; no cuenta en indicadores ni propuestas y se compra por sus insumos">🏭 producción · solo consulta</div>':'')+restrTxt(r)+(r.nt?'<div class="mut sm" title="'+esc(r.nt)+'">ⓘ '+esc(r.nt.length>60?r.nt.slice(0,60)+'…':r.nt)+'</div>':'')+'</td><td class="num">'+exTxt(r)+'</td><td class="num">'+boTxt(r)+'</td><td class="sm mut">'+esc(r.u)+'</td>'
       +'<td class="num gA'+act('A')+'">'+fmtN(r.A,r.A!=null&&r.A<10?1:0)+'</td><td class="num gA'+act('A')+'">'+fmtN(mesesDe(r,'A'),1)+'</td><td class="gA">'+tag(estDe(r,'A'),B==='A')+'</td>'
       +'<td class="num gP'+act('P')+'">'+fmtN(r.P,r.P!=null&&r.P<10?1:0)+'</td><td class="num gP'+act('P')+'">'+fmtN(mesesDe(r,'P'),1)+'</td><td class="gP">'+tag(estDe(r,'P'),B==='P')+mk+'</td><td class="num gP">'+varTxt(r)+'</td>'
       +'<td class="num gD'+act('D')+'" title="'+esc(r.bD)+'">'+fmtN(r.D,r.D!=null&&r.D<10?1:0)+'</td><td class="num gD'+act('D')+'">'+fmtN(r.mi,1)+'</td><td class="num gD" style="color:#7c3aed" title="Meses de inventario contando el BO del CEDI (referencia; el estatus no lo cuenta)">'+fmtN(r.miB,1)+'</td><td class="gD">'+tag(r.est,B==='D')+(B==='D'?nivTag(r):'')+'</td>'
       +'<td class="num">'+fmtN(r.pm,1)+'</td><td class="num">'+fmtN(r.lt,1)+'</td><td class="sm">'+esc(r.comp)+'</td><td class="sm">'+esc(r.m||'')+'</td><td class="num" title="'+(costoDe(r)!=null?'Costo unitario '+fmt$(costoDe(r))+' × consumo':'Sin costo registrado')+'">'+fmt$(impDe(r,S.base))+'</td><td class="num">'+(ocs.length?'<span title="'+esc(ocs.map(o=>'OC '+o[0]+': '+fmtN(o[1])+' pend.').join('\n'))+'">'+ocs.length+'</span>':'<span class="cero">0</span>')+'</td>'
-      +'<td class="num gPr'+act('A')+'">'+cp(r.sA)+'</td><td class="num gPr'+act('P')+'">'+cp(r.sP)+'</td><td class="num gPr'+act('D')+'">'+cp(r.s)+'</td><td class="num gPr" title="'+esc(r.eT||'sin empaque válido')+'">'+(r.sE!=null?cp(r.sE)+' <span class="mut sm">'+esc(r.eT||'')+'</span>':'—')+'</td>'
+      +'<td class="num gPr'+act('A')+'">'+cpR(r.sA)+'</td><td class="num gPr'+act('P')+'">'+cpR(r.sP)+'</td><td class="num gPr'+act('D')+'">'+cpR(r.s)+'</td><td class="num gPr" title="'+esc(r.eT||'sin empaque válido')+'">'+(r.sE!=null?cp(r.sE)+' <span class="mut sm">'+esc(r.eT||'')+'</span>':'—')+'</td>'
       +'<td class="num">'+(r.mfM!=null?(r.mfF?'<span class="pill p-warn" title="Excedente MF: '+fmtN(r.mfX)+'">'+fmtN(r.mfM,1)+' ⚑</span>':fmtN(r.mfM,1)):'—')+'</td></tr>';
     if(S.abierto.has(r.c))html+='<tr class="det"><td colspan="'+DCOLS.length+'" id="det-'+r.c+'"><div class="loading">Cargando ventas de la clave…</div></td></tr>';
   });

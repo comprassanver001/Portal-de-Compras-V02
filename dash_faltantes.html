@@ -948,7 +948,7 @@ async function sobDia(){
   const S=G.sobreInv;const f=document.getElementById('sob-mes').value;if(!S||!f)return;
   if(!S.meses.includes(f)){
     const kb=document.getElementById('sob-kpis');if(kb)kb.innerHTML='<div style="grid-column:1/-1;padding:18px;color:#6b7a99">⏳ Calculando el '+fdl(f)+'…</div>';
-    try{const rows=await diaDetalle(f);const r=sobCalcDia(rows,f);
+    try{const rows=sinProd(await diaDetalle(f));const r=sobCalcDia(rows,f);
       if(!S.meses.includes(f)){S.celdas.push(...r.celdas);S.meses.push(f);S.meses.sort();
         const T=G.topExceso||(G.topExceso={porDiaComp:{},dias:[]});Object.assign(T.porDiaComp,r.porDiaComp);if(!T.dias.includes(f)){T.dias.push(f);T.dias.sort();}}
     }catch(e){if(kb)kb.innerHTML='<div style="grid-column:1/-1;padding:18px;color:#c0392b">❌ No se pudo cargar el '+fdl(f)+': '+escH2(e.message||e)+'</div>';return;}
@@ -1884,13 +1884,15 @@ const mesesPlan=(r,b)=>{if(!r)return null;const X=b==='A'?r.A:b==='P'?r.P:r.D;re
 // ── Detalle de un día: foto del cálculo del portal de ese día (estatus y meses de inventario del portal) ──
 const DIA=new Map();
 const ROTX=r=>P.ROT_X[r]||r||'';
+const sinProd=rows=>rows.filter(r=>!r._prod&&!EXCL.includes(r.comprador));
 async function diaDetalle(f){
   if(DIA.has(f))return DIA.get(f);
   const cl=await FOTOS.dia(sbc(),f);
   if(!cl)throw new Error('El portal no tiene calculado el '+fdl(f)+' (Admin → Cálculo diario → Reconstruir historial).');
   const rows=cl.map(x=>({fecha:f,clave:String(x.c),nombre:x.n||'',marca:x.m||'',unidad:x.u||'',clasificacion:String(x.abc||'').trim(),existencias:+x.ex||0,grupo:String(x.g||'').trim(),
       comprador:String(x.comp||'').trim().toUpperCase(),clmov:ROTX(x.rot),t_entrega:x.lt==null?null:+x.lt,obj_meses:x.pm==null?null:+x.pm,meses_inv:x.mi==null?null:+x.mi,mib:x.miB==null?null:+x.miB,
-      estatus:x.est||'',bo:x.boT!=null?+x.boT:+x.bo||0,_f:x})).filter(r=>r.comprador&&!EXCL.includes(r.comprador));
+      estatus:x.est||'',bo:x.boT!=null?+x.boT:+x.bo||0,_f:x,_prod:String(x.comp||'').trim().toUpperCase()==='PRODUCCION'?1:0})).filter(r=>r.comprador);
+  // Las claves de producción se quedan solo para la Consulta de clave (se ven, no cuentan); sobre inventario y comparativo las quitan con sinProd()
   // Ambiente de pruebas: el día del último cálculo se muestra con el cálculo del laboratorio (igual que Planeación y la ficha).
   // Los días anteriores se quedan con lo que salió ese día.
   if(window.LABAPL){try{const plan=await cargarPlan();if(plan&&plan.fecha===f)rows.forEach(r=>{const q=plan.byClave.get(String(Number(r.clave)))||plan.byClave.get(r.clave);if(!q||!q.lab)return;
@@ -2050,7 +2052,7 @@ async function pintarConsulta(recargar){
   let h='';
   const yaFicha=new Set();
   rows.slice(0,CQ.lim).forEach(r=>{const p=r._p;const eA=estPlan(p,'A'),eP=estPlan(p,'P');const ch=p&&eA!==eP;
-    h+='<tr class="cqr" data-c="'+escH2(r.clave)+'"><td><span class="sem '+SCSS[r.semaforo]+'" title="'+escH2(SEMD[r.semaforo])+'"></span></td><td><b class="lk2">'+escH2(r.clave)+'</b>'+(md?'<div class="sm2">'+fdl(r.fecha).slice(0,5)+'</div>':'')+'</td><td class="nm">'+escH2(r.nombre)+'</td><td>'+escH2(r.marca)+'</td><td>'+escH2(S2N(r.comprador))+'</td><td>'+escH2((r.clmov||'').replace(' ROTACIÓN',''))+'</td>'
+    h+='<tr class="cqr" data-c="'+escH2(r.clave)+'"><td><span class="sem '+SCSS[r.semaforo]+'" title="'+escH2(SEMD[r.semaforo])+'"></span></td><td><b class="lk2">'+escH2(r.clave)+'</b>'+(md?'<div class="sm2">'+fdl(r.fecha).slice(0,5)+'</div>':'')+'</td><td class="nm">'+escH2(r.nombre)+(r._prod?'<div class="sm2" style="color:#be185d" title="Comprador PRODUCCION: solo consulta, no cuenta en faltantes, bono ni indicadores">🏭 producción · solo consulta</div>':'')+'</td><td>'+escH2(r.marca)+'</td><td>'+escH2(S2N(r.comprador))+'</td><td>'+escH2((r.clmov||'').replace(' ROTACIÓN',''))+'</td>'
      +'<td class="num">'+(p&&p.rs>0?'<span title="CEDI '+nf(p.exC)+' + resguardo con proveedor '+nf(p.rs)+'">'+nf(r.existencias)+' <span style="color:#0f766e;font-size:11px">+RG</span></span>':nf(r.existencias))+'</td><td class="num">'+nf(r.bo)+'</td><td class="num">'+nf(r.obj_meses,1)+'</td><td class="num">'+nf(r.t_entrega,1)+'</td>'
      +'<td class="ga num">'+(p?nf(p.A,p.A!=null&&p.A<10?1:0):'—')+'</td><td class="ga num">'+(p?nf(mesesPlan(p,'A'),1):'—')+'</td><td class="ga">'+(p?estTag(eA):'—')+'</td>'
      +'<td class="gp num">'+(p?nf(p.P,p.P!=null&&p.P<10?1:0):'—')+(()=>{const t=tempCQ(r);if(t.t!=='SUBE'&&t.t!=='BAJA')return'';return '<div class="sm2" style="color:'+(t.t==='SUBE'?'#c2410c':'#2563eb')+';font-weight:700" title="'+P.TEMP_L[t.t]+'">'+(t.t==='SUBE'?'↑ ':'↓ ')+(t.v==null?'nueva':(t.v>0?'+':'')+Math.round(t.v*100)+'%')+'</div>';})()+'</td><td class="gp num">'+(p?nf(mesesPlan(p,'P'),1):'—')+'</td><td class="gp">'+(p?estTag(eP)+(ch?' <span title="Cambia entre antecedente y pronóstico" style="color:#d97706;font-weight:800">⇄</span>':''):'—')+'</td>'
@@ -2124,7 +2126,7 @@ async function pintarComparativo(recargar){
   const fa=document.getElementById('cm-a').value,fb=document.getElementById('cm-b').value;
   if(recargar){
     document.getElementById('cm-body').innerHTML='<tr><td colspan="13" class="cq-load">⏳ Comparando '+fdl(fa)+' contra '+fdl(fb)+'…</td></tr>';
-    try{const[a,b]=await Promise.all([diaDetalle(fa),diaDetalle(fb)]);CM.rows=calcComparativo(a,b);CM.fa=fa;CM.fb=fb;
+    try{const[a,b]=await Promise.all([diaDetalle(fa),diaDetalle(fb)]);CM.rows=calcComparativo(sinProd(a),sinProd(b));CM.fa=fa;CM.fb=fb;
       if(!CM.ini){CM.ini=1;const up=usuarioPortal();if(up&&CM.rows.some(x=>x.r.comprador===up))MSX['cm-comp'].sel.add(up);}
     }catch(e){document.getElementById('cm-body').innerHTML='<tr><td colspan="13" class="cq-load" style="color:#c0392b">❌ '+escH2(e.message||e)+'</td></tr>';return;}
   }
