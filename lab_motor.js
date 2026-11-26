@@ -189,6 +189,7 @@ L.indices=(items,o,m0,P)=>{
   const niv=[new Map(),new Map(),new Map()];
   const get=(M,k)=>{let x=M.get(k);if(!x){x={s:new Float64Array(12),n:new Float64Array(12),c:0};M.set(k,x);}return x;};
   for(const it of items){
+    if(it.consulta)continue;
     const s=it.s,v=it.v;
     for(let fin=o;fin-12>=0;fin-=12){
       const a=fin-12;let tot=0,nv=0,nz=0;
@@ -220,6 +221,7 @@ L.crecimiento=(items,o,P)=>{
   const out=new Map();if(o<24)return k=>1;
   const por=new Map();
   for(const it of items){
+    if(it.consulta)continue;
     let a=0,na=0,b=0,nb=0;
     for(let t=o-12;t<o;t++)if(it.v[t]){a+=it.s[t];na++;}
     for(let t=o-24;t<o-12;t++)if(it.v[t]){b+=it.s[t];nb++;}
@@ -577,10 +579,11 @@ L.correr=(D,Pin,hooks)=>{
   const SU=K.map((k,i)=>L.suavizar(k.s,vFin[i],P,k.dd?MES.map(m=>k.dd[m]||null):null));
   // 1. Pronósticos de todos los métodos en todos los meses de origen
   for(let o=O_MIN;o<=T;o++){
-    const items=K.map((k,i)=>({s:k.s,v:L.validos(k.s,o,P,noAg[i],k.lleg),llaves:ll[i]}));
+    // claves de solo consulta (producción): usan la temporada y el crecimiento de su familia, pero no los forman (no mueven a las demás)
+    const items=K.map((k,i)=>({s:k.s,v:L.validos(k.s,o,P,noAg[i],k.lleg),llaves:ll[i],consulta:!!k.consulta}));
     const idx=L.indices(items,o,m0,P),cre=L.crecimiento(items,o,P);
     for(let i=0;i<n;i++){
-      const k=K[i],it=items[i],I=idx(it.llaves),g=cre(k.g);
+      const k=K[i],it=items[i],I=idx(it.llaves),g=cre(it.llaves[2]);
       const F=L.pronosticar({s:k.s,sS:SU[i].s,v:it.v,o,m0,I,g},12,P);const b=i*nO+oi(o);
       for(let m=0;m<nM;m++){const f=F[MET[m]];F3[b*nM+m]=L.acum(f,P.H_SEL);FH[b*nM+m]=L.acum(f,Hp[i]);}
       let t=0,c=0;for(let x=Math.max(0,o-12);x<o;x++)if(it.v[x]){t+=k.s[x];c++;}PR[b]=c?t/c:0;
@@ -600,7 +603,7 @@ L.correr=(D,Pin,hooks)=>{
     const err=new Float64Array(n*nM),cnt=new Uint16Array(n),sumA=new Float64Array(n);
     for(let i=0;i<n;i++)for(let o=a;o<=bf;o++){const b=i*nO+oi(o);const A=A3[b];if(isNaN(A))continue;cnt[i]++;sumA[i]+=A;for(let m=0;m<nM;m++)err[i*nM+m]+=Math.abs(F3[b*nM+m]-A);}
     const tot=TIPOS.map(()=>new Float64Array(nM));const tt=oi(Math.min(t,T));
-    for(let i=0;i<n;i++){if(cnt[i]<3||!(sumA[i]>0))continue;const tp=TP[i*nO+tt];for(let m=0;m<nM;m++)tot[tp][m]+=err[i*nM+m]/(sumA[i]/cnt[i]);}
+    for(let i=0;i<n;i++){if(K[i].consulta||cnt[i]<3||!(sumA[i]>0))continue;const tp=TP[i*nO+tt];for(let m=0;m<nM;m++)tot[tp][m]+=err[i*nM+m]/(sumA[i]/cnt[i]);}
     const omi=tot.map(x=>{let b=iM.CMB;if(x[b]===0&&x[0]===0)return b;for(let m=0;m<nM;m++)if(x[m]<x[b])b=m;return b;});
     const sel=new Uint8Array(n),propio=new Uint8Array(n),gr=new Uint8Array(n),GR={A:0,B:1,C:2};
     for(let i=0;i<n;i++){
@@ -620,7 +623,7 @@ L.correr=(D,Pin,hooks)=>{
       const hc=Math.ceil(Hp[i]),a=Math.max(O_MIN,t-hc-P.ORIGENES-6),bf=t-hc;const u=[],um=[[],[],[],[],[],[],[],[],[],[],[],[]];
       for(let o=a;o<=bf;o++){const b=i*nO+oi(o);const A=AH[b];if(isNaN(A))continue;const F=FH[b*nM+E.sel[i]];const e=L.escala(F,PR[b],Hp[i],P);
         if(e>1e-6){const x=Math.min(20,(A-F)/e),mo=(m0+o)%12;u.push(x);um[mo].push(x);
-          if(L.ROT_PRUEBA.indexOf(K[i].rot)>=0){const z=pozo[TP[i*nO+tt]][hb(Hp[i])][E.gr[i]];z[CL[b]].push(x);z[3].push(x);
+          if(L.ROT_PRUEBA.indexOf(K[i].rot)>=0&&!K[i].consulta){const z=pozo[TP[i*nO+tt]][hb(Hp[i])][E.gr[i]];z[CL[b]].push(x);z[3].push(x);
             if(P.SEG_TEMPORADA){const hh=hb(Hp[i]);fp('f|'+ll[i][0]+'|'+hh+'|'+mo,x);fp('s|'+ll[i][1]+'|'+hh+'|'+mo,x);fp('t|'+TP[i*nO+tt]+'|'+hh+'|'+E.gr[i]+'|'+mo,x);}}}}
       u.sort((x,y)=>x-y);propios[i]=u;propiosM[i]=um;
     }
@@ -653,7 +656,7 @@ L.correr=(D,Pin,hooks)=>{
   pruebas.forEach((t,ip)=>{
     const E=elegirEn(t),er=erroresEn(t,E);
     for(let i=0;i<n;i++){
-      if(!enU(i)||!(escC[i]>0))continue;
+      if(K[i].consulta||!enU(i)||!(escC[i]>0))continue;
       const b=i*nO+oi(t),A=A3[b];const pd=D.portal?D.portal(i,t):null;
       if(!isNaN(A)){
         for(const g of ['Todas',K[i].rot,TIPOS[TP[b]]]){
@@ -749,7 +752,7 @@ L.correr=(D,Pin,hooks)=>{
     if(base&&esc>0){const lim=(inv.disp-Fh)/esc;let lo=0,hi=base.length;while(lo<hi){const md=(lo+hi)>>1;if(base[md]<=lim)lo=md+1;else hi=md;}pa=1-lo/base.length;}
     const eRel=E.sumA[i]>0?E.err[i*nM+E.sel[i]]/E.sumA[i]:null,pd=D.portal?D.portal(i,T):null;
     const r3=x=>Math.round(x*1000)/1000;
-    claves[i]={c:k.c,tipo:TIPOS[TP[b]],metodo:m,propio:!!E.propio[i],pruebas:E.cnt[i],errRel:eRel,conf:GN[E.gr[i]],servicio:p,H,cob:cobC,cobOrig:cob,Dm,
+    claves[i]={c:k.c,consulta:k.consulta?1:0,tipo:TIPOS[TP[b]],metodo:m,propio:!!E.propio[i],pruebas:E.cnt[i],errRel:eRel,conf:GN[E.gr[i]],servicio:p,H,cob:cobC,cobOrig:cob,Dm,
       f:Array.from(f,r3),idx:Array.from(u.I,r3),crec:u.g,q10:q(0.10)*(Fh>0?esc/Fh:0),q90:q(0.90)*(Fh>0?esc/Fh:0),
       bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
       punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,

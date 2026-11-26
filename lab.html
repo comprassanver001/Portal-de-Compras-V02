@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
-<script src="lab_motor.js?v=20261124d" charset="utf-8"></script>
+<script src="lab_motor.js?v=20261126a" charset="utf-8"></script>
 <script src="lab_bo.js?v=20261125b" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
@@ -316,11 +316,11 @@ async function cargarDatos(){
     if(comp==='PRODUCCION'){ // solo consulta: no entra al cálculo ni a la propuesta, se muestra su venta
       const ser=P.serie(V.get(c)||{},ED.get(c)).s,sp=meses.map(m=>Math.max(0,Number(ser[m])||0));
       S.prodK.set(c,{c,n:r.n||'',comp,rot,g:r.g||'',m:r.m||'',u:r.u||'',ex:Number(r.ex)||0,bo:Number(r.bo)||0,est:r.est,s:sp,par:parcial?Math.max(0,Number(ser[mesAct])||0):null,
-        red:S.red.ventas&&RV.has(c)?LAB.red.armar(RV.get(c),null,S.red.ventas,meses):null});return;}
+        red:S.red.ventas&&RV.has(c)?LAB.red.armar(RV.get(c),null,S.red.ventas,meses):null});}
     if(rot==='SIN COMPRA')return;
     const ser=P.serie(V.get(c)||{},ED.get(c)).s,a=AG.get(c),f=FM.get(c)||{};
     const s=meses.map(m=>Math.max(0,Number(ser[m])||0));if(!s.some(x=>x>0))return;
-    const k={c,rot,g:r.g||'SIN GRUPO',sg:f.subgrupo||'',ssg:f.subsubgrupo||'',lt:Number(r.lt)||0,pm:Number(r.pm)||0,ex:Number(r.ex)||0,bo:Number(r.bo)||0,s,ag:a?meses.map(m=>a.has(m)?1:0):null};
+    const k={c,consulta:comp==='PRODUCCION'?1:0,rot,g:r.g||'SIN GRUPO',sg:f.subgrupo||'',ssg:f.subsubgrupo||'',lt:Number(r.lt)||0,pm:Number(r.pm)||0,ex:Number(r.ex)||0,bo:Number(r.bo)||0,s,ag:a?meses.map(m=>a.has(m)?1:0):null};
     if(parcial)k.par=Math.max(0,Number(ser[mesAct])||0);
     {const a=S.te.get(c),u=S.teUlt&&S.teUlt.get(c);if(a)k.teA=a;if(u)k.tePv=u.pv;if(a||u)S.teInfo.set(c,1);}
     if(S.red.ventas&&(RV.has(c)||RI.has(c)))k.red=LAB.red.armar(RV.get(c),RI.get(c),S.red.ventas,meses);
@@ -475,7 +475,7 @@ function ver(t){S.vista=t;document.querySelectorAll('#tabs div').forEach(d=>d.cl
 const ROTN={'SAGRADOS':'Sagrados','ALTA ROTACION':'Alta','MEDIA ROTACION':'Media','LENTA ROTACION':'Lenta','NUEVOS':'Nuevos'};
 function pintarResumen(){
   const R=S.R,m=R.resumen['Motor']&&R.resumen['Motor'].Todas,a=R.resumen['Método actual del portal']&&R.resumen['Método actual del portal'].Todas,c=R.calibracion.Todas;
-  const U=R.claves.filter(k=>LAB.ROT_PRUEBA.includes(S.info.get(k.c).rot));
+  const U=R.claves.filter(k=>!k.consulta&&LAB.ROT_PRUEBA.includes(S.info.get(k.c).rot));
   const n=x=>U.filter(x).length,vs=(x,y,menor)=>y==null?'':' <span class="c">· actual '+pc(y)+'</span>';
   const kp=(t,v,cc,cls)=>'<div class="kpi"><div class="t">'+t+'</div><div class="v '+(cls||'')+'">'+v+'</div><div class="c">'+cc+'</div></div>';
   $('kpis').innerHTML=!m?'<div class="kpi">No hay suficientes meses para la prueba.</div>':
@@ -506,7 +506,7 @@ function pintarResumen(){
       '<div class="kpis">'+kp('Tiendas con inventario de sobra',nf(sob),'claves donde la compra baja más de ¼ de mes de venta')+kp('Tiendas debajo de su base',nf(fal),'claves donde la compra sube más de ¼ de mes')+kp('Sin cambio',nf(UR.length-sob-fal),'las tiendas están cerca de su número base')+kp('Unidad distinta',nf(ud),'la existencia MF viene en otra unidad: no se ajustan')+'</div>'+
       '<p class="d" style="margin-top:8px"><b>Importante:</b> esta parte no se puede probar contra el pasado porque no hay historial de existencias por tienda; se apoya en la venta y el inventario actuales. El punto de alarma no cambia con este ajuste, solo la cantidad a comprar.</p>';}
   else cr.innerHTML='<h2>Red: mayoreo y tiendas Mas Ferre</h2><p class="d"><b>Aún no está cargada.</b> El cálculo usa solo la venta total de SANVER. Carga la plantilla de ventas y el archivo de existencias MF en «Variables y escenarios».</p>';
-  $('limites').innerHTML='<b>Qué usa este cálculo:</b> venta SANVER del portal (mayoreo + distribución a tiendas'+(S.nRed?'; en la ficha se ve cada parte':'')+')'+(S.prodK&&S.prodK.size?'; las '+nf(S.prodK.size)+' claves de producción no se compran: se ven solo para consulta con el filtro Comprador PRODUCCION o buscándolas, y su venta ya entra como consumo de sus insumos':'')+(S.nED?', con las entregas directas restadas ('+nf(S.nED)+' claves)':'')+(S.nAG?', sin los meses agotados ('+nf(S.nAG)+' claves)':'')+'; existencia, BO, tiempo de entrega, meses objetivo y rotación del cálculo publicado'+(S.boRes?' (BO completado con las OCs abiertas: sube en '+nf(S.boRes.sube)+' claves, +'+nf(S.boRes.pzsSube)+' pzs, por OCs levantadas desde el día del cálculo; baja en '+nf(S.boRes.baja)+' claves, −'+nf(S.boRes.pzsBaja)+' pzs, porque su BO pasa de lo pendiente en sus OCs al CEDI de 90 días o menos)':(LABBO.error?' (no se pudieron leer las OCs abiertas: '+esc(LABBO.error)+')':''))+'. '+
+  $('limites').innerHTML='<b>Qué usa este cálculo:</b> venta SANVER del portal (mayoreo + distribución a tiendas'+(S.nRed?'; en la ficha se ve cada parte':'')+')'+(S.prodK&&S.prodK.size?'; las '+nf(S.prodK.size)+' claves de producción se pronostican con las mismas reglas, pero son solo consulta: no se compran, no entran en la prueba con historial ni en «toca pedir», y su venta ya entra como consumo de sus insumos':'')+(S.nED?', con las entregas directas restadas ('+nf(S.nED)+' claves)':'')+(S.nAG?', sin los meses agotados ('+nf(S.nAG)+' claves)':'')+'; existencia, BO, tiempo de entrega, meses objetivo y rotación del cálculo publicado'+(S.boRes?' (BO completado con las OCs abiertas: sube en '+nf(S.boRes.sube)+' claves, +'+nf(S.boRes.pzsSube)+' pzs, por OCs levantadas desde el día del cálculo; baja en '+nf(S.boRes.baja)+' claves, −'+nf(S.boRes.pzsBaja)+' pzs, porque su BO pasa de lo pendiente en sus OCs al CEDI de 90 días o menos)':(LABBO.error?' (no se pudieron leer las OCs abiertas: '+esc(LABBO.error)+')':''))+'. '+
     (S.fam?'Temporada por sub-subgrupo ('+nf(S.fam)+' claves con familia).':'<b>Sin familias cargadas:</b> la temporada se calcula solo por grupo; carga la hoja BASE DE NEGOCIO en «Variables y escenarios».')+
     (R.param.REGLA_TEMP?' Regla de temporalidad: ritmo base '+(S.dd&&S.dd.size?'con picos detectados en la venta diaria ('+nf(S.dd.size)+' claves)':'con picos detectados por mes (sin venta diaria: '+(R.param.PICO_SUAVIZA?'se quitan':'solo se reportan')+')')+' × temporada de la familia'+(R.param.CORTE_TEMPORADA?'; la compra no cubre la siguiente temporada alta':'')+'.':'')+(S.ddNota?' '+esc(S.ddNota):'')+
     (S.D.parcial&&!R.param.PARCIAL_ACTIVA?' La venta del mes en curso ('+S.D.parcial.corte+') no se usa: el pronóstico sale solo de meses cerrados.':'')+
@@ -531,25 +531,19 @@ function filtradas(){
   const fc=$('f-comp').value,fr=$('f-rot').value,ff=$('f-conf').value,fp=$('f-ped').value,q=P.norm($('f-q').value);
   const out=[];
   S.R.claves.forEach(k=>{const i=S.info.get(k.c);
-    if(fc==='PRODUCCION')return;
     if(fc&&i.comp!==fc||fr&&i.rot!==fr||ff&&k.conf!==ff)return;
+    if(fp&&k.consulta)return;
     if(fp==='1'&&!k.pedir||fp==='30'&&!(k.dias!=null&&k.dias<=30))return;
     if(q&&String(k.c).indexOf(q)<0&&P.norm(i.n).indexOf(q)<0)return;
-    out.push(Object.assign({n:i.n,comp:i.comp,rot:ROTN[i.rot]||i.rot,ajRed:k.red?k.red.aj:null,propPortal:k.hastaPortal!=null?Math.max(0,k.hastaPortal-k.disp):null},k));});
+    out.push(Object.assign({n:i.n,comp:i.comp,rot:ROTN[i.rot]||i.rot,ajRed:k.red?k.red.aj:null,propPortal:k.hastaPortal!=null?Math.max(0,k.hastaPortal-k.disp):null},k,k.consulta?{propuesta:null,pedir:false,dias:null}:{}));});
   const o=S.orden;out.sort((a,b)=>{const x=a[o.k],y=b[o.k];return(x==null?1:y==null?-1:x<y?-1:x>y?1:0)*o.d||a.c-b.c;});
   return out;
 }
 function pintarClaves(){
   const L_=filtradas();S.lista=L_;$('n-fil').textContent=nf(L_.length)+' claves'+(L_.length>300?' (se muestran 300)':'');
   let h='<tr>'+COLS.map(c=>'<th class="'+(c[3]||'')+'" onclick="ordenar(\''+c[0]+'\')" style="cursor:pointer">'+c[1]+(S.orden.k===c[0]?(S.orden.d>0?' ▲':' ▼'):'')+'</th>').join('')+'</tr>';
-  const fcP=$('f-comp').value;(fcP==='PRODUCCION'?[]:L_).slice(0,300).forEach(k=>{
-    h+='<tr class="clk'+(S.sel===k.c?' sel':'')+'" onclick="ficha('+k.c+')"><td class="l">'+k.c+'</td><td class="l w">'+esc(k.n)+'</td><td class="l">'+esc(k.comp)+'</td><td class="l">'+esc(k.rot)+'</td><td class="l"><span class="chip c'+k.conf+'">'+k.conf+'</span></td><td>'+nf(k.disp)+'</td><td>'+nf(k.Dm)+'</td><td>'+nf(k.punto)+'</td><td class="'+(k.pedir?'mal':k.dias<=30?'med':'')+'">'+(k.pedir?'<b>Ya</b>':nf(k.dias))+'</td><td>'+pc(k.pAgotar,0)+'</td><td class="'+(k.ajRed<0?'ok':k.ajRed>0?'med':'')+'">'+(k.ajRed?nf(k.ajRed):'—')+'</td><td>'+(k.pedir?'<b>'+nf(k.propuesta)+'</b>':nf(k.propuesta))+'</td></tr>';});
-  // claves de producción (solo consulta): con el filtro PRODUCCION o al buscarlas
-  const fc=$('f-comp').value,q=P.norm($('f-q').value);
-  if(S.prodK&&S.prodK.size&&(fc==='PRODUCCION'||(!fc&&q))){let n=0;
-    S.prodK.forEach(z=>{if(q&&String(z.c).indexOf(q)<0&&P.norm(z.n).indexOf(q)<0)return;n++;if(n>300)return;const v=ultimos(z.s,12);
-      h+='<tr class="clk'+(S.sel===z.c?' sel':'')+'" onclick="fichaProd('+z.c+')"><td class="l">'+z.c+'</td><td class="l w">'+esc(z.n)+'</td><td class="l">PRODUCCION</td><td class="l" colspan="'+(COLS.length-3)+'"><span class="chip">solo consulta</span> venta de los últimos 12 meses '+nf(v.t)+' · '+nf(v.t/12,1)+' por mes'+(v.vs!=null?' · últimos 3 meses '+(v.vs>=0?'+':'')+pc(v.vs,0)+' contra el año anterior':'')+' · consume '+((S.prodDe.get(z.c)||[]).length)+' insumo(s)</td></tr>';});
-    if(fc==='PRODUCCION')$('n-fil').textContent=nf(n)+' claves de producción (solo consulta)'+(n>300?' (se muestran 300)':'');else if(n)$('n-fil').textContent+=' · '+nf(n)+' de producción (solo consulta)';}
+  L_.slice(0,300).forEach(k=>{
+    h+='<tr class="clk'+(S.sel===k.c?' sel':'')+'" onclick="ficha('+k.c+')"><td class="l">'+k.c+'</td><td class="l w">'+esc(k.n)+(k.consulta?' <span class="chip" title="Producción: se pronostica igual que las demás, pero no se compra (se compran sus insumos)">solo consulta</span>':'')+'</td><td class="l">'+esc(k.comp)+'</td><td class="l">'+esc(k.rot)+'</td><td class="l"><span class="chip c'+k.conf+'">'+k.conf+'</span></td><td>'+nf(k.disp)+'</td><td>'+nf(k.Dm)+'</td><td>'+nf(k.punto)+'</td><td class="'+(k.pedir?'mal':k.dias<=30?'med':'')+'">'+(k.pedir?'<b>Ya</b>':nf(k.dias))+'</td><td>'+pc(k.pAgotar,0)+'</td><td class="'+(k.ajRed<0?'ok':k.ajRed>0?'med':'')+'">'+(k.ajRed?nf(k.ajRed):'—')+'</td><td>'+(k.pedir?'<b>'+nf(k.propuesta)+'</b>':nf(k.propuesta))+'</td></tr>';});
   $('tb-cla').innerHTML=h;
 }
 // total de los últimos n meses cerrados y variación de los últimos 3 contra los mismos 3 del año anterior
@@ -561,6 +555,7 @@ function ficha(c){
   const dato=(t,v)=>'<div class="dato"><span>'+t+'</span><b>'+v+'</b></div>';
   const cb=' (existencia + BO)';
   $('ficha').innerHTML='<h2>'+c+' · '+esc(i.n)+'</h2><p class="d">'+esc(i.comp)+' · '+esc(ROTN[i.rot]||i.rot)+' · '+esc(i.g)+(d.ssg?' · '+esc(d.ssg):'')+' · unidad '+esc(i.u)+'</p>'+
+    (d.consulta?'<p class="d" style="background:#fdf2f8;border:1px solid #fbcfe8;border-radius:6px;padding:6px 8px">🏭 <b>Producción · solo consulta.</b> Se pronostica con las mismas reglas del laboratorio, pero no se compra: su venta se convierte en consumo de sus insumos. El punto de alarma y el «pedir hasta» son solo de referencia y no se publican como propuesta. No entra en la prueba con historial.</p>'+insumosDe(c):'')+
     '<div style="height:240px"><canvas id="graf"></canvas></div>'+
     '<h3>Pronóstico</h3>'+
     dato('Tipo de venta','Venta '+k.tipo.toLowerCase())+dato('Método',esc(LAB.METODOS[k.metodo])+(k.propio?' (propio de la clave)':''))+
@@ -674,12 +669,15 @@ function fichaMayoreo(k,d){
     dato('Del pronóstico mensual ('+nf(k.Dm,1)+')','~'+nf(k.Dm*pM,1)+' de mayoreo y ~'+nf(k.Dm*(1-pM),1)+' de distribución, con la mezcla de los últimos 12 meses');
 }
 // Insumo de producción: productos que lo consumen y cómo se mueve su venta
+function insumosDe(c){const ins=S.prodDe&&S.prodDe.get(c)||[];if(!ins.length)return'';const z=S.prodK.get(c),u=z?ultimos(z.s,12):{t:0};
+  return '<details><summary style="cursor:pointer;color:#1f3a5f">Insumos que consume ('+ins.length+')</summary><table><tr><th class="l">Insumo</th><th class="l w">Descripción</th><th>Por pieza</th><th>Consumo 12 meses</th></tr>'+
+    ins.map(([i,f])=>'<tr class="clk" onclick="ficha('+i+')"><td class="l">'+i+'</td><td class="l w">'+esc((S.info.get(i)||{}).n||'')+'</td><td>'+nf(f,3)+'</td><td>'+nf(u.t*f)+'</td></tr>').join('')+'</table></details>';}
 function fichaConsumoProd(c){
   const og=S.prod&&S.prod.get(c);if(!og||!og.length)return'';
   const rows=og.map(([o,f])=>{const z=S.prodK.get(o)||S.D.claves.find(x=>x.c===o),u=z?ultimos(z.s,12):{t:0,vs:null},nm=z&&z.n!=null?z.n:(S.info.get(o)||{}).n||'';
     return{o,f,nm,t:u.t,vs:u.vs,prod:S.prodK.has(o)};}).sort((a,b)=>b.t*b.f-a.t*a.f);
   return '<h3>Consumo de producción</h3><p class="d">Productos que usan este insumo. Su venta SANVER × insumo por pieza ya está sumada a la venta de esta clave. Clic en un producto para ver su venta.</p><div class="scroll" style="max-height:220px"><table><tr><th class="l">Producto</th><th class="l w">Descripción</th><th>Insumo por pieza</th><th>Venta 12 meses</th><th>Consumo 12 meses</th><th>Últimos 3 meses vs año anterior</th></tr>'+
-    rows.map(r=>'<tr class="clk" onclick="'+(r.prod?'fichaProd':'ficha')+'('+r.o+')"><td class="l">'+r.o+'</td><td class="l w">'+esc(r.nm)+'</td><td>'+nf(r.f,3)+'</td><td>'+nf(r.t)+'</td><td>'+nf(r.t*r.f)+'</td><td>'+(r.vs==null?'—':(r.vs>=0?'+':'')+pc(r.vs,0))+'</td></tr>').join('')+'</table></div>';
+    rows.map(r=>'<tr class="clk" onclick="'+(S.por&&S.por.has(r.o)?'ficha':r.prod?'fichaProd':'ficha')+'('+r.o+')"><td class="l">'+r.o+'</td><td class="l w">'+esc(r.nm)+'</td><td>'+nf(r.f,3)+'</td><td>'+nf(r.t)+'</td><td>'+nf(r.t*r.f)+'</td><td>'+(r.vs==null?'—':(r.vs>=0?'+':'')+pc(r.vs,0))+'</td></tr>').join('')+'</table></div>';
 }
 // Clave de producción (comprador PRODUCCION): solo consulta, no se compra ni entra al cálculo
 function fichaProd(c){
@@ -720,7 +718,7 @@ function fichaRed(k){
   return h;
 }
 function exportar(){
-  const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,
+  const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,'Solo consulta (producción)':k.consulta?'Sí':'',Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,
     'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,...mixExcel(k.c),'Regla: ritmo base':k.regla?Math.round(k.regla.ritmo*10)/10:'','Regla: base usada':k.regla?(k.regla.regular?'promedio ponderado':'promedio con ceros'):'','Regla: fase':k.regla?k.regla.fase:'','Regla: escalón':k.regla?Math.round(k.regla.escalon*100)/100:'','Regla: venta pico último mes':k.regla?Math.round(k.regla.picoMes):'','Regla: meses que cubre':k.regla?Math.round(k.regla.cob*10)/10:'','Compra estratégica (aprobar aparte)':k.regla&&k.regla.estrategica>0?Math.round(k.regla.estrategica):'','Regla: alertas':k.regla?[k.regla.alertaMes,k.regla.topado?'topado':null,k.regla.variable?'temporalidad variable':null].filter(Boolean).join(' · '):'','Errores usados para la seguridad':k.temp?(k.temp.est?'Mismos meses: '+k.temp.de:'Todo el año'):'','Punto de alarma':k.punto,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Ofertas en la compra':k.extra&&k.extra.of?k.extra.of.c:null,'Aperturas en la compra':k.extra&&k.extra.ap?k.extra.ap.c:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Pedir hasta nacional':k.dual&&k.dual.N?k.dual.N.hasta:null,'Pedir hasta importación':k.dual&&k.dual.I?k.dual.I.hasta:null}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Laboratorio');
   if(S.prodK&&S.prodK.size){const pr=[];S.prodK.forEach(z=>{const u=ultimos(z.s,12),o={Clave:z.c,'Descripción':z.n,'Venta 12 meses':u.t,'Venta por mes':Math.round(u.t/12*10)/10,'Últimos 3 meses vs año anterior':u.vs==null?'':Math.round(u.vs*1000)/1000,'Existencia':z.ex,'BO':z.bo,'Insumos':(S.prodDe.get(z.c)||[]).map(([i,f])=>i+' × '+f).join(', ')};
@@ -772,7 +770,7 @@ async function cargarEsc(){
   pintarEsc();
 }
 function resumenAct(){const R=S.R;if(!R)return null;const m=(R.resumen['Motor']||{}).Todas||{},c=R.calibracion.Todas||{};
-  return{error:m.error,atina30:m.atina30,muyCorto:m.muyCorto,cubre:c.cubreMotor,objetivo:c.objetivo,meses:c.mesesMotor,surtido:c.surtidoMotor,pedir:R.claves.filter(k=>k.pedir).length,fecha:S.fecha};}
+  return{error:m.error,atina30:m.atina30,muyCorto:m.muyCorto,cubre:c.cubreMotor,objetivo:c.objetivo,meses:c.mesesMotor,surtido:c.surtidoMotor,pedir:R.claves.filter(k=>k.pedir&&!k.consulta).length,fecha:S.fecha};}
 async function guardarEsc(){
   const nombre=$('esc-nom').value.trim(),quien=$('esc-quien').value.trim();if(!nombre||!quien){toast('Escribe el nombre del escenario y tu nombre.');return;}
   if(!S.R){toast('Primero termina un cálculo.');return;}
