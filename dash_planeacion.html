@@ -550,7 +550,7 @@ function pintarDetalle(){
   rows.sort((a,b)=>{let x=valorOrden(a,k),y=valorOrden(b,k);if(x==null)x=-Infinity;if(y==null)y=-Infinity;if(typeof x==='string'||typeof y==='string')return String(x).localeCompare(String(y),'es')*d;return(x-y)*d||((a.mi??1e9)-(b.mi??1e9));});
   if(lq){const hay=new Set(rows.map(r=>String(r.c))),todas=new Set(S.claves.concat(S.prodView||[]).map(r=>String(r.c)));const noEx=lq.filter(c=>!todas.has(c)),oc=lq.filter(c=>todas.has(c)&&!hay.has(c));
     $('d-count').innerHTML=fmtN(rows.length)+' de '+fmtN(lq.length)+' claves buscadas'+(noEx.length?' · <span style="color:#c0392b" title="No están en el cálculo del portal">no existen: '+esc(noEx.join(', '))+'</span>':'')+(oc.length?' · <span style="color:#b45309" title="Quita los demás filtros para verlas">ocultas por filtros: '+esc(oc.join(', '))+'</span>':'');}
-  else $('d-count').textContent=fmtN(rows.length-nProd)+' de '+fmtN(misClaves().length)+' claves'+(nProd?' · '+fmtN(nProd)+' de producción (solo consulta)':'');
+  else $('d-count').textContent=nProd&&nProd===rows.length?fmtN(nProd)+' claves de producción (solo consulta)':fmtN(rows.length-nProd)+' de '+fmtN(misClaves().length)+' claves'+(nProd?' · '+fmtN(nProd)+' de producción (solo consulta)':'');
   const B=S.base,act=g=>B===g?' act':'';
   const gspan=g=>DCOLS.filter(c=>c.g===g).length;
   const pre=DCOLS.findIndex(c=>c.g==='A');const mid=DCOLS.filter((c,i)=>!c.g&&i>DCOLS.findIndex(c=>c.g==='D')&&i<DCOLS.findIndex(c=>c.g==='Pr')).length;
