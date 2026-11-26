@@ -540,15 +540,15 @@ function valorOrden(r,k){
 }
 function pintarDetalle(){
   const lq=listaClaves(S.f.q);   // con varias claves se muestran todas, de cualquier comprador
-  const base0=filtrarClaves(S.claves,{...S.f,comp:null,base:S.base});
+  // Claves de producción (comprador PRODUCCION) entran al detalle como solo consulta; no cuentan en Tablero, Target, OTIF, bono ni pedidos propuestos
+  if(S.prodC!==S._prodCv){S._prodCv=S.prodC;S.prodView=(S.prodC||[]).map(r=>Object.assign({},r,{_prod:1}));}
+  const base0=filtrarClaves(S.claves.concat(S.prodView||[]),{...S.f,comp:null,base:S.base});
   sincComp(DF);const DFx=lq?DF.filter(([id])=>!esComp(id)):DF;
   MS.cascada(base0,DFx,DFL,DFO);
   const rows=base0.filter(r=>MS.pasa(r,DFx));const{k,d}=S.sort;
-  // Claves de producción (comprador PRODUCCION): solo consulta, aparecen al buscarlas por clave o descripción; no cuentan en indicadores ni propuestas
-  const qP=String(S.f.q||'').trim().toUpperCase();let nProd=0;
-  if(qP&&S.prodC&&S.prodC.length){const ls=lq?new Set(lq):null;S.prodC.forEach(r=>{const cs=String(r.c);if(ls?ls.has(cs):(cs.startsWith(qP)||String(r.n||'').toUpperCase().includes(qP))){rows.push(Object.assign({},r,{_prod:1}));nProd++;}});}
+  const nProd=rows.filter(r=>r._prod).length;
   rows.sort((a,b)=>{let x=valorOrden(a,k),y=valorOrden(b,k);if(x==null)x=-Infinity;if(y==null)y=-Infinity;if(typeof x==='string'||typeof y==='string')return String(x).localeCompare(String(y),'es')*d;return(x-y)*d||((a.mi??1e9)-(b.mi??1e9));});
-  if(lq){const hay=new Set(rows.map(r=>String(r.c))),todas=new Set(S.claves.map(r=>String(r.c)));const noEx=lq.filter(c=>!todas.has(c)),oc=lq.filter(c=>todas.has(c)&&!hay.has(c));
+  if(lq){const hay=new Set(rows.map(r=>String(r.c))),todas=new Set(S.claves.concat(S.prodView||[]).map(r=>String(r.c)));const noEx=lq.filter(c=>!todas.has(c)),oc=lq.filter(c=>todas.has(c)&&!hay.has(c));
     $('d-count').innerHTML=fmtN(rows.length)+' de '+fmtN(lq.length)+' claves buscadas'+(noEx.length?' · <span style="color:#c0392b" title="No están en el cálculo del portal">no existen: '+esc(noEx.join(', '))+'</span>':'')+(oc.length?' · <span style="color:#b45309" title="Quita los demás filtros para verlas">ocultas por filtros: '+esc(oc.join(', '))+'</span>':'');}
   else $('d-count').textContent=fmtN(rows.length-nProd)+' de '+fmtN(misClaves().length)+' claves'+(nProd?' · '+fmtN(nProd)+' de producción (solo consulta)':'');
   const B=S.base,act=g=>B===g?' act':'';
