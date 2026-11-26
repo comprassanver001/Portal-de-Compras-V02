@@ -466,6 +466,33 @@ async function motAut(clave,motivo,comentario){
   const{error}=await sb.from('plan_propuesta_lineas').update({aut_motivo:l.aut_motivo,aut_comentario:l.aut_comentario,aut_por:S.rev.nombre,aut_en:new Date().toISOString(),actualizado_en:new Date().toISOString()}).eq('folio',S.actual.folio).eq('clave',l.clave);
   if(error){toast('❌ '+error.message);return;}l.aut_por=S.rev.nombre;await bitacoraAut(l.clave,'MOTIVO',null,null,l.aut_motivo,l.aut_comentario,S.rev.nombre);toast('✓ Motivo guardado');pintarFolio();
 }
+// El comprador agrega claves a su folio mientras está en borrador o regresado (antes de enviarlo a autorización).
+// Mismas reglas que al crear el folio: del mismo comprador, no de producción, respetando el tipo nacional/importación.
+async function agregarClavesComp(){
+  const f=S.actual;if(!f||!editable())return;
+  const txt=prompt('Claves a agregar al folio '+f.folio+' (puedes pegar varias, separadas por coma, espacio o renglón):','');if(!txt)return;
+  const pedidas=[...new Set(String(txt).split(/[^0-9]+/).map(Number).filter(k=>k>0))];if(!pedidas.length){toast('No encontré claves en lo que escribiste');return;}
+  const ya=new Set(S.lineas.map(l=>Number(l.clave))),ok=[],no=[];
+  pedidas.forEach(k=>{const r=S.byClave.get(k);
+    if(ya.has(k))no.push(k+' (ya está en el folio)');
+    else if(!r)no.push(k+' (no está en el cálculo del portal)');
+    else if(r.pr||P.esProd(r))no.push(k+' (es de producción)');
+    else if(nNom(r.comp)!==nNom(f.comprador))no.push(k+' (es de '+(r.comp||'otro comprador')+')');
+    else if(f.tipo_compra&&!esDual(k))no.push(k+' (no es de compra nacional e importación)');
+    else ok.push(k);});
+  if(!ok.length){alert('No se agregó ninguna clave:\n'+no.join('\n'));return;}
+  const dup=ok.filter(k=>S.lineasAbiertas&&S.lineasAbiertas.has(k)&&S.lineasAbiertas.get(k)!==f.folio);
+  if(!confirm('Se agregarán '+ok.length+' clave(s) al folio '+f.folio+': '+ok.slice(0,30).join(', ')+(ok.length>30?'…':'')
+    +(dup.length?'\n\n⚠️ Ya están en otro folio abierto: '+dup.map(k=>k+' ('+S.lineasAbiertas.get(k)+')').join(', '):'')
+    +(no.length?'\n\nNo se agregan:\n'+no.join('\n'):'')+'\n\n¿Continuar?'))return;
+  const ahora=new Date().toISOString();
+  const filas=ok.map(k=>({folio:f.folio,clave:k,portal:snap(S.byClave.get(k)),semaforo:'SIN DATO',avisos:'No viene en lo pegado de surtimiento',actualizado_en:ahora}));
+  for(let i=0;i<filas.length;i+=500){const{error}=await sb.from('plan_propuesta_lineas').insert(filas.slice(i,i+500));if(error){toast('❌ '+error.message);return;}}
+  await sb.from('plan_propuestas').update({actualizado_en:ahora}).eq('folio',f.folio);
+  ok.forEach(k=>S.lineasAbiertas&&S.lineasAbiertas.set(k,f.folio));
+  toast('✓ '+ok.length+' clave(s) agregada(s). Descarga otra vez la plantilla, agrega su surtimiento y súbela.');
+  await abrirFolio(f.folio);
+}
 async function agregarAut(){
   if(!modoRev())return;const f=S.actual,k=Number(String($('aut-k').value).trim()),q=Number($('aut-q').value);
   if(!k){toast('Escribe la clave');return;}if(!(q>0)){toast('Escribe la cantidad del autorizante');return;}
@@ -524,7 +551,7 @@ function pintarFolio(){
   $('f-kpis').innerHTML='<div class="kpi" title="Inversión de surtimiento'+(VF.est?'; '+VF.est+' claves valuadas con costo de compra':'')+(VF.sin?'; '+VF.sin+' sin precio':'')+'"><b>'+mxn(VF.total)+'</b><span>valor · autoriza '+RG[1]+(RG[0]==='DIRECTOR'?'':' o superior')+'</span></div><div class="kpi"><b>'+L.length+'</b><span>claves</span></div><div class="kpi"><b style="color:var(--ok)">'+c.VERDE+'</b><span>verde</span></div><div class="kpi"><b style="color:var(--warn)">'+c.AMARILLO+'</b><span>amarillo (motivo)</span></div><div class="kpi"><b style="color:var(--err)">'+c.ROJO+'</b><span>rojo (motivo y comentario)</span></div><div class="kpi"><b style="color:var(--gray)">'+c.SIN+'</b><span>sin surtimiento</span></div><div class="kpi"><b>'+nf(piezas)+'</b><span>piezas del pedido</span></div>'+(hayAjustes()?'<div class="kpi" style="border-color:#c4b5fd"><b style="color:#6d28d9">'+S.lineas.filter(ajustada).length+'</b><span>ajustes del autorizante'+(S.lineas.some(faltaMotAut)?' · <b style="color:var(--err)">'+S.lineas.filter(faltaMotAut).length+' sin motivo</b>':'')+'</span></div>':'');
   const ed=editable(),adm=S.esAdmin||quien()==='ADMIN';
   let acc='';
-  if(ed)acc+='<button class="sec" onclick="descargarPlantilla()">⬇ Plantilla</button><button onclick="$(\'f-arch\').value=\'\';$(\'f-arch\').click()">⬆ Subir plantilla con surtimiento</button><button class="ok" onclick="enviar()" '+(conS===L.length&&L.length&&!falt?'':'style="opacity:.6" title="Faltan claves con surtimiento o motivos: da clic para ver cuáles"')+'>Enviar a autorización</button>';
+  if(ed)acc+='<button class="sec" onclick="agregarClavesComp()" title="Agrega más claves de '+esc(f.comprador)+' a este folio antes de enviarlo; después descarga otra vez la plantilla y súbela con su surtimiento">➕ Agregar claves</button><button class="sec" onclick="descargarPlantilla()">⬇ Plantilla</button><button onclick="$(\'f-arch\').value=\'\';$(\'f-arch\').click()">⬆ Subir plantilla con surtimiento</button><button class="ok" onclick="enviar()" '+(conS===L.length&&L.length&&!falt?'':'style="opacity:.6" title="Faltan claves con surtimiento o motivos: da clic para ver cuáles"')+'>Enviar a autorización</button>';
   if(f.estado==='EN REVISION')acc+=(modoRev()?'':'<button class="sec" onclick="pinAbrir(\'AJUSTAR\')" title="Jefe, Gerente o Dirección: ajusta cantidades, agrega o quita claves con motivo">✏️ Ajustar cantidades (autorizante)</button>')+'<button class="ok" onclick="autorizar()">🔒 Autorizar con PIN</button><button class="bad" onclick="regresar()">↩ Regresar</button>';
   if(ed&&f.estado==='REGRESADO'&&hayAjustes())acc+='<button class="ok" onclick="aceptarAjustes()" title="Tu cantidad se cambia por la del autorizante en las claves ajustadas">✓ Aceptar ajustes del autorizante</button>';
   if(f.estado==='AUTORIZADO'&&!f.cmp_id)acc+='<button onclick="enviarComparativos()">➜ Enviar a comparativos</button>';
