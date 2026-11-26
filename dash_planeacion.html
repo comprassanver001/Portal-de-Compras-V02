@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
 <script src="lab_bo.js?v=20261125b" charset="utf-8"></script>
+<script src="lab_mayoreo.js?v=20261126a" charset="utf-8"></script>
 <script src="lab_aplicar.js?v=20261125b" charset="utf-8"></script>
 <script src="plan_ms.js?v=20261105a" charset="utf-8"></script>
 <script>if(window.self!==window.top)document.documentElement.classList.add('embed');</script>
@@ -586,6 +587,7 @@ async function datosClave(c){
   const o={ventas:{},agot:{SANVER:{},MF:{}},ed:{},alarmas:al.data||[]};
   (v.data||[]).forEach(r=>o.ventas[r.empresa]=r.meses||{});(ag.data||[]).forEach(r=>{(o.agot[r.empresa]||(o.agot[r.empresa]={}))[String(r.mes).slice(0,7)]=Number(r.dias_agotado);});(ed.data||[]).forEach(r=>o.ed[String(r.mes).slice(0,7)]=Number(r.cantidad));
   await P.edExtraClave(sb,c,o);await P.ventasConProduccion(sb,c,o);await P.ventasConSust(sb,c,o);
+  if(window.LABMY)await LABMY.cargar(sb,c,o);
   CACHE_CLAVE.set(c,o);return o;
 }
 async function pintarExplicacion(c){
@@ -594,10 +596,12 @@ async function pintarExplicacion(c){
     const d=await datosClave(c);const ref=S.fecha.slice(0,7);
     const ex=emp=>P.explicar(d.ventas[emp],emp==='SANVER'?d.ed:null,ref,r.N,m=>(d.agot[emp]||{})[m]>=P.R.DIAS_AGOTADO,S.ventasHasta[emp],S.ventasDesde[emp]);
     const sv=ex('SANVER'),mf=d.ventas.MF?ex('MF'):[];
+    const my=d.ventas.MAYOREO?P.explicar(d.ventas.MAYOREO,null,ref,r.N,m=>(d.agot.SANVER||{})[m]>=P.R.DIAS_AGOTADO,S.ventasHasta.SANVER,S.ventasDesde.SANVER):[];
     const ocs=S.ocs[c]||[];await P.uniCargar(sb);const UO=P.ocUni(r,ocs);
     const w=Math.max(320,($('d-tw').clientWidth||900)-30);
     el.innerHTML='<div class="detbox" style="width:'+w+'px"><div class="dgrid"><div><div class="row" style="justify-content:space-between"><b>Ventas SANVER mes a mes</b><div class="legend" style="margin:0"><span><i style="background:#3b82f6"></i>Antecedente</span><span><i style="background:#8b5cf6"></i>Pronóstico</span><span><i style="background:#cbd5e1"></i>No usado</span><span><i style="background:repeating-linear-gradient(45deg,#fda4af,#fda4af 2px,#fff 2px,#fff 4px)"></i>Descartado</span>'+(d.sust?'<span><i style="background:#f97316"></i>Clave sustituida (franja: mes usado)</span>':'')+(d.prod?'<span><i style="background:#db2777"></i>Consumo por producción</span>':'')+(sv.some(x=>x.actual)?'<span><i style="background:repeating-linear-gradient(45deg,#14b8a6,#14b8a6 2px,#ccfbf1 2px,#ccfbf1 4px)"></i>Mes actual (no cuenta)</span>':'')+'</div></div>'+graficaMeses(sv,d.agot.SANVER,d.sust&&d.sust.parte.SANVER,d.prod&&d.prod.parte)
-      +(mf.length?'<details style="margin-top:6px"><summary class="sm lk">Ventas MF (antecedente '+fmtN(r.mfA,1)+' · pronóstico '+fmtN(r.mfP,1)+' · existencia '+fmtN(r.mfI)+')</summary>'+graficaMeses(mf,d.agot.MF,d.sust&&d.sust.parte.MF)+'</details>':'')+'</div>'
+      +(mf.length?'<details style="margin-top:6px"><summary class="sm lk">Ventas MF (antecedente '+fmtN(r.mfA,1)+' · pronóstico '+fmtN(r.mfP,1)+' · existencia '+fmtN(r.mfI)+')</summary>'+graficaMeses(mf,d.agot.MF,d.sust&&d.sust.parte.MF)+'</details>':'')
+      +(my.length?'<details style="margin-top:6px"><summary class="sm lk">Ventas Mayoreo ('+esc(LABMY.resumen(d,ref))+') · parte de la venta SANVER</summary>'+graficaMeses(my,d.agot.SANVER)+'</details>':'')+'</div>'
       +'<div><div class="kv"><b>Antecedente</b><span>'+fmtN(r.A,1)+' / mes · '+(sv.filter(x=>x.usa.includes('ANT')).map(x=>fmtMes(x.m)).join(', ')||'sin meses válidos')+'</span><b>Pronóstico</b><span>'+fmtN(r.P,1)+' / mes · '+(sv.filter(x=>x.usa.includes('PRON')).map(x=>fmtMes(x.m)).join(', ')||'sin meses válidos')+'</span>'
       +(d.sust?'<b>Claves sustituidas</b><span style="color:#c2410c">suma la venta de '+d.sust.lst.map(x=>'<b>'+x.o+'</b>'+(x.f<1?' ('+Math.round(x.f*100)+'%)':'')+(x.d?' '+esc(x.d.slice(0,40)):'')).join(' · ')+'</span>':'')
       +(d.equiv&&d.equiv.length?'<b>Equivalentes</b><span style="color:#475569">'+d.equiv.map(x=>'<b>'+x.o+'</b>'+(x.d?' '+esc(x.d.slice(0,40)):'')+(x.e==='REVISAR'?' (por revisar)':'')).join(' · ')+' · <i>no se suma su venta</i></span>':'')

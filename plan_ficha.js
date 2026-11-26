@@ -28,6 +28,7 @@
     if(!r[3].error)o.alarmas=r[3].data||[];
     if(conHist&&r[4]&&!r[4].error)o.hist=(r[4].data||[]).map(h=>({fecha:h.f,estatus:String(h.est||'').toUpperCase(),existencias:h.ex,back_order:h.boT!=null?h.boT:h.bo,meses_inv:h.mi,mA:h.mA,mP:h.mP,eA:h.eA,eP:h.eP}));
     await P.edExtraClave(sb,c,o);await P.ventasConProduccion(sb,c,o);await P.ventasConSust(sb,c,o);
+    if(window.LABMY)await LABMY.cargar(sb,c,o);
     cache.set(k,o);return o;
   }
 
@@ -72,17 +73,19 @@
   // r: fila del cálculo del portal (estado.json). ocs: [[folio,pend,fecha_oc,proveedor,ed]]
   function html(r,d,ctx){
     ctx=ctx||{};const ref=(ctx.fecha||'').slice(0,7);
-    let sv=[],mf=[];
+    let sv=[],mf=[],my=[];
     if(r&&ref){
       const ex=emp=>P.explicar(d.ventas[emp],emp==='SANVER'?d.ed:null,ref,r.N,m=>(d.agot[emp]||{})[m]>=P.R.DIAS_AGOTADO,(ctx.ventasHasta||{})[emp],(ctx.ventasDesde||{})[emp]);
       sv=ex('SANVER');mf=d.ventas.MF?ex('MF'):[];
+      if(d.ventas.MAYOREO)my=P.explicar(d.ventas.MAYOREO,null,ref,r.N,m=>(d.agot.SANVER||{})[m]>=P.R.DIAS_AGOTADO,(ctx.ventasHasta||{}).SANVER,(ctx.ventasDesde||{}).SANVER);
     }
     const ocs=ctx.ocs||[];const UO=r?P.ocUni(r,ocs):null;
     const usados=w=>sv.filter(x=>x.usa.includes(w)).map(x=>fM(x.m)).join(', ')||'sin meses válidos';
     const izq=(ctx.conHist?'<div style="margin-bottom:12px"><b style="font-size:12.5px">Estatus día por día</b> <span style="font-size:11px;color:#64748b">(estatus del portal de cada día; pasa el cursor para ver meses con antecedente, pronóstico y portal)</span>'+tira(d.hist,60)+'</div>':'')
       +'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><b style="font-size:12.5px">Ventas SANVER mes a mes</b><span style="font-size:11px;color:#64748b"><span style="color:#3b82f6">■</span> antecedente · <span style="color:#8b5cf6">■</span> pronóstico · <span style="color:#cbd5e1">■</span> no usado · <span style="color:#fb7185">▨</span> descartado · ⛔ agotado · ED entrega directa restada · <span style="color:#14b8a6">▨</span> mes actual (no cuenta)'+(d.prod?' · <span style="color:#db2777">■</span> consumo por producción':'')+(d.sust?' · <span style="color:#f97316">■</span> venta de clave sustituida':'')+'</span></div>'
       +(r?grafica(sv,d.agot.SANVER,d.sust&&d.sust.parte.SANVER,d.prod&&d.prod.parte):'<div style="color:#64748b;font-size:12px;padding:10px">La clave no está en el último cálculo del portal.</div>')
-      +(mf.length?'<details><summary style="font-size:12px;color:#1d4ed8;cursor:pointer">Ventas MF (antecedente '+n(r.mfA,1)+' · pronóstico '+n(r.mfP,1)+' · existencia '+n(r.mfI)+')</summary>'+grafica(mf,d.agot.MF,d.sust&&d.sust.parte.MF)+'</details>':'');
+      +(mf.length?'<details><summary style="font-size:12px;color:#1d4ed8;cursor:pointer">Ventas MF (antecedente '+n(r.mfA,1)+' · pronóstico '+n(r.mfP,1)+' · existencia '+n(r.mfI)+')</summary>'+grafica(mf,d.agot.MF,d.sust&&d.sust.parte.MF)+'</details>':'')
+      +(my.length?'<details><summary style="font-size:12px;color:#1d4ed8;cursor:pointer">Ventas Mayoreo ('+LABMY.resumen(d,ref)+') · parte de la venta SANVER</summary>'+grafica(my,d.agot.SANVER)+'</details>':'');
     const kv=(k,v)=>'<b style="color:#64748b;font-weight:600">'+k+'</b><span style="overflow-wrap:anywhere;min-width:0">'+v+'</span>';
     const der=r?'<div class="kv" style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px">'
       +kv('Antecedente',n(r.A,1)+' / mes · '+usados('ANT'))+kv('Pronóstico',n(r.P,1)+' / mes · '+usados('PRON'))
