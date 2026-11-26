@@ -502,6 +502,8 @@ async function doLogout(){
 }
 
 // ═══════════ TABS ═══════════
+// Cada vez que se abre el portal las páginas internas se piden de nuevo (evita que el navegador muestre una versión vieja)
+const PAG_VER=Date.now();
 const SRCS=[
   'dash_faltantes.html',
   'dash_monitor.html',
@@ -512,7 +514,7 @@ const SRCS=[
 const loadedTabs=[false,false,false,false,false];
 function loadTab(i){ // i = 1..5 (iframes)
   const k=i-1;
-  const fr=document.getElementById('fr-'+i);if(i>=1&&i<=5&&!loadedTabs[k]&&fr&&SRCS[k]){loadedTabs[k]=true;fr.src=SRCS[k];}
+  const fr=document.getElementById('fr-'+i);if(i>=1&&i<=5&&!loadedTabs[k]&&fr&&SRCS[k]){loadedTabs[k]=true;fr.src=SRCS[k]+(String(SRCS[k]).includes('?')?'&':'?')+'v='+PAG_VER;}
 }
 // Pestañas del módulo de planeación (se cargan al abrirlas por primera vez)
 const SRCS_PLAN={7:'plan_oc.html',8:'plan_admin.html',9:'plan_propuestas.html',10:'comparativos.html',11:'plan_calendario.html'};
@@ -525,7 +527,7 @@ function abrirComparativo(id){const fr=document.getElementById('fr-10');const l=
 window.abrirComparativo=abrirComparativo;
 function switchTab(i){
   if(i===8&&!esAdmin)i=0;
-  if(SRCS_PLAN[i]){const fr=document.getElementById('fr-'+i);if(!fr.getAttribute('src'))fr.src=SRCS_PLAN[i];}
+  if(SRCS_PLAN[i]){const fr=document.getElementById('fr-'+i);if(!fr.getAttribute('src'))fr.src=SRCS_PLAN[i]+(String(SRCS_PLAN[i]).includes('?')?'&':'?')+'v='+PAG_VER;}
   document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===i));
   document.querySelectorAll('.frame-wrap').forEach((f,j)=>f.classList.toggle('active',j===i));
   loadTab(i);
