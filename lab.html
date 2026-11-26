@@ -866,11 +866,12 @@ async function cargarRedVentas(){
     msg.textContent='Leyendo la plantilla (puede tardar uno o dos minutos)…';await new Promise(r=>setTimeout(r,50));
     const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
     const R=LAB.red.reducir({mayoreo:aoaDe(wb,'VENTASMAYOREO'),tiendas:aoaDe(wb,'VENTASMFSUCURSALES'),base:aoaDe(wb,'BASEDENEGOCIO'),conv:aoaDe(wb,'CONVERSIONES')},S.D.meses[S.D.meses.length-1],{convertir:$('red-conv').checked});
-    const filas=R.filas.filter(x=>S.info.has(x.clave)||(S.prodK&&S.prodK.has(x.clave)));if(!filas.length)throw new Error('Ninguna clave de la plantilla está en el cálculo del portal.');
+    // se guardan todas las claves de la plantilla: las del cálculo, las de producción y las sustituidas (su mayoreo se suma a la clave vigente en las fichas)
+    const filas=R.filas;if(!filas.length)throw new Error('La plantilla no trae claves con venta.');const nProdT=filas.filter(x=>S.prodK&&S.prodK.has(x.clave)).length;
     await subirRed('lab_red',filas,msg);
     const{error}=await sb.from('lab_red_meta').upsert({id:'ventas',datos:R.meta,cargado_por:quien,cargado_en:new Date().toISOString()},{onConflict:'id'});if(error)throw error;
     await sb.from('lab_bitacora').insert({usuario:quien,accion:'CARGAR_RED_VENTAS',detalle:{claves:filas.length,tiendas:R.meta.tiendas.length,notas:R.notas}});
-    msg.textContent=nf(filas.length)+' claves guardadas'+(R.notas.length?' · '+R.notas.join(' · '):'')+'. Recargando…';setTimeout(()=>location.reload(),1800);
+    msg.textContent=nf(filas.length)+' claves guardadas ('+nf(nProdT)+' de producción)'+(R.notas.length?' · '+R.notas.join(' · '):'')+'. Recargando…';setTimeout(()=>location.reload(),1800);
   }catch(e){msg.textContent='No se pudo cargar: '+(e.message||e);}
 }
 async function cargarRedInv(){

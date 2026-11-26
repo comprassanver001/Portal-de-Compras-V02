@@ -10,11 +10,14 @@
     return M.meta;
   };
   // pone o.ventas.MAYOREO = {'AAAA-MM': piezas}
+  // con claves sustituidas (o.sust.lst = [{o, f}]) se suma su mayoreo por su parte, igual que la venta SANVER
   M.cargar=async function(sb,c,o){
     try{var mt=await M.cargarMeta(sb);if(!mt||!mt.meses.length)return;
-      var r=await sb.from('lab_red').select('datos').eq('clave',c).maybeSingle();if(r.error||!r.data)return;
-      var p=(r.data.datos||{}).my||[],v={};for(var i=0;i<p.length;i+=2){var m=mt.meses[p[i]];if(m)v[m]=Number(p[i+1])||0;}
-      mt.meses.forEach(function(m){if(v[m]==null)v[m]=0;});o.ventas.MAYOREO=v;o.myEn=mt.en;
+      var lst=[[c,1]].concat(((o.sust&&o.sust.lst)||[]).map(function(x){return[Number(x.o),Number(x.f)||1];}));
+      var r=await sb.from('lab_red').select('clave,datos').in('clave',lst.map(function(x){return x[0];}));if(r.error||!r.data||!r.data.length)return;
+      var v={},hay=false;r.data.forEach(function(row){var f=(lst.find(function(x){return x[0]===Number(row.clave);})||[0,1])[1],p=(row.datos||{}).my||[];
+        for(var i=0;i<p.length;i+=2){var m=mt.meses[p[i]];if(m){v[m]=(v[m]||0)+(Number(p[i+1])||0)*f;hay=true;}}});
+      if(!hay)return;mt.meses.forEach(function(m){if(v[m]==null)v[m]=0;});o.ventas.MAYOREO=v;o.myEn=mt.en;
     }catch(e){}
   };
   // texto del resumen: venta de mayoreo de los últimos 12 meses cerrados y su parte de la venta SANVER
