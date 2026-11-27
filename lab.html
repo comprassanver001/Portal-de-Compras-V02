@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
-<script src="lab_motor.js?v=20261126a" charset="utf-8"></script>
+<script src="lab_motor.js?v=20261127a" charset="utf-8"></script>
 <script src="lab_bo.js?v=20261125b" charset="utf-8"></script>
 <style>
 *{box-sizing:border-box}
@@ -134,6 +134,29 @@ tr.clk{cursor:pointer}tr.clk:hover{background:#f3f6fc}tr.sel{background:#e3ecfb}
       <p class="d">Guarda las variables actuales con su resultado para compararlas después. <span id="esc-donde"></span></p>
       <div class="row"><input id="esc-nom" placeholder="Nombre del escenario" style="width:240px"><input id="esc-quien" placeholder="Tu nombre" style="width:160px"><input id="esc-nota" placeholder="Nota (opcional)" style="flex:1;min-width:200px"><button onclick="guardarEsc()">Guardar escenario</button></div>
       <div class="scroll" style="max-height:none;margin-top:10px"><table id="tb-esc"></table></div>
+    </div>
+    <div class="card">
+      <h2>Escenarios por grupo de claves</h2>
+      <p class="d">Asigna un escenario guardado a un grupo de claves: calificación A, B o C y/o grupo (familia), subgrupo y sub-sub-grupo (vacío = cualquiera). Lo que no entre en ninguna regla usa las variables de arriba. Si una clave entra en varias reglas gana la más específica (la que pide más datos); si empatan, la más reciente. La calificación se toma del cálculo con las variables de arriba. Con fechas, la regla solo aplica en ese periodo (por ejemplo, una oferta). Crear, apagar o borrar reglas lo hace el Jefe de Compras, el Gerente o un administrador con su PIN. Requiere <code>lab_tablas_06.sql</code>.</p>
+      <p class="d" id="reg-est"></p>
+      <div class="row" style="flex-wrap:wrap;gap:6px">
+        <select id="reg-calif"><option value="">Calificación: todas</option><option>A</option><option>B</option><option>C</option></select>
+        <select id="reg-g" onchange="regCombos()"></select><select id="reg-sg" onchange="regCombos()"></select><select id="reg-ssg"></select>
+        <select id="reg-esc"></select>
+        <input id="reg-mot" placeholder="Motivo (opcional): oferta, temporada…" style="width:220px">
+        <label class="d">desde <input type="date" id="reg-desde"></label><label class="d">hasta <input type="date" id="reg-hasta"></label>
+        <button onclick="reglaPin('CREAR')">Agregar regla</button>
+      </div>
+      <div class="scroll" style="max-height:none;margin-top:10px"><table id="tb-reg"></table></div>
+      <div class="scroll" style="max-height:none;margin-top:10px"><table id="tb-reg-res"></table></div>
+    </div>
+    <div id="pinbg" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:50;align-items:center;justify-content:center">
+      <div class="card" style="width:340px;margin:0">
+        <h2 id="pin-tit">Confirmar con PIN</h2><p class="d" id="pin-txt"></p>
+        <select id="pin-u" style="width:100%"></select><input type="password" id="pin-p" placeholder="PIN" inputmode="numeric" autocomplete="off" style="width:100%;margin-top:6px" onkeydown="if(event.key==='Enter')pinOk()">
+        <p class="d" id="pin-err" style="color:#b91c1c"></p>
+        <div class="row" style="justify-content:flex-end"><button class="sec" onclick="pinCerrar()">Cancelar</button><button id="pin-btn" onclick="pinOk()">Confirmar</button></div>
+      </div>
     </div>
     <div class="card">
       <h2>Aplicar al portal de pruebas</h2>
@@ -455,17 +478,19 @@ async function abrir(){
 }
 
 // ── Cálculo en segundo plano ──
-const W=new Worker('lab_worker.js?v=20261118b');
+const W=new Worker('lab_worker.js?v=20261127a');
 W.onmessage=e=>{const m=e.data;
   if(m.tipo==='datos-ok'){recalcular();}
   else if(m.tipo==='progreso'){$('barra').style.display='block';$('barra').firstElementChild.style.width=(m.f*100).toFixed(0)+'%';$('avance').textContent=m.t;}
-  else if(m.tipo==='listo'){S.R=m.R;S.por=new Map(m.R.claves.map(k=>[k.c,k]));$('barra').style.display='none';$('avance').textContent='';$('b-rec').disabled=false;
+  else if(m.tipo==='listo'&&m.id&&String(m.id).startsWith('esc:')){S.cola.res.set(Number(String(m.id).slice(4)),m.R);sigEscenario();}
+  else if(m.tipo==='listo'&&m.id==='base'&&prepEscenarios(m.R)){sigEscenario();}
+  else if(m.tipo==='listo'){if(m.id==='compuesto'){}else{S.R0=m.R;S.R=m.R;}S.por=new Map(S.R.claves.map(k=>[k.c,k]));$('barra').style.display='none';$('avance').textContent='';$('b-rec').disabled=false;
     $('estado-carga').style.display='none';$('tabs').style.display='flex';pintarResumen();pintarFiltros();pintarClaves();pintarAperturas();pintarOfertas();if(!S.vista)ver('res');if(S.sel)ficha(S.sel);}
   else if(m.tipo==='error'){$('b-rec').disabled=false;$('barra').style.display='none';$('avance').textContent='';$('carga-err').textContent='Error en el cálculo: '+m.mensaje;$('estado-carga').style.display='block';}
 };
 W.onerror=e=>{$('carga-err').textContent='Error en el cálculo: '+(e.message||'no se pudo iniciar');$('estado-carga').style.display='block';};
 function recalcular(){leerVars();$('b-rec').disabled=true;$('msg').textContent='Calculando y probando contra el historial…';$('avance').textContent='Iniciando…';$('barra').style.display='block';$('barra').firstElementChild.style.width='0';
-  W.postMessage({tipo:'correr',param:S.param,comparar:false});}
+  W.postMessage({tipo:'correr',param:S.param,comparar:false,id:'base'});}
 
 // ── Pestañas ──
 document.querySelectorAll('#tabs div').forEach(d=>d.onclick=()=>ver(d.dataset.t));
@@ -543,7 +568,7 @@ function pintarClaves(){
   const L_=filtradas();S.lista=L_;$('n-fil').textContent=nf(L_.length)+' claves'+(L_.length>300?' (se muestran 300)':'');
   let h='<tr>'+COLS.map(c=>'<th class="'+(c[3]||'')+'" onclick="ordenar(\''+c[0]+'\')" style="cursor:pointer">'+c[1]+(S.orden.k===c[0]?(S.orden.d>0?' ▲':' ▼'):'')+'</th>').join('')+'</tr>';
   L_.slice(0,300).forEach(k=>{
-    h+='<tr class="clk'+(S.sel===k.c?' sel':'')+'" onclick="ficha('+k.c+')"><td class="l">'+k.c+'</td><td class="l w">'+esc(k.n)+(k.consulta?' <span class="chip" title="Producción: se pronostica igual que las demás, pero no se compra (se compran sus insumos)">solo consulta</span>':'')+'</td><td class="l">'+esc(k.comp)+'</td><td class="l">'+esc(k.rot)+'</td><td class="l"><span class="chip c'+k.conf+'">'+k.conf+'</span></td><td>'+nf(k.disp)+'</td><td>'+nf(k.Dm)+'</td><td>'+nf(k.punto)+'</td><td class="'+(k.pedir?'mal':k.dias<=30?'med':'')+'">'+(k.pedir?'<b>Ya</b>':nf(k.dias))+'</td><td>'+pc(k.pAgotar,0)+'</td><td class="'+(k.ajRed<0?'ok':k.ajRed>0?'med':'')+'">'+(k.ajRed?nf(k.ajRed):'—')+'</td><td>'+(k.pedir?'<b>'+nf(k.propuesta)+'</b>':nf(k.propuesta))+'</td></tr>';});
+    h+='<tr class="clk'+(S.sel===k.c?' sel':'')+'" onclick="ficha('+k.c+')"><td class="l">'+k.c+'</td><td class="l w">'+esc(k.n)+(k.consulta?' <span class="chip" title="Producción: se pronostica igual que las demás, pero no se compra (se compran sus insumos)">solo consulta</span>':'')+(k.esc?' <span class="chip" style="background:#dbeafe" title="'+esc(k.esc.regla)+'">🎛️ '+esc(k.esc.nombre)+'</span>':'')+'</td><td class="l">'+esc(k.comp)+'</td><td class="l">'+esc(k.rot)+'</td><td class="l"><span class="chip c'+k.conf+'">'+k.conf+'</span></td><td>'+nf(k.disp)+'</td><td>'+nf(k.Dm)+'</td><td>'+nf(k.punto)+'</td><td class="'+(k.pedir?'mal':k.dias<=30?'med':'')+'">'+(k.pedir?'<b>Ya</b>':nf(k.dias))+'</td><td>'+pc(k.pAgotar,0)+'</td><td class="'+(k.ajRed<0?'ok':k.ajRed>0?'med':'')+'">'+(k.ajRed?nf(k.ajRed):'—')+'</td><td>'+(k.pedir?'<b>'+nf(k.propuesta)+'</b>':nf(k.propuesta))+'</td></tr>';});
   $('tb-cla').innerHTML=h;
 }
 // total de los últimos n meses cerrados y variación de los últimos 3 contra los mismos 3 del año anterior
@@ -555,6 +580,7 @@ function ficha(c){
   const dato=(t,v)=>'<div class="dato"><span>'+t+'</span><b>'+v+'</b></div>';
   const cb=' (existencia + BO)';
   $('ficha').innerHTML='<h2>'+c+' · '+esc(i.n)+'</h2><p class="d">'+esc(i.comp)+' · '+esc(ROTN[i.rot]||i.rot)+' · '+esc(i.g)+(d.ssg?' · '+esc(d.ssg):'')+' · unidad '+esc(i.u)+'</p>'+
+    (k.esc?'<p class="d" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:6px 8px">🎛️ <b>Escenario «'+esc(k.esc.nombre)+'»</b> por la regla: '+esc(k.esc.regla)+(k.esc.motivo?' · motivo: '+esc(k.esc.motivo):'')+(k.esc.empate?' · <b>ojo:</b> otra regla igual de específica también le aplica; se usó la más reciente':'')+'. La calificación '+k.conf+' es la del cálculo general'+(k.esc.confEsc&&k.esc.confEsc!==k.conf?' (con su escenario sale '+k.esc.confEsc+')':'')+'.</p>':'')+
     (d.consulta?'<p class="d" style="background:#fdf2f8;border:1px solid #fbcfe8;border-radius:6px;padding:6px 8px">🏭 <b>Producción · solo consulta.</b> Se pronostica con las mismas reglas del laboratorio, pero no se compra: su venta se convierte en consumo de sus insumos. El punto de alarma y el «pedir hasta» son solo de referencia y no se publican como propuesta. No entra en la prueba con historial.</p>'+insumosDe(c):'')+
     '<div style="height:240px"><canvas id="graf"></canvas></div>'+
     '<h3>Pronóstico</h3>'+
@@ -718,7 +744,7 @@ function fichaRed(k){
   return h;
 }
 function exportar(){
-  const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,'Solo consulta (producción)':k.consulta?'Sí':'',Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,
+  const rows=(S.lista||[]).map(k=>({Clave:k.c,'Descripción':k.n,'Solo consulta (producción)':k.consulta?'Sí':'','Escenario aplicado':k.esc?k.esc.nombre:'Variables generales','Regla':k.esc?k.esc.regla:'',Comprador:k.comp,'Rotación':k.rot,'Tipo de venta':k.tipo,'Confiabilidad':k.conf,'Error propio':k.errRel,'Método':LAB.METODOS[k.metodo],'Disponible':k.disp,'Venta mensual esperada':k.Dm,'Mes en curso: lleva':k.par?k.par.v:null,'Mes en curso: cierre estimado':k.par?k.par.cierre:null,'Mes en curso: pronóstico previo':k.par?k.par.antes:null,
     'Venta periodo baja':k.bajo,'Venta periodo esperada':k.esperado,'Venta periodo alta':k.alto,'Inventario de seguridad':k.seguridad,...mixExcel(k.c),'Regla: ritmo base':k.regla?Math.round(k.regla.ritmo*10)/10:'','Regla: base usada':k.regla?(k.regla.regular?'promedio ponderado':'promedio con ceros'):'','Regla: fase':k.regla?k.regla.fase:'','Regla: escalón':k.regla?Math.round(k.regla.escalon*100)/100:'','Regla: venta pico último mes':k.regla?Math.round(k.regla.picoMes):'','Regla: meses que cubre':k.regla?Math.round(k.regla.cob*10)/10:'','Compra estratégica (aprobar aparte)':k.regla&&k.regla.estrategica>0?Math.round(k.regla.estrategica):'','Regla: alertas':k.regla?[k.regla.alertaMes,k.regla.topado?'topado':null,k.regla.variable?'temporalidad variable':null].filter(Boolean).join(' · '):'','Errores usados para la seguridad':k.temp?(k.temp.est?'Mismos meses: '+k.temp.de:'Todo el año'):'','Punto de alarma':k.punto,'Toca pedir':k.pedir?'Sí':'No','Días para la alarma':k.dias,'Riesgo de agotarse':k.pAgotar,'Pedir hasta sin tiendas':k.red?k.red.hastaSin:k.hasta,'Ajuste por tiendas':k.ajRed,'Parte mayoreo':k.red?k.red.pMy:null,'Parte tiendas MF':k.red?k.red.pTi:null,'Inventario MF':k.red?k.red.inv:null,'Número base MF':k.red?k.red.base:null,'Sobrante MF':k.red?k.red.exc:null,'Ofertas en la compra':k.extra&&k.extra.of?k.extra.of.c:null,'Aperturas en la compra':k.extra&&k.extra.ap?k.extra.ap.c:null,'Pedir hasta':k.hasta,'Propuesta':k.propuesta,'Pedir hasta nacional':k.dual&&k.dual.N?k.dual.N.hasta:null,'Pedir hasta importación':k.dual&&k.dual.I?k.dual.I.hasta:null}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Laboratorio');
   if(S.prodK&&S.prodK.size){const pr=[];S.prodK.forEach(z=>{const u=ultimos(z.s,12),o={Clave:z.c,'Descripción':z.n,'Venta 12 meses':u.t,'Venta por mes':Math.round(u.t/12*10)/10,'Últimos 3 meses vs año anterior':u.vs==null?'':Math.round(u.vs*1000)/1000,'Existencia':z.ex,'BO':z.bo,'Insumos':(S.prodDe.get(z.c)||[]).map(([i,f])=>i+' × '+f).join(', ')};
@@ -762,9 +788,104 @@ function restablecer(){S.param={};pintarVars();toast('Valores sugeridos restable
 
 // ── Escenarios (tabla lab_escenarios; si aún no existe, en este navegador) ──
 const LS='lab_escenarios_local';
+// ── Escenarios por grupo de claves ──
+async function cargarReglas(){
+  S.reglas=[];S.reglasOk=false;
+  try{const{data,error}=await sb.from('lab_reglas_escenario').select('*').order('creado_en',{ascending:false});if(error)throw error;S.reglas=data||[];S.reglasOk=true;}
+  catch(e){S.reglasNota=/does not exist|schema cache|42P01/.test(String(e.message||e)+(e.code||''))?'Falta la tabla: corre lab_tablas_06.sql en Supabase.':'No se pudieron leer las reglas: '+(e.message||e);}
+  pintarReglas();
+}
+function hoyISO(){return new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);}
+function reglasVigentes(){const h=hoyISO();return(S.reglas||[]).filter(r=>r.activa!==false&&(!r.desde||h>=r.desde)&&(!r.hasta||h<=r.hasta)&&(S.esc||[]).some(e=>e.id===r.escenario_id));}
+function regTxt(r){return[r.calif?'calificación '+r.calif:null,r.grupo,r.subgrupo,r.subsubgrupo].filter(Boolean).join(' · ')||'todas las claves';}
+function regCombos(){
+  const fam=[...(S.D?S.D.claves:[])].filter(k=>!k.consulta),g=$('reg-g').value,sg=$('reg-sg').value,ssg=$('reg-ssg').value;
+  const op=(lst,v,todo)=>'<option value="">'+todo+'</option>'+[...new Set(lst)].filter(Boolean).sort().map(x=>'<option'+(x===v?' selected':'')+'>'+esc(x)+'</option>').join('');
+  $('reg-g').innerHTML=op(fam.map(k=>k.g),g,'Grupo: todos');
+  $('reg-sg').innerHTML=op(fam.filter(k=>!g||k.g===g).map(k=>k.sg),sg,'Subgrupo: todos');
+  $('reg-ssg').innerHTML=op(fam.filter(k=>(!g||k.g===g)&&(!$('reg-sg').value||k.sg===$('reg-sg').value)).map(k=>k.ssg),ssg,'Sub-sub-grupo: todos');
+  $('reg-esc').innerHTML='<option value="">— Escenario —</option>'+(S.esc||[]).map(e=>'<option value="'+e.id+'">'+esc(e.nombre)+' · '+esc(e.creado_por||'')+' '+String(e.creado_en||'').slice(0,10)+'</option>').join('');
+}
+function pintarReglas(){
+  if(!$('tb-reg'))return;regCombos();
+  $('reg-est').innerHTML=S.reglasOk?'':(S.reglasNota||'');
+  const h=hoyISO(),V=new Set(reglasVigentes().map(r=>r.id)),cnt=S.regCnt||new Map();
+  const rs=S.reglas||[];
+  $('tb-reg').innerHTML=rs.length?'<tr><th class="l">Aplica a</th><th class="l">Escenario</th><th class="l">Motivo</th><th>Vigencia</th><th>Claves</th><th class="l">Estado</th><th class="l">Quién</th><th></th></tr>'+rs.map(r=>{
+    const e=(S.esc||[]).find(x=>x.id===r.escenario_id),est=r.activa===false?'apagada':!e?'su escenario ya no existe':(r.desde&&h<r.desde)?'aún no empieza':(r.hasta&&h>r.hasta)?'vencida':'vigente';
+    return '<tr><td class="l">'+esc(regTxt(r))+'</td><td class="l">'+esc(e?e.nombre:(r.escenario||'—'))+'</td><td class="l">'+esc(r.motivo||'')+'</td><td>'+(r.desde||r.hasta?(r.desde||'…')+' a '+(r.hasta||'…'):'siempre')+'</td><td>'+(V.has(r.id)?nf(cnt.get(r.id)||0):'—')+'</td><td class="l '+(est==='vigente'?'ok':'d')+'">'+est+'</td><td class="l d">'+esc(r.creado_por||'')+' · '+String(r.creado_en||'').slice(0,10)+'</td>'+
+      '<td style="white-space:nowrap"><button class="sec" onclick="reglaPin(\''+(r.activa===false?'ENCENDER':'APAGAR')+'\','+r.id+')">'+(r.activa===false?'Encender':'Apagar')+'</button> <button class="sec" style="color:#b91c1c;border-color:#fca5a5" onclick="reglaPin(\'BORRAR\','+r.id+')">Borrar</button></td></tr>';}).join(''):'<tr><td class="d">Sin reglas: todas las claves usan las variables de arriba.</td></tr>';
+  // resultado de la prueba por regla
+  const RR=S.R&&S.R.porRegla;
+  $('tb-reg-res').innerHTML=RR&&RR.length?'<tr><th class="l">Resultado de la prueba con historial</th><th class="l">Escenario</th><th>Claves</th><th>Error del pronóstico</th><th>Se queda muy corto</th><th>La alarma avisó a tiempo</th><th>Punto de alarma (meses)</th></tr>'+
+    RR.map(x=>'<tr><td class="l">'+esc(x.txt)+'</td><td class="l">'+esc(x.esc)+'</td><td>'+nf(x.n)+'</td><td>'+pc(x.m.error)+'</td><td>'+pc(x.m.muyCorto)+'</td><td>'+pc(x.m.cubre)+'</td><td>'+nf(x.m.meses,2)+'</td></tr>').join(''):'';
+}
+// Corre el escenario de cada regla vigente y junta: cada clave toma el resultado del escenario que le toca
+function prepEscenarios(R0){
+  const reg=reglasVigentes();S.regCnt=new Map();if(!reg.length){S.asig=null;return false;}
+  const h=hoyISO(),DP=new Map(S.D.claves.map(k=>[k.c,k])),asig=new Map(),porEsc=new Map();
+  R0.claves.forEach(k=>{if(k.consulta)return;const d=DP.get(k.c)||{};const x=LAB.reglaDe(reg,{conf:k.conf,g:d.g,sg:d.sg,ssg:d.ssg},h);if(!x)return;
+    asig.set(k.c,x);S.regCnt.set(x.r.id,(S.regCnt.get(x.r.id)||0)+1);(porEsc.get(x.r.escenario_id)||porEsc.set(x.r.escenario_id,[]).get(x.r.escenario_id)).push(k.c);});
+  if(!asig.size){S.asig=null;return false;}
+  S.asig=asig;S.cola={R0,pend:[...porEsc.keys()],res:new Map(),tot:porEsc.size};return true;
+}
+function sigEscenario(){
+  const q=S.cola,id=q.pend.shift();
+  if(id!=null){const e=S.esc.find(x=>x.id===id);$('avance').textContent='Escenario «'+e.nombre+'» ('+(q.tot-q.pend.length)+' de '+q.tot+')…';$('barra').firstElementChild.style.width='0';
+    W.postMessage({tipo:'correr',param:e.parametros||{},comparar:false,id:'esc:'+id});return;}
+  // juntar
+  const R0=q.R0,claves=R0.claves.map(k=>{const a=S.asig.get(k.c);if(!a)return k;const Re=q.res.get(a.r.escenario_id),ke=Re&&Re.claves.find(z=>z.c===k.c);
+    if(!ke)return k;const e=S.esc.find(x=>x.id===a.r.escenario_id);return Object.assign({},ke,{conf:k.conf,esc:{id:e.id,nombre:e.nombre,regla:regTxt(a.r),reglaId:a.r.id,motivo:a.r.motivo||'',empate:a.empate,confEsc:ke.conf}});});
+  const R=Object.assign({},R0,{claves,compuesto:true});
+  // resumen junto: el error y la alarma de cada clave salen de su escenario
+  const cuenta=k=>!k.consulta&&LAB.ROT_PRUEBA.includes(S.info.get(k.c).rot);
+  const mezcla=(lista,g)=>{const j=LAB.juntarPC(lista),m=Object.assign({},(R0.resumen.Motor||{})[g]||{}),c=Object.assign({},R0.calibracion[g]||{});
+    Object.assign(m,{n:j.n,error:j.error,sesgo:j.sesgo,atina30:j.atina30,muyCorto:j.muyCorto,sePasa:j.sePasa});Object.assign(c,{n:j.nCal,objetivo:j.objetivo,cubreMotor:j.cubre,mesesMotor:j.meses,surtidoMotor:j.surtido});return[m,c];};
+  R.resumen=Object.assign({},R0.resumen,{Motor:Object.assign({},R0.resumen.Motor)});R.calibracion=Object.assign({},R0.calibracion);
+  const U=claves.filter(cuenta);[['Todas',U]].concat([...new Set(U.map(k=>S.info.get(k.c).rot))].map(r=>[r,U.filter(k=>S.info.get(k.c).rot===r)])).forEach(([g,l])=>{if(!R.resumen.Motor[g]&&!R.calibracion[g])return;const[m,c]=mezcla(l,g);R.resumen.Motor[g]=m;R.calibracion[g]=c;});
+  // por regla
+  const grupos=new Map();U.forEach(k=>{const key=k.esc?k.esc.reglaId:0;(grupos.get(key)||grupos.set(key,[]).get(key)).push(k);});
+  R.porRegla=[...grupos.entries()].map(([id,l])=>{const r=(S.reglas||[]).find(x=>x.id===id);return{txt:r?regTxt(r):'Sin regla (variables de arriba)',esc:r?(l[0].esc||{}).nombre:'—',n:l.length,m:LAB.juntarPC(l)};}).sort((a,b)=>b.n-a.n);
+  R.porRegla.push({txt:'Total combinado',esc:'',n:U.length,m:LAB.juntarPC(U)});
+  S.R0=R0;S.R=R;S.cola=null;W.onmessage({data:{tipo:'listo',R,id:'compuesto'}});pintarReglas();
+}
+// PIN del Jefe de Compras, Gerente o administrador para crear, apagar o borrar reglas
+let PINACC=null;
+// usuarios y PIN viven en el proyecto de Comparativos (mismos que autorizan propuestas)
+const CMP_URL="https://rbakkrzxdjkpbmbcurng.supabase.co";
+const CMP_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJiYWtrcnp4ZGprcGJtYmN1cm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwNzY1NzgsImV4cCI6MjEwNDY1MjU3OH0.504RZFk_kyH5POYWiNcZWdh8Nr8RTPNREMw-BtbJR2s";
+let _sbc=null;const sbc=()=>_sbc||(_sbc=window.supabase.createClient(CMP_URL,CMP_KEY,{auth:{persistSession:false,autoRefreshToken:false,storageKey:'cmp-lab'}}));
+async function reglaPin(acc,id){
+  if(!S.reglasOk){toast(S.reglasNota||'Falta la tabla de reglas.');return;}
+  if(acc==='CREAR'&&!$('reg-esc').value){toast('Elige el escenario.');return;}
+  if(acc==='CREAR'&&!$('reg-calif').value&&!$('reg-g').value){toast('Elige al menos la calificación o el grupo.');return;}
+  let us=[];try{const{data}=await sbc().from('cmp_usuarios').select('id,nombre,rol,puesto,activo').order('nombre');us=(data||[]).filter(u=>u.activo!==false&&(/JEFE|GERENTE/i.test(u.puesto||'')&&!/COSTO/i.test(u.puesto||'')||/ADMIN/i.test(u.rol||'')));}catch(e){}
+  if(!us.length){toast('No encontré usuarios Jefe, Gerente o administrador con PIN.');return;}
+  PINACC={acc,id};$('pin-tit').textContent={CREAR:'Agregar regla',APAGAR:'Apagar regla',ENCENDER:'Encender regla',BORRAR:'Borrar regla'}[acc];
+  $('pin-txt').textContent=acc==='CREAR'?'Aplica a: '+regTxt({calif:$('reg-calif').value,grupo:$('reg-g').value,subgrupo:$('reg-sg').value,subsubgrupo:$('reg-ssg').value})+' → '+$('reg-esc').selectedOptions[0].textContent:regTxt((S.reglas||[]).find(r=>r.id===id)||{});
+  $('pin-u').innerHTML='<option value="">— Quién autoriza —</option>'+us.map(u=>'<option value="'+u.id+'" data-n="'+esc(u.nombre)+'">'+esc(u.nombre)+(u.puesto?' · '+esc(u.puesto):'')+'</option>').join('');
+  $('pin-p').value='';$('pin-err').textContent='';$('pinbg').style.display='flex';$('pin-u').focus();
+}
+function pinCerrar(){$('pinbg').style.display='none';PINACC=null;}
+async function pinOk(){
+  const uid=Number($('pin-u').value),pin=$('pin-p').value,o=$('pin-u').selectedOptions[0];if(!uid){$('pin-err').textContent='Elige quién autoriza.';return;}if(!pin){$('pin-err').textContent='Escribe el PIN.';return;}
+  $('pin-btn').disabled=true;
+  try{const{data,error}=await sbc().rpc('cmp_verificar_pin',{p_usuario_id:uid,p_pin:pin});if(error)throw error;if(!data){$('pin-err').textContent='PIN incorrecto.';return;}
+    const quien=o.dataset.n,{acc,id}=PINACC,ahora=new Date().toISOString();let r;
+    if(acc==='CREAR'){const e=S.esc.find(x=>x.id===Number($('reg-esc').value));
+      r=await sb.from('lab_reglas_escenario').insert({calif:$('reg-calif').value||null,grupo:$('reg-g').value||null,subgrupo:$('reg-sg').value||null,subsubgrupo:$('reg-ssg').value||null,escenario_id:e.id,escenario:e.nombre,motivo:$('reg-mot').value.trim()||null,desde:$('reg-desde').value||null,hasta:$('reg-hasta').value||null,creado_por:quien});}
+    else if(acc==='BORRAR')r=await sb.from('lab_reglas_escenario').delete().eq('id',id);
+    else r=await sb.from('lab_reglas_escenario').update({activa:acc==='ENCENDER',actualizado_por:quien,actualizado_en:ahora}).eq('id',id);
+    if(r.error)throw r.error;
+    await sb.from('lab_bitacora').insert({usuario:quien,accion:'REGLA_ESCENARIO_'+acc,detalle:acc==='BORRAR'?(S.reglas||[]).find(x=>x.id===id)||{id}:{id,regla:acc==='CREAR'?regTxt({calif:$('reg-calif').value,grupo:$('reg-g').value,subgrupo:$('reg-sg').value,subsubgrupo:$('reg-ssg').value}):null}});
+    pinCerrar();$('reg-mot').value='';toast('Regla guardada. Recalculando…');await cargarReglas();recalcular();
+  }catch(e){$('pin-err').textContent='No se pudo: '+(e.message||e);}
+  finally{$('pin-btn').disabled=false;}
+}
 async function cargarEsc(){
   try{const{data,error}=await sb.from('lab_escenarios').select('*').order('creado_en',{ascending:false});if(error)throw error;S.esc=data||[];S.escBD=true;}
   catch(e){S.escBD=false;try{S.esc=JSON.parse(localStorage.getItem(LS)||'[]');}catch(_){S.esc=[];}}
+  await cargarReglas();
   $('esc-donde').innerHTML=S.escBD?'Se guardan en la base del laboratorio (tabla lab_escenarios), visibles para todos.':'<b>Las tablas lab_ aún no existen:</b> por ahora se guardan solo en este navegador. Corre lab_tablas_01.sql en Supabase para compartirlos.';
   $('fam-est').innerHTML=S.tablas?(S.fam?nf(S.fam)+' claves con subgrupo y sub-subgrupo cargados.':'Aún no hay familias cargadas: la temporada se calcula solo por grupo. Carga la plantilla de ventas (hoja BASE DE NEGOCIO).'):'Requiere las tablas lab_ (lab_tablas_01.sql).';
   pintarEsc();
@@ -815,7 +936,7 @@ async function publicar(){
       const n3=x=>x==null||isNaN(x)?null:r1(x);
       return[k.c,r1(k.Dm),r1(k.punto),r1(k.hasta),k.conf,r1(inn),r1(mas),n3(k.seguridad),n3(k.H),n3(k.cob),k.servicio,k.red?n3(k.red.aj):null,k.tipo,n3(k.errRel),n3(k.pAgotar),k.par?n3(k.par.v):null,k.par?n3(k.par.cierre):null,k.par?n3(k.par.antes):null,k.red?n3(k.red.hastaSin):null,k.dual&&k.dual.N?n3(k.dual.N.punto):null,k.dual&&k.dual.N?n3(k.dual.N.hasta):null,k.dual&&k.dual.I?n3(k.dual.I.punto):null,k.dual&&k.dual.I?n3(k.dual.I.hasta):null,k.extra&&k.extra.of?n3(k.extra.of.c):null,k.extra&&k.extra.ap?n3(k.extra.ap.c):null,k.extra&&k.extra.of?n3(k.extra.of.h):null,k.extra&&k.extra.ap?n3(k.extra.ap.h):null,(k.cm||[]).map(z=>[P.ym(S.mes0,z[0]),z[1],z[2]])];});
     msg.textContent='Guardando…';
-    const{error}=await sb.from('lab_publicacion').upsert({id:'vigente',fecha_calculo:S.fecha,parametros:S.param,resumen:resumenAct(),datos,creado_por:quien,creado_en:new Date().toISOString()},{onConflict:'id'});
+    const{error}=await sb.from('lab_publicacion').upsert({id:'vigente',fecha_calculo:S.fecha,parametros:Object.assign({},S.param,S.asig?{_reglas:reglasVigentes().map(r=>({id:r.id,aplica:regTxt(r),escenario:r.escenario,motivo:r.motivo,desde:r.desde,hasta:r.hasta,claves:(S.regCnt||new Map()).get(r.id)||0}))}:{}),resumen:resumenAct(),datos,creado_por:quien,creado_en:new Date().toISOString()},{onConflict:'id'});
     if(error)throw error;
     await sb.from('lab_bitacora').insert({usuario:quien,accion:'APLICAR_AL_PORTAL_DE_PRUEBAS',detalle:{parametros:S.param,claves:datos.length,fecha:S.fecha}});
     msg.textContent=nf(datos.length)+' claves aplicadas. Abre o recarga el portal de pruebas.';estadoPub();

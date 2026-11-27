@@ -652,6 +652,8 @@ L.correr=(D,Pin,hooks)=>{
   const res={},acc=(m,g)=>((res[m]=res[m]||{})[g]=res[m][g]||nueva());
   const cal={},accC=g=>cal[g]=cal[g]||{n:0,cN:0,cA:0,mN:0,mA:0,obj:0,dem:0,fN:0,fA:0,aN:[],aA:[]};
   const porG={A:nueva(),B:nueva(),C:nueva()};const GN=['A','B','C'];
+  // totales de la prueba por clave (para juntar resultados de varios escenarios en el laboratorio)
+  const PC=new Float64Array(n*14);
   const MOTOR='Motor',ACT='Método actual del portal';
   pruebas.forEach((t,ip)=>{
     const E=elegirEn(t),er=erroresEn(t,E);
@@ -665,6 +667,7 @@ L.correr=(D,Pin,hooks)=>{
           if(g==='Todas')for(let m=0;m<nM;m++)sumar(acc(L.METODOS[MET[m]],g),F3[b*nM+m],A,escC[i]);
         }
         sumar(porG[GN[E.gr[i]]],F3[b*nM+E.sel[i]],A,escC[i]);
+        {const F=F3[b*nM+E.sel[i]],o=i*14,es=escC[i];PC[o]++;PC[o+1]+=Math.abs(F-A)/es;PC[o+2]+=(F-A)/es;PC[o+3]+=A/es;if(A>0){PC[o+7]++;const r=F/A;if(Math.abs(r-1)<=0.3)PC[o+4]++;if(r<0.7)PC[o+5]++;if(r>1.5)PC[o+6]++;}}
       }
       const AHt=AH[b];
       if(!isNaN(AHt)){
@@ -672,6 +675,7 @@ L.correr=(D,Pin,hooks)=>{
         const q=er.de(i,TP[b],Hp[i]).q(p);
         const punto=L.inventario({Fh:F,Dm:F/Hp[i],esc,qServ:q},P).punto;
         const pA=pd!=null?pd*(K[i].lt||0)*P.FACT_ALARMA:null,em=escC[i]/P.H_SEL;
+        {const o=i*14;PC[o+8]++;if(AHt<=punto+1e-9)PC[o+9]++;PC[o+10]+=punto/em;PC[o+11]+=p;PC[o+12]+=Math.max(0,AHt-punto)/em;PC[o+13]+=AHt/em;}
         for(const g of ['Todas',K[i].rot]){const c=accC(g);c.n++;c.obj+=p;if(AHt<=punto+1e-9)c.cN++;c.mN+=punto/em;c.aN.push(punto/em);c.dem+=AHt/em;c.fN+=Math.max(0,AHt-punto)/em;
           if(pA!=null){if(AHt<=pA+1e-9)c.cA++;c.mA+=pA/em;c.aA.push(pA/em);c.fA+=Math.max(0,AHt-pA)/em;}}
       }
@@ -752,7 +756,7 @@ L.correr=(D,Pin,hooks)=>{
     if(base&&esc>0){const lim=(inv.disp-Fh)/esc;let lo=0,hi=base.length;while(lo<hi){const md=(lo+hi)>>1;if(base[md]<=lim)lo=md+1;else hi=md;}pa=1-lo/base.length;}
     const eRel=E.sumA[i]>0?E.err[i*nM+E.sel[i]]/E.sumA[i]:null,pd=D.portal?D.portal(i,T):null;
     const r3=x=>Math.round(x*1000)/1000;
-    claves[i]={c:k.c,consulta:k.consulta?1:0,tipo:TIPOS[TP[b]],metodo:m,propio:!!E.propio[i],pruebas:E.cnt[i],errRel:eRel,conf:GN[E.gr[i]],servicio:p,H,cob:cobC,cobOrig:cob,Dm,
+    claves[i]={c:k.c,consulta:k.consulta?1:0,pc:Array.from(PC.subarray(i*14,i*14+14),x=>Math.round(x*1e4)/1e4),tipo:TIPOS[TP[b]],metodo:m,propio:!!E.propio[i],pruebas:E.cnt[i],errRel:eRel,conf:GN[E.gr[i]],servicio:p,H,cob:cobC,cobOrig:cob,Dm,
       f:Array.from(f,r3),idx:Array.from(u.I,r3),crec:u.g,q10:q(0.10)*(Fh>0?esc/Fh:0),q90:q(0.90)*(Fh>0?esc/Fh:0),
       bajo:Math.max(0,Fh+q(0.10)*esc),esperado:Fh,alto:Math.max(0,Fh+q(0.90)*esc),
       punto:inv.punto,hasta:inv.hasta,seguridad:inv.seguridad,disp:inv.disp,propuesta:inv.propuesta,pedir:inv.pedir,dias:inv.dias,pAgotar:pa,
@@ -783,5 +787,16 @@ L.portalDe=(PL,D)=>{
   };
 };
 
+// Junta los totales por clave (k.pc) de una lista de claves y devuelve error y alarma como el resumen de la prueba
+L.juntarPC=lista=>{const t=new Float64Array(14);lista.forEach(k=>{if(k.pc)for(let j=0;j<14;j++)t[j]+=k.pc[j]||0;});
+  return{n:t[0],error:t[3]?t[1]/t[3]:null,sesgo:t[3]?t[2]/t[3]:null,atina30:t[7]?t[4]/t[7]:null,muyCorto:t[7]?t[5]/t[7]:null,sePasa:t[7]?t[6]/t[7]:null,
+    nCal:t[8],cubre:t[8]?t[9]/t[8]:null,meses:t[8]?t[10]/t[8]:null,objetivo:t[8]?t[11]/t[8]:null,surtido:t[13]?1-t[12]/t[13]:null};};
+// Regla de escenario que le toca a una clave: la más específica (más campos llenos) y, si empatan, la más reciente. x = {conf, g, sg, ssg}
+L.reglaDe=(reglas,x,hoy)=>{let best=null,bs=-1,emp=false;
+  for(const r of reglas){if(r.activa===false)continue;if(r.desde&&hoy<r.desde)continue;if(r.hasta&&hoy>r.hasta)continue;
+    if(r.calif&&r.calif!==x.conf)continue;if(r.grupo&&r.grupo!==x.g)continue;if(r.subgrupo&&r.subgrupo!==x.sg)continue;if(r.subsubgrupo&&r.subsubgrupo!==x.ssg)continue;
+    const sc=(r.calif?1:0)+(r.grupo?1:0)+(r.subgrupo?1:0)+(r.subsubgrupo?1:0);
+    if(sc>bs||(sc===bs&&String(r.creado_en||'')>String(best.creado_en||''))){emp=sc===bs;bs=sc;best=r;}else if(sc===bs)emp=true;}
+  return best?{r:best,empate:emp}:null;};
 if(typeof module!=='undefined'&&module.exports)module.exports=L;else root.LAB=L;
 })(typeof window!=='undefined'?window:globalThis);
