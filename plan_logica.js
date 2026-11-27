@@ -185,10 +185,12 @@ P.recepMapa=(detectadas,reales)=>{
   R.forEach((v,k)=>m.set(k,v));return m;
 };
 // Entradas reales de una lista de OCs (tabla plan_recepciones_real · plan_tablas_25.sql). Sin la tabla regresa [] (se usan las detectadas).
-P.cargarReales=async(sb,folios)=>{let out=[];const fs=[...new Set((folios||[]).map(Number))];
-  try{for(let i=0;i<fs.length;i+=200){for(let p=0;p<200;p++){const{data,error}=await sb.from('plan_recepciones_real').select('folio_oc,clave,fecha,cantidad,pzas').in('folio_oc',fs.slice(i,i+200)).order('folio_oc').order('clave').order('folio_rec').range(p*1000,p*1000+999);
-    if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}}}catch(e){return[];}
-  return out;};
+// Corre fn sobre lotes de `tam` elementos, varios lotes a la vez (conc) — mucho más rápido que uno por uno
+P.enLotes=async(items,tam,fn,conc=6)=>{const lotes=[];for(let i=0;i<items.length;i+=tam)lotes.push(items.slice(i,i+tam));
+  const res=new Array(lotes.length);let k=0;await Promise.all(Array.from({length:Math.min(conc,lotes.length)},async()=>{while(k<lotes.length){const j=k++;res[j]=await fn(lotes[j]);}}));return [].concat(...res);};
+P.cargarReales=async(sb,folios)=>{const fs=[...new Set((folios||[]).map(Number))];
+  try{return await P.enLotes(fs,150,async lote=>{let out=[];for(let p=0;p<200;p++){const{data,error}=await sb.from('plan_recepciones_real').select('folio_oc,clave,fecha,cantidad,pzas').in('folio_oc',lote).order('folio_oc').order('clave').order('folio_rec').range(p*1000,p*1000+999);
+    if(error)throw error;out=out.concat(data||[]);if(!data||data.length<1000)break;}return out;});}catch(e){return[];}};
 // 5b. Costo unitario de compra por clave (para medir la afectación en dinero): TOTAL ÷ CANT REC
 // de los últimos 3 meses con compra de cada clave (CEDI y entregas directas). Unidad = la de venta (CANT REC viene en unidad básica).
 P.costosCompra=wb=>{

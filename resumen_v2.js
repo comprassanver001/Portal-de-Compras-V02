@@ -22,8 +22,11 @@
       todo(()=>sb.from('plan_oc_lineas').select('folio,clave,fecha_oc,proveedor,comprador,cantidad_ped,cantidad_pend,fecha_entrega,cancelada,cerrada_en,pend_inicial,entrega_directa').gte('cerrada_en',ini).order('folio').order('clave')),
       todo(()=>sb.from('plan_oc_compromiso').select('folio,fecha').order('folio'))]);
     const folios=[...new Set(cer.map(l=>Number(l.folio)))];const recs=new Map();
-    let det=[];for(let i=0;i<folios.length;i+=200){det=det.concat(await todo(()=>sb.from('plan_recepciones').select('folio,clave,fecha,cantidad').in('folio',folios.slice(i,i+200)).order('folio').order('clave').order('fecha')));}
-    P.recepMapa(det,P.cargarReales?await P.cargarReales(sb,folios):[]).forEach((v,k)=>recs.set(k,v));
+    const [det,reales]=await Promise.all([
+      P.enLotes?P.enLotes(folios,150,lote=>todo(()=>sb.from('plan_recepciones').select('folio,clave,fecha,cantidad').in('folio',lote).order('folio').order('clave').order('fecha')))
+        :(async()=>{let d=[];for(let i=0;i<folios.length;i+=200){d=d.concat(await todo(()=>sb.from('plan_recepciones').select('folio,clave,fecha,cantidad').in('folio',folios.slice(i,i+200)).order('folio').order('clave').order('fecha')));}return d;})(),
+      P.cargarReales?P.cargarReales(sb,folios):[]]);
+    P.recepMapa(det,reales).forEach((v,k)=>recs.set(k,v));
     const comp=new Map(cmp.filter(c=>c.fecha).map(c=>[Number(c.folio),d10(c.fecha)]));
     const lt=new Map((est.claves||[]).map(r=>[Number(r.c),r.lt]));
     const otif=cer.map(l=>P.otifLinea({...l,fecha_oc:d10(l.fecha_oc),fecha_entrega:d10(l.fecha_entrega)},recs.get(Number(l.folio)+'|'+Number(l.clave)),comp,lt.get(Number(l.clave)))).filter(x=>x&&x.mes===mes);

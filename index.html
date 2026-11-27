@@ -7,11 +7,11 @@
 <title>Portal de Compras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="plan_logica.js?v=20261113u" charset="utf-8"></script>
+<script src="plan_logica.js?v=20261127a" charset="utf-8"></script>
 <script src="lab_bo.js?v=20261125b" charset="utf-8"></script>
 <script src="lab_aplicar.js?v=20261125b" charset="utf-8"></script>
 <script src="plan_fotos.js?v=20261105a" charset="utf-8"></script>
-<script src="resumen_v2.js?v=20261112d" charset="utf-8"></script>
+<script src="resumen_v2.js?v=20261127a" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -587,6 +587,12 @@ async function cargarResumen(){
   const cont=document.getElementById('res-content');
   // Se vuelve a leer si pasaron más de 5 minutos (otra carga del Excel pudo publicar datos nuevos) o si se pide con Actualizar
   if(RES.alarmas&&RES.t&&Date.now()-RES.t<300000){renderResumen();return;}
+  // Si ya se está cargando (p. ej. el usuario cambió de pestaña y regresó), no se vuelve a empezar
+  if(RES.cargando)return RES.cargando;
+  RES.cargando=cargarResumenReal().finally(()=>{RES.cargando=null;});return RES.cargando;
+}
+async function cargarResumenReal(){
+  const cont=document.getElementById('res-content');
   RES.alarmas=null;RES._marcas=null;
   cont.innerHTML='<div class="empty-res">Cargando resumen…</div>';
   const[a,d]=await Promise.all([
